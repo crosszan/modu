@@ -1,3 +1,3 @@
-module github.com/crosszan/a2a
+module github.com/crosszan/modu
 
-go 1.23.6
+go 1.24.6
