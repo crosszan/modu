@@ -2,7 +2,7 @@
   <img src="logo.png" alt="Modu Logo" width="200">
 </p>
 
-<h1 align="center">Modu 毛肚</h1>
+<h1 align="center">modu, 中文名"毛肚"</h1>
 
 <p align="center">
   <strong>🚀 快捷高效搭建 Agent 应用的 Go 基础设施工具库</strong>
