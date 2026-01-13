@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/crosszan/modu/pkg/playwright"
 )
@@ -22,20 +24,54 @@ func ScrapePH(limit int) ([]NewsItem, error) {
 	}
 	defer page.Close()
 
-	if err := page.Goto("https://www.producthunt.com/", playwright.WithTimeout(60000)); err != nil {
-		return nil, fmt.Errorf("failed to load PH: %w", err)
+	// Retry loading page up to 3 times
+	var items []NewsItem
+	var lastErr string
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			// Wait before retry
+			page.Wait(2 * time.Second)
+		}
+
+		if err := page.Goto("https://www.producthunt.com/", playwright.WithTimeout(30000)); err != nil {
+			lastErr = fmt.Sprintf("goto failed: %v", err)
+			continue
+		}
+
+		// Wait for Apollo SSR data script to appear (up to 8 seconds per attempt)
+		var html string
+		for i := 0; i < 8; i++ {
+			page.Wait(1 * time.Second)
+
+			html, err = page.Content()
+			if err != nil {
+				break
+			}
+
+			// Check if Apollo data is present with homefeed
+			if strings.Contains(html, `"homefeed"`) {
+				items, err = extractPHFromHTML(html, limit)
+				if err != nil {
+					lastErr = fmt.Sprintf("extract failed: %v", err)
+					break
+				}
+				if len(items) > 0 {
+					return items, nil
+				}
+			}
+		}
+
+		if len(html) < 50000 {
+			lastErr = fmt.Sprintf("attempt %d: page too small (%d bytes), likely blocked", attempt+1, len(html))
+		} else {
+			lastErr = fmt.Sprintf("attempt %d: no homefeed data found", attempt+1)
+		}
+
+		// Reload page for next attempt
+		page.Reload()
 	}
 
-	// Wait for content
-	page.Wait(2000)
-
-	// Get HTML content and extract from embedded JSON
-	html, err := page.Content()
-	if err != nil {
-		return nil, err
-	}
-
-	return extractPHFromHTML(html, limit)
+	return nil, fmt.Errorf("failed after 3 attempts: %s", lastErr)
 }
 
 // extractPHFromHTML extracts Product Hunt items from HTML content
@@ -47,6 +83,7 @@ func extractPHFromHTML(html string, limit int) ([]NewsItem, error) {
 	matches := pattern.FindStringSubmatch(html)
 
 	if len(matches) < 2 {
+		// Apollo data not found yet, return empty (caller will retry)
 		return items, nil
 	}
 
@@ -56,12 +93,12 @@ func extractPHFromHTML(html string, limit int) ([]NewsItem, error) {
 
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-		return items, nil
+		return nil, fmt.Errorf("failed to parse Apollo JSON: %w", err)
 	}
 
 	rehydrate, ok := data["rehydrate"].(map[string]interface{})
 	if !ok {
-		return items, nil
+		return nil, fmt.Errorf("Apollo data missing 'rehydrate' key")
 	}
 
 	for _, value := range rehydrate {
