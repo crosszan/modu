@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -12,15 +14,104 @@ import (
 	"github.com/crosszan/modu/pkg/playwright"
 )
 
+// XHS cookie 文件默认路径
+var xhsCookiePath = filepath.Join(os.Getenv("HOME"), ".modu", "cookies", "xhs.json")
+
+// SetXHSCookiePath 设置 cookie 文件路径
+func SetXHSCookiePath(path string) {
+	xhsCookiePath = path
+}
+
+// GetXHSCookiePath 获取 cookie 文件路径
+func GetXHSCookiePath() string {
+	return xhsCookiePath
+}
+
+// XHSHasCookies 检查是否已有保存的 cookie
+func XHSHasCookies() bool {
+	store := playwright.NewCookieStore(xhsCookiePath)
+	return store.Exists()
+}
+
+// XHSLogin 打开浏览器让用户手动登录，登录成功后保存 cookie
+// 用户登录完成后，按 Enter 键继续
+func XHSLogin() error {
+	// 使用非 headless 模式让用户可以操作
+	browser, err := playwright.New(playwright.WithHeadless(false))
+	if err != nil {
+		return fmt.Errorf("failed to create browser: %w", err)
+	}
+	defer browser.Close()
+
+	ctx, err := browser.NewContext(playwright.WithAntiDetect(true))
+	if err != nil {
+		return fmt.Errorf("failed to create context: %w", err)
+	}
+	defer ctx.Close()
+
+	page, err := ctx.NewPage()
+	if err != nil {
+		return fmt.Errorf("failed to create page: %w", err)
+	}
+	defer page.Close()
+
+	// 导航到小红书登录页
+	if err := page.Goto("https://www.xiaohongshu.com/explore", playwright.WithTimeout(30000)); err != nil {
+		return fmt.Errorf("failed to load XHS: %w", err)
+	}
+
+	fmt.Println("请在浏览器中完成登录...")
+	fmt.Println("登录完成后，按 Enter 键继续保存 cookie")
+
+	// 等待用户输入
+	fmt.Scanln()
+
+	// 保存 cookie
+	if err := playwright.SaveCookies(ctx, xhsCookiePath); err != nil {
+		return fmt.Errorf("failed to save cookies: %w", err)
+	}
+
+	fmt.Printf("Cookie 已保存到: %s\n", xhsCookiePath)
+	return nil
+}
+
+// XHSClearCookies 清除保存的 cookie
+func XHSClearCookies() error {
+	store := playwright.NewCookieStore(xhsCookiePath)
+	if store.Exists() {
+		return store.Delete()
+	}
+	return nil
+}
+
 // ScrapeXHS scrapes Xiaohongshu (Little Red Book) explore page for trending posts
 func ScrapeXHS(limit int) ([]NewsItem, error) {
+	return ScrapeXHSWithCookies(limit, true)
+}
+
+// ScrapeXHSWithCookies 支持 cookie 的爬取
+func ScrapeXHSWithCookies(limit int, useCookies bool) ([]NewsItem, error) {
 	browser, err := playwright.New()
 	if err != nil {
 		return nil, err
 	}
 	defer browser.Close()
 
-	page, err := browser.NewPage()
+	ctx, err := browser.NewContext(playwright.WithAntiDetect(true))
+	if err != nil {
+		return nil, err
+	}
+	defer ctx.Close()
+
+	// 如果有保存的 cookie，加载它们
+	if useCookies && XHSHasCookies() {
+		if err := playwright.LoadCookies(ctx, xhsCookiePath); err != nil {
+			// cookie 加载失败不是致命错误，继续执行
+			fmt.Printf("Warning: failed to load cookies: %v\n", err)
+		}
+	}
+
+	page, err := ctx.NewPage()
 	if err != nil {
 		return nil, err
 	}
