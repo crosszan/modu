@@ -190,7 +190,7 @@ func ParseChatResponse(response string) (string, []any, error) {
 		return "", nil, err
 	}
 
-	var answer string
+	var longestAnswer string
 	var references []any
 
 	for _, chunk := range chunks {
@@ -199,43 +199,64 @@ func ParseChatResponse(response string) (string, []any, error) {
 			continue
 		}
 
-		// Look for the answer text in the response structure
-		// The structure varies, so we search for string content
-		answer = extractAnswerText(arr)
-		if answer != "" {
-			references = extractReferences(arr)
-			break
-		}
-	}
+		// Process each item in the chunk looking for wrb.fr response
+		for _, item := range arr {
+			itemArr, ok := item.([]any)
+			if !ok || len(itemArr) < 3 {
+				continue
+			}
 
-	if answer == "" {
-		return "", nil, errors.New("no answer found in response")
-	}
+			// Check for wrb.fr marker
+			marker, _ := itemArr[0].(string)
+			if marker != "wrb.fr" {
+				continue
+			}
 
-	return answer, references, nil
-}
+			// The answer JSON is in position 2
+			innerJSON, ok := itemArr[2].(string)
+			if !ok {
+				continue
+			}
 
-// extractAnswerText recursively searches for the answer text
-func extractAnswerText(data any) string {
-	switch v := data.(type) {
-	case string:
-		// Answer text is usually a longer string
-		if len(v) > 50 {
-			return v
-		}
-	case []any:
-		for _, item := range v {
-			if result := extractAnswerText(item); result != "" {
-				return result
+			// Parse the nested JSON
+			var innerData []any
+			if err := json.Unmarshal([]byte(innerJSON), &innerData); err != nil {
+				continue
+			}
+
+			// Extract answer from inner structure
+			text := extractAnswerFromInner(innerData)
+			if text != "" && len(text) > len(longestAnswer) {
+				longestAnswer = text
 			}
 		}
 	}
-	return ""
+
+	if longestAnswer == "" {
+		return "", nil, errors.New("no answer found in response")
+	}
+
+	return longestAnswer, references, nil
 }
 
-// extractReferences extracts citation references from response
-func extractReferences(data any) []any {
-	// References are typically in a nested array structure
-	// This is a simplified extraction
-	return nil
+// extractAnswerFromInner extracts answer text from parsed inner JSON
+// Structure: [[answer_text, null, [ids], null, [metadata]], ...]
+func extractAnswerFromInner(data []any) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	// First element contains the answer structure
+	first, ok := data[0].([]any)
+	if !ok || len(first) == 0 {
+		return ""
+	}
+
+	// Answer text is at position 0
+	text, ok := first[0].(string)
+	if !ok {
+		return ""
+	}
+
+	return text
 }
