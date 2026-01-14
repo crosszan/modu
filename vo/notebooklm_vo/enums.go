@@ -13,11 +13,12 @@ const (
 	RPCDeleteNotebook RPCMethod = "WWINqb"
 
 	// Source operations
-	RPCAddSource    RPCMethod = "izAoDd"
-	RPCAddSourceURL RPCMethod = "izAoDd"
-	RPCDeleteSource RPCMethod = "tGMBJ"
-	RPCGetSource    RPCMethod = "hizoJc"
-	RPCRenameSource RPCMethod = "BPnFVd"
+	RPCAddSource     RPCMethod = "izAoDd"
+	RPCAddSourceURL  RPCMethod = "izAoDd"
+	RPCAddSourceFile RPCMethod = "o4cbdc"
+	RPCDeleteSource  RPCMethod = "tGMBJ"
+	RPCGetSource     RPCMethod = "hizoJc"
+	RPCRenameSource  RPCMethod = "BPnFVd"
 
 	// Studio/Artifact operations
 	RPCCreateAudio    RPCMethod = "AHyHrd"

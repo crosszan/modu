@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -335,6 +336,153 @@ func isYouTubeURL(url string) bool {
 	return strings.Contains(url, "youtube.com/watch") ||
 		strings.Contains(url, "youtu.be/") ||
 		strings.Contains(url, "youtube.com/shorts/")
+}
+
+// AddSourceFile adds a local file as a source to a notebook
+// Uses Google's resumable upload protocol
+func (c *Client) AddSourceFile(ctx context.Context, notebookID, filePath string) (*vo.Source, error) {
+	// Check file exists
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("file not found: %w", err)
+	}
+	if fileInfo.IsDir() {
+		return nil, fmt.Errorf("path is a directory, not a file")
+	}
+
+	filename := filepath.Base(filePath)
+	fileSize := fileInfo.Size()
+
+	// Ensure we have tokens
+	if c.auth.CSRFToken == "" {
+		if err := c.RefreshTokens(ctx); err != nil {
+			return nil, fmt.Errorf("failed to refresh tokens: %w", err)
+		}
+	}
+
+	// Step 1: Register source intent → get SOURCE_ID
+	sourceID, err := c.registerFileSource(ctx, notebookID, filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register file source: %w", err)
+	}
+
+	// Step 2: Start resumable upload → get upload URL
+	uploadURL, err := c.startResumableUpload(ctx, notebookID, filename, fileSize, sourceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start upload: %w", err)
+	}
+
+	// Step 3: Upload file content
+	if err := c.uploadFile(ctx, uploadURL, filePath); err != nil {
+		return nil, fmt.Errorf("failed to upload file: %w", err)
+	}
+
+	return &vo.Source{
+		ID:         sourceID,
+		NotebookID: notebookID,
+		Title:      filename,
+		SourceType: "file",
+		Status:     "processing",
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}, nil
+}
+
+// registerFileSource registers a file source intent and gets SOURCE_ID
+func (c *Client) registerFileSource(ctx context.Context, notebookID, filename string) (string, error) {
+	params := []any{
+		[]any{[]any{filename}},
+		notebookID,
+		[]any{2},
+		[]any{1, nil, nil, nil, nil, nil, nil, nil, nil, nil, []any{1}},
+	}
+
+	result, err := c.rpcCall(ctx, vo.RPCAddSourceFile, params, "/notebook/"+notebookID)
+	if err != nil {
+		return "", err
+	}
+
+	// Extract SOURCE_ID from nested response
+	sourceID := extractNestedString(result)
+	if sourceID == "" {
+		return "", fmt.Errorf("failed to get source ID from response")
+	}
+
+	return sourceID, nil
+}
+
+// startResumableUpload starts a resumable upload and returns the upload URL
+func (c *Client) startResumableUpload(ctx context.Context, notebookID, filename string, fileSize int64, sourceID string) (string, error) {
+	uploadURL := rpc.UploadURL + "?authuser=0"
+
+	body := fmt.Sprintf(`{"PROJECT_ID":"%s","SOURCE_NAME":"%s","SOURCE_ID":"%s"}`,
+		notebookID, filename, sourceID)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+	req.Header.Set("Cookie", c.auth.CookieHeader())
+	req.Header.Set("Origin", "https://notebooklm.google.com")
+	req.Header.Set("Referer", "https://notebooklm.google.com/")
+	req.Header.Set("x-goog-authuser", "0")
+	req.Header.Set("x-goog-upload-command", "start")
+	req.Header.Set("x-goog-upload-header-content-length", fmt.Sprintf("%d", fileSize))
+	req.Header.Set("x-goog-upload-protocol", "resumable")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("upload start failed with status %d", resp.StatusCode)
+	}
+
+	resultURL := resp.Header.Get("x-goog-upload-url")
+	if resultURL == "" {
+		return "", fmt.Errorf("no upload URL in response headers")
+	}
+
+	return resultURL, nil
+}
+
+// uploadFile uploads file content to the resumable upload URL
+func (c *Client) uploadFile(ctx context.Context, uploadURL, filePath string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, file)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=utf-8")
+	req.Header.Set("Cookie", c.auth.CookieHeader())
+	req.Header.Set("Origin", "https://notebooklm.google.com")
+	req.Header.Set("Referer", "https://notebooklm.google.com/")
+	req.Header.Set("x-goog-authuser", "0")
+	req.Header.Set("x-goog-upload-command", "upload, finalize")
+	req.Header.Set("x-goog-upload-offset", "0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("upload failed with status %d: %s", resp.StatusCode, string(body[:min(200, len(body))]))
+	}
+
+	return nil
 }
 
 // AddSourceText adds a text source to a notebook

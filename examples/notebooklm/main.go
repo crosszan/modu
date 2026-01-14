@@ -25,7 +25,8 @@ Commands:
   delete <id>        Delete a notebook
   rename <id> <name> Rename a notebook
 
-  source add <nb> <url>       Add URL source to notebook
+  source add <nb> <url|file>  Add URL or local file to notebook
+  source file <nb> <path>     Add local file to notebook (explicit)
   source text <nb> <title>    Add text source (reads from stdin)
   source delete <nb> <src>    Delete source from notebook
 
@@ -106,6 +107,17 @@ func main() {
 func fatal(msg string) {
 	fmt.Fprintln(os.Stderr, "Error:", msg)
 	os.Exit(1)
+}
+
+// isLocalFile checks if the input is a local file path (not a URL)
+func isLocalFile(input string) bool {
+	// If it starts with http:// or https://, it's a URL
+	if strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://") {
+		return false
+	}
+	// Check if file exists
+	_, err := os.Stat(input)
+	return err == nil
 }
 
 func getClient(storagePath string) *notebooklm.Client {
@@ -223,19 +235,42 @@ func doRename(storagePath, notebookID, newTitle string) {
 
 func doSource(storagePath string, args []string, format string) {
 	if len(args) == 0 {
-		fatal("Usage: notebooklm source <add|text|delete> ...")
+		fatal("Usage: notebooklm source <add|file|text|delete> ...")
 	}
 
 	client := getClient(storagePath)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	switch args[0] {
 	case "add":
 		if len(args) < 3 {
-			fatal("Usage: notebooklm source add <notebook_id> <url>")
+			fatal("Usage: notebooklm source add <notebook_id> <url_or_file>")
 		}
-		source, err := client.AddSourceURL(ctx, args[1], args[2])
+		input := args[2]
+
+		// Check if it's a local file path
+		if isLocalFile(input) {
+			source, err := client.AddSourceFile(ctx, args[1], input)
+			if err != nil {
+				fatal(err.Error())
+			}
+			printSource(source, format)
+		} else {
+			// Treat as URL
+			source, err := client.AddSourceURL(ctx, args[1], input)
+			if err != nil {
+				fatal(err.Error())
+			}
+			printSource(source, format)
+		}
+
+	case "file":
+		// Explicit file upload command
+		if len(args) < 3 {
+			fatal("Usage: notebooklm source file <notebook_id> <file_path>")
+		}
+		source, err := client.AddSourceFile(ctx, args[1], args[2])
 		if err != nil {
 			fatal(err.Error())
 		}
