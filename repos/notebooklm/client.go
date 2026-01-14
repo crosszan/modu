@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/crosszan/modu/repos/notebooklm/rpc"
 	vo "github.com/crosszan/modu/vo/notebooklm_vo"
+	"golang.org/x/net/publicsuffix"
 )
 
 const (
@@ -700,23 +702,38 @@ func (c *Client) DownloadVideo(ctx context.Context, notebookID, outputPath strin
 
 // downloadFile downloads a file from URL to local path
 func (c *Client) downloadFile(ctx context.Context, downloadURL, outputPath string) error {
-	// Build cookie header for all requests
-	cookieHeader := c.auth.CookieHeader()
+	// Create a cookie jar with proper domain handling
+	jar, err := cookiejar.New(&cookiejar.Options{
+		PublicSuffixList: publicsuffix.List,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create cookie jar: %w", err)
+	}
 
-	// Create a custom client that adds cookies to every request including redirects
+	// Add cookies to the jar with proper domain scoping
+	// This is critical for cross-domain redirects to work correctly
+	for _, cookie := range c.auth.CookiesWithDomain {
+		domain := cookie.Domain
+		// Determine the URL scheme based on domain
+		scheme := "https"
+		host := strings.TrimPrefix(domain, ".")
+		if host == "" {
+			host = "google.com"
+		}
+
+		cookieURL, _ := url.Parse(fmt.Sprintf("%s://%s/", scheme, host))
+		jar.SetCookies(cookieURL, []*http.Cookie{{
+			Name:   cookie.Name,
+			Value:  cookie.Value,
+			Domain: domain,
+			Path:   "/",
+		}})
+	}
+
+	// Create a custom client with cookie jar
 	downloadClient := &http.Client{
 		Timeout: 120 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			// Add cookies to redirected request
-			if cookieHeader != "" {
-				req.Header.Set("Cookie", cookieHeader)
-			}
-			req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-			return nil
-		},
+		Jar:     jar,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
@@ -724,11 +741,7 @@ func (c *Client) downloadFile(ctx context.Context, downloadURL, outputPath strin
 		return err
 	}
 
-	// Set headers for initial request
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-	if cookieHeader != "" {
-		req.Header.Set("Cookie", cookieHeader)
-	}
 
 	resp, err := downloadClient.Do(req)
 	if err != nil {
