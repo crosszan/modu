@@ -25,6 +25,7 @@ Commands:
   delete <id>        Delete a notebook
   rename <id> <name> Rename a notebook
 
+  source list <nb>            List sources in a notebook
   source add <nb> <url|file>  Add URL or local file to notebook
   source file <nb> <path>     Add local file to notebook (explicit)
   source text <nb> <title>    Add text source (reads from stdin)
@@ -235,7 +236,7 @@ func doRename(storagePath, notebookID, newTitle string) {
 
 func doSource(storagePath string, args []string, format string) {
 	if len(args) == 0 {
-		fatal("Usage: notebooklm source <add|file|text|delete> ...")
+		fatal("Usage: notebooklm source <list|add|file|text|delete> ...")
 	}
 
 	client := getClient(storagePath)
@@ -243,6 +244,35 @@ func doSource(storagePath string, args []string, format string) {
 	defer cancel()
 
 	switch args[0] {
+	case "list":
+		if len(args) < 2 {
+			fatal("Usage: notebooklm source list <notebook_id>")
+		}
+		sources, err := client.ListSources(ctx, args[1])
+		if err != nil {
+			fatal(err.Error())
+		}
+		if format == "json" {
+			data, _ := json.MarshalIndent(sources, "", "  ")
+			fmt.Println(string(data))
+			return
+		}
+		if len(sources) == 0 {
+			fmt.Println("No sources found")
+			return
+		}
+		fmt.Printf("Found %d source(s):\n\n", len(sources))
+		for _, src := range sources {
+			fmt.Printf("  ID:     %s\n", src.ID)
+			fmt.Printf("  Title:  %s\n", src.Title)
+			fmt.Printf("  Type:   %s\n", src.SourceType)
+			fmt.Printf("  Status: %s\n", src.Status)
+			if src.URL != "" {
+				fmt.Printf("  URL:    %s\n", src.URL)
+			}
+			fmt.Println()
+		}
+
 	case "add":
 		if len(args) < 3 {
 			fatal("Usage: notebooklm source add <notebook_id> <url_or_file>")

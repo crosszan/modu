@@ -72,6 +72,114 @@ func parseNotebook(data any) (*vo.Notebook, error) {
 	return nb, nil
 }
 
+// parseSourceList parses all sources from notebook response
+func parseSourceList(data any, notebookID string) ([]vo.Source, error) {
+	arr, ok := data.([]any)
+	if !ok || len(arr) == 0 {
+		return nil, fmt.Errorf("invalid notebook response")
+	}
+
+	// Notebook data is in first element
+	nbData, ok := arr[0].([]any)
+	if !ok || len(nbData) < 2 {
+		return []vo.Source{}, nil
+	}
+
+	// Sources are in second element
+	sourcesList, ok := nbData[1].([]any)
+	if !ok {
+		return []vo.Source{}, nil
+	}
+
+	var sources []vo.Source
+	for _, src := range sourcesList {
+		srcArr, ok := src.([]any)
+		if !ok || len(srcArr) < 2 {
+			continue
+		}
+
+		source := vo.Source{
+			NotebookID: notebookID,
+			Status:     "ready",
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+		}
+
+		// Extract ID from src[0] - can be nested: [id] or [[id]]
+		if idData, ok := srcArr[0].([]any); ok && len(idData) > 0 {
+			if id, ok := idData[0].(string); ok {
+				source.ID = id
+			} else if nestedID, ok := idData[0].([]any); ok && len(nestedID) > 0 {
+				if id, ok := nestedID[0].(string); ok {
+					source.ID = id
+				}
+			}
+		}
+
+		// Extract title from src[1]
+		if title, ok := srcArr[1].(string); ok {
+			source.Title = title
+		}
+
+		// Extract URL from src[2][7] if present
+		if len(srcArr) > 2 {
+			if meta, ok := srcArr[2].([]any); ok && len(meta) > 7 {
+				if urlArr, ok := meta[7].([]any); ok && len(urlArr) > 0 {
+					if url, ok := urlArr[0].(string); ok {
+						source.URL = url
+					}
+				}
+			}
+		}
+
+		// Extract status from src[3][1]
+		// Status: 1=processing, 2=ready, 3=error
+		if len(srcArr) > 3 {
+			if statusArr, ok := srcArr[3].([]any); ok && len(statusArr) > 1 {
+				if statusCode, ok := statusArr[1].(float64); ok {
+					switch int(statusCode) {
+					case 1:
+						source.Status = "processing"
+					case 2:
+						source.Status = "ready"
+					case 3:
+						source.Status = "error"
+					}
+				}
+			}
+		}
+
+		// Determine source type
+		if source.URL != "" {
+			source.SourceType = "url"
+			if containsYouTube(source.URL) {
+				source.SourceType = "youtube"
+			}
+		} else if source.Title != "" {
+			// Check file extension
+			title := source.Title
+			if len(title) > 4 {
+				ext := title[len(title)-4:]
+				switch ext {
+				case ".pdf":
+					source.SourceType = "pdf"
+				case ".txt", ".csv":
+					source.SourceType = "file"
+				}
+			}
+			if source.SourceType == "" {
+				source.SourceType = "text"
+			}
+		}
+
+		if source.ID != "" {
+			sources = append(sources, source)
+		}
+	}
+
+	return sources, nil
+}
+
 // parseSource parses a source from API response (for list operations)
 func parseSource(data any, notebookID string) (*vo.Source, error) {
 	arr, ok := data.([]any)

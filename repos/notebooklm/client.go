@@ -284,6 +284,17 @@ func (c *Client) DeleteNotebook(ctx context.Context, notebookID string) error {
 
 // ========== Source Operations ==========
 
+// ListSources returns all sources in a notebook
+func (c *Client) ListSources(ctx context.Context, notebookID string) ([]vo.Source, error) {
+	params := []any{notebookID, nil, []any{2}, nil, 0}
+	result, err := c.rpcCall(ctx, vo.RPCGetNotebook, params, "/notebook/"+notebookID)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseSourceList(result, notebookID)
+}
+
 // AddSourceURL adds a URL source to a notebook
 // Automatically detects YouTube URLs and uses the appropriate method
 func (c *Client) AddSourceURL(ctx context.Context, notebookID, sourceURL string) (*vo.Source, error) {
