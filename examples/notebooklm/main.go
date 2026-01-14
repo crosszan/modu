@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/crosszan/modu/repos/notebooklm"
@@ -35,6 +37,9 @@ Commands:
 
   audio <nb>                  Generate audio podcast
   video <nb>                  Generate video
+  artifacts <nb>              List artifacts in a notebook
+  download audio <nb> <file>  Download audio to file
+  download video <nb> <file>  Download video to file
 
 Options:
   -format string    Output format: text, json (default "text")
@@ -100,6 +105,16 @@ func main() {
 			fatal("Usage: notebooklm video <notebook_id>")
 		}
 		doVideo(*storagePath, args[1], *format)
+	case "artifacts":
+		if len(args) < 2 {
+			fatal("Usage: notebooklm artifacts <notebook_id>")
+		}
+		doArtifacts(*storagePath, args[1], *format)
+	case "download":
+		if len(args) < 4 {
+			fatal("Usage: notebooklm download <audio|video> <notebook_id> <output_file>")
+		}
+		doDownload(*storagePath, args[1], args[2], args[3])
 	default:
 		fatal("Unknown command: " + cmd)
 	}
@@ -382,6 +397,10 @@ func doAudio(storagePath, notebookID, format string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
 
+	// Setup signal handling for graceful exit
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
 	fmt.Fprintln(os.Stderr, "Starting audio generation...")
 
 	status, err := client.GenerateAudio(ctx, notebookID, vo.AudioFormatDeepDive, vo.AudioLengthDefault)
@@ -390,16 +409,31 @@ func doAudio(storagePath, notebookID, format string) {
 	}
 
 	fmt.Fprintf(os.Stderr, "Task ID: %s\n", status.TaskID)
-	fmt.Fprintln(os.Stderr, "Polling for completion...")
+	fmt.Fprintln(os.Stderr, "Polling for completion... (Ctrl+C to exit, generation continues in background)")
 
-	// Poll until complete
+	// Poll until complete or interrupted
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+pollLoop:
 	for status.Status != "completed" && status.Status != "failed" {
-		time.Sleep(5 * time.Second)
-		status, err = client.PollGeneration(ctx, notebookID, status.TaskID)
-		if err != nil {
-			fatal(err.Error())
+		select {
+		case <-sigChan:
+			fmt.Fprintln(os.Stderr, "\nInterrupted! Generation continues in background.")
+			fmt.Fprintf(os.Stderr, "Task ID: %s\n", status.TaskID)
+			fmt.Fprintln(os.Stderr, "Use 'notebooklm artifacts <notebook_id>' to check status later.")
+			fmt.Fprintln(os.Stderr, "Use 'notebooklm download audio <notebook_id> <file>' to download when ready.")
+			os.Exit(0)
+		case <-ticker.C:
+			status, err = client.PollGeneration(ctx, notebookID, status.TaskID)
+			if err != nil {
+				fatal(err.Error())
+			}
+			fmt.Fprintf(os.Stderr, "Status: %s\n", status.Status)
+		case <-ctx.Done():
+			fmt.Fprintln(os.Stderr, "Timeout! Generation may still be in progress.")
+			break pollLoop
 		}
-		fmt.Fprintf(os.Stderr, "Status: %s\n", status.Status)
 	}
 
 	if format == "json" {
@@ -413,6 +447,7 @@ func doAudio(storagePath, notebookID, format string) {
 		if status.DownloadURL != "" {
 			fmt.Printf("Download URL: %s\n", status.DownloadURL)
 		}
+		fmt.Println("Use 'notebooklm download audio <notebook_id> <file>' to download.")
 	} else {
 		fmt.Println("Audio generation failed")
 		if status.Error != "" {
@@ -426,6 +461,10 @@ func doVideo(storagePath, notebookID, format string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
 
+	// Setup signal handling for graceful exit
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
 	fmt.Fprintln(os.Stderr, "Starting video generation...")
 
 	status, err := client.GenerateVideo(ctx, notebookID, vo.VideoFormatBriefing, vo.VideoStyleClassroom)
@@ -434,16 +473,31 @@ func doVideo(storagePath, notebookID, format string) {
 	}
 
 	fmt.Fprintf(os.Stderr, "Task ID: %s\n", status.TaskID)
-	fmt.Fprintln(os.Stderr, "Polling for completion...")
+	fmt.Fprintln(os.Stderr, "Polling for completion... (Ctrl+C to exit, generation continues in background)")
 
-	// Poll until complete
+	// Poll until complete or interrupted
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+pollLoop:
 	for status.Status != "completed" && status.Status != "failed" {
-		time.Sleep(5 * time.Second)
-		status, err = client.PollGeneration(ctx, notebookID, status.TaskID)
-		if err != nil {
-			fatal(err.Error())
+		select {
+		case <-sigChan:
+			fmt.Fprintln(os.Stderr, "\nInterrupted! Generation continues in background.")
+			fmt.Fprintf(os.Stderr, "Task ID: %s\n", status.TaskID)
+			fmt.Fprintln(os.Stderr, "Use 'notebooklm artifacts <notebook_id>' to check status later.")
+			fmt.Fprintln(os.Stderr, "Use 'notebooklm download video <notebook_id> <file>' to download when ready.")
+			os.Exit(0)
+		case <-ticker.C:
+			status, err = client.PollGeneration(ctx, notebookID, status.TaskID)
+			if err != nil {
+				fatal(err.Error())
+			}
+			fmt.Fprintf(os.Stderr, "Status: %s\n", status.Status)
+		case <-ctx.Done():
+			fmt.Fprintln(os.Stderr, "Timeout! Generation may still be in progress.")
+			break pollLoop
 		}
-		fmt.Fprintf(os.Stderr, "Status: %s\n", status.Status)
 	}
 
 	if format == "json" {
@@ -457,10 +511,82 @@ func doVideo(storagePath, notebookID, format string) {
 		if status.DownloadURL != "" {
 			fmt.Printf("Download URL: %s\n", status.DownloadURL)
 		}
+		fmt.Println("Use 'notebooklm download video <notebook_id> <file>' to download.")
 	} else {
 		fmt.Println("Video generation failed")
 		if status.Error != "" {
 			fmt.Printf("Error: %s\n", status.Error)
 		}
 	}
+}
+
+func doArtifacts(storagePath, notebookID, format string) {
+	client := getClient(storagePath)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	artifacts, err := client.ListArtifacts(ctx, notebookID)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	if format == "json" {
+		data, _ := json.MarshalIndent(artifacts, "", "  ")
+		fmt.Println(string(data))
+		return
+	}
+
+	if len(artifacts) == 0 {
+		fmt.Println("No artifacts found.")
+		return
+	}
+
+	// Map artifact types to names
+	typeNames := map[int]string{
+		1: "Audio",
+		2: "Report",
+		3: "Video",
+		4: "Quiz",
+		5: "MindMap",
+		7: "Infographic",
+		8: "SlideDeck",
+		9: "DataTable",
+	}
+
+	for _, a := range artifacts {
+		typeName := typeNames[a.ArtifactType]
+		if typeName == "" {
+			typeName = fmt.Sprintf("Type-%d", a.ArtifactType)
+		}
+		fmt.Printf("[%s] %s - %s (ID: %s)\n", typeName, a.Title, a.Status, a.ID)
+		if a.DownloadURL != "" {
+			fmt.Printf("  URL: %s\n", a.DownloadURL)
+		}
+	}
+}
+
+func doDownload(storagePath, mediaType, notebookID, outputPath string) {
+	client := getClient(storagePath)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	var path string
+	var err error
+
+	switch mediaType {
+	case "audio":
+		fmt.Fprintf(os.Stderr, "Downloading audio to %s...\n", outputPath)
+		path, err = client.DownloadAudio(ctx, notebookID, outputPath, "")
+	case "video":
+		fmt.Fprintf(os.Stderr, "Downloading video to %s...\n", outputPath)
+		path, err = client.DownloadVideo(ctx, notebookID, outputPath, "")
+	default:
+		fatal("Unknown media type: " + mediaType + ". Use 'audio' or 'video'.")
+	}
+
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	fmt.Printf("Downloaded to: %s\n", path)
 }

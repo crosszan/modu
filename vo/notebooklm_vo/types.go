@@ -71,11 +71,19 @@ type GenerationStatus struct {
 	Error       string `json:"error,omitempty"`
 }
 
+// CookieWithDomain represents a cookie with its domain
+type CookieWithDomain struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Domain string `json:"domain"`
+}
+
 // AuthTokens holds authentication credentials
 type AuthTokens struct {
-	Cookies   map[string]string `json:"cookies"`
-	CSRFToken string            `json:"csrf_token"`
-	SessionID string            `json:"session_id"`
+	Cookies           map[string]string  `json:"cookies"`
+	CookiesWithDomain []CookieWithDomain `json:"cookies_with_domain,omitempty"`
+	CSRFToken         string             `json:"csrf_token"`
+	SessionID         string             `json:"session_id"`
 }
 
 // CookieHeader returns cookies formatted as HTTP header value

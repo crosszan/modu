@@ -114,3 +114,105 @@ func (b *Browser) NewPage(opts ...ContextOption) (*Page, error) {
 func (b *Browser) Raw() playwright.Browser {
 	return b.browser
 }
+
+// Pw returns the underlying playwright instance (needed for persistent context)
+func (b *Browser) Pw() *playwright.Playwright {
+	return b.pw
+}
+
+// LaunchPersistentContext launches a browser with persistent user data directory
+// This is similar to Python's launch_persistent_context and maintains login state
+func LaunchPersistentContext(userDataDir string, opts ...Option) (*PersistentContext, error) {
+	o := DefaultOptions()
+	for _, opt := range opts {
+		opt(o)
+	}
+
+	pw, err := playwright.Run()
+	if err != nil {
+		return nil, fmt.Errorf("failed to start playwright: %w", err)
+	}
+
+	launchOpts := playwright.BrowserTypeLaunchPersistentContextOptions{
+		Headless: playwright.Bool(o.Headless),
+		Args: append(o.Args,
+			"--disable-blink-features=AutomationControlled",
+			"--password-store=basic",
+		),
+		IgnoreDefaultArgs: []string{"--enable-automation"},
+	}
+
+	if o.SlowMo > 0 {
+		launchOpts.SlowMo = playwright.Float(o.SlowMo)
+	}
+
+	var ctx playwright.BrowserContext
+	var launchErr error
+
+	switch o.BrowserType {
+	case "firefox":
+		ctx, launchErr = pw.Firefox.LaunchPersistentContext(userDataDir, launchOpts)
+	case "webkit":
+		ctx, launchErr = pw.WebKit.LaunchPersistentContext(userDataDir, launchOpts)
+	default:
+		ctx, launchErr = pw.Chromium.LaunchPersistentContext(userDataDir, launchOpts)
+	}
+
+	if launchErr != nil {
+		pw.Stop()
+		return nil, fmt.Errorf("failed to launch persistent context: %w", launchErr)
+	}
+
+	return &PersistentContext{
+		pw:  pw,
+		ctx: ctx,
+	}, nil
+}
+
+// PersistentContext wraps a persistent browser context
+type PersistentContext struct {
+	pw  *playwright.Playwright
+	ctx playwright.BrowserContext
+}
+
+// Close closes the context and playwright
+func (p *PersistentContext) Close() {
+	if p.ctx != nil {
+		p.ctx.Close()
+	}
+	if p.pw != nil {
+		p.pw.Stop()
+	}
+}
+
+// Pages returns all pages in the context
+func (p *PersistentContext) Pages() []playwright.Page {
+	return p.ctx.Pages()
+}
+
+// NewPage creates a new page
+func (p *PersistentContext) NewPage() (*Page, error) {
+	page, err := p.ctx.NewPage()
+	if err != nil {
+		return nil, err
+	}
+	return &Page{
+		page: page,
+		ctx:  &Context{ctx: p.ctx},
+	}, nil
+}
+
+// StorageState saves the storage state to a file
+func (p *PersistentContext) StorageState(path string) error {
+	if path != "" {
+		_, err := p.ctx.StorageState(path)
+		return err
+	}
+	_, err := p.ctx.StorageState()
+	return err
+}
+
+// Raw returns the underlying BrowserContext
+func (p *PersistentContext) Raw() playwright.BrowserContext {
+	return p.ctx
+}

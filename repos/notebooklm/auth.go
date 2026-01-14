@@ -81,6 +81,11 @@ func GetStoragePath() string {
 	return filepath.Join(GetStorageDir(), storageFileName)
 }
 
+// GetBrowserProfileDir returns the browser profile directory path
+func GetBrowserProfileDir() string {
+	return filepath.Join(GetStorageDir(), "browser_profile")
+}
+
 // parseStorageState parses Playwright storage state JSON
 func parseStorageState(data []byte) (*vo.AuthTokens, error) {
 	var state PlaywrightStorageState
@@ -93,15 +98,20 @@ func parseStorageState(data []byte) (*vo.AuthTokens, error) {
 	}
 
 	// Extract cookies for allowed domains
-	allowedDomains := []string{".google.com", "notebooklm.google.com", ".googleusercontent.com"}
+	// Include all Google-related domains for proper cross-domain authentication
 	cookies := make(map[string]string)
+	var cookiesWithDomain []vo.CookieWithDomain
 
 	for _, cookie := range state.Cookies {
-		for _, domain := range allowedDomains {
-			if strings.HasSuffix(cookie.Domain, domain) || cookie.Domain == domain {
-				cookies[cookie.Name] = cookie.Value
-				break
-			}
+		// Accept cookies from any google.com subdomain or .google.com wildcard
+		if isGoogleDomain(cookie.Domain) {
+			cookies[cookie.Name] = cookie.Value
+			// Also store with domain info for cross-domain downloads
+			cookiesWithDomain = append(cookiesWithDomain, vo.CookieWithDomain{
+				Name:   cookie.Name,
+				Value:  cookie.Value,
+				Domain: cookie.Domain,
+			})
 		}
 	}
 
@@ -110,7 +120,8 @@ func parseStorageState(data []byte) (*vo.AuthTokens, error) {
 	}
 
 	return &vo.AuthTokens{
-		Cookies: cookies,
+		Cookies:           cookies,
+		CookiesWithDomain: cookiesWithDomain,
 	}, nil
 }
 
@@ -159,4 +170,33 @@ func SaveStorageState(cookies []PlaywrightCookie) error {
 func StorageExists() bool {
 	_, err := os.Stat(GetStoragePath())
 	return err == nil
+}
+
+// isGoogleDomain checks if a domain is a Google-related domain for NotebookLM
+// Note: YouTube cookies are excluded as they have duplicate cookie names (HSID, SSID, etc.)
+// that conflict with the .google.com cookies needed for NotebookLM API calls
+func isGoogleDomain(domain string) bool {
+	// Exclude YouTube domains - they have conflicting cookie names
+	if domain == ".youtube.com" || domain == "youtube.com" ||
+		strings.HasSuffix(domain, ".youtube.com") {
+		return false
+	}
+
+	googleDomains := []string{
+		".google.com",
+		"google.com",
+		".googleusercontent.com",
+		"googleusercontent.com",
+	}
+
+	for _, gd := range googleDomains {
+		if domain == gd || strings.HasSuffix(domain, gd) {
+			return true
+		}
+		// Also match subdomains like "accounts.google.com"
+		if strings.HasSuffix(domain, "."+strings.TrimPrefix(gd, ".")) {
+			return true
+		}
+	}
+	return false
 }

@@ -25,7 +25,7 @@ const (
 	RPCCreateVideo    RPCMethod = "R7cb6c"
 	RPCPollStudio     RPCMethod = "gArtLc"
 	RPCCreateArtifact RPCMethod = "xpWGLf"
-	RPCListArtifacts  RPCMethod = "Wkp2Lb"
+	RPCListArtifacts  RPCMethod = "gArtLc"
 	RPCDeleteArtifact RPCMethod = "j7mI7e"
 )
 

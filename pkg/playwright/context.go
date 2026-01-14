@@ -57,3 +57,12 @@ func (c *Context) AddCookies(cookies []playwright.OptionalCookie) error {
 func (c *Context) ClearCookies() error {
 	return c.ctx.ClearCookies()
 }
+
+// StorageState returns the storage state for this context
+// This includes cookies, localStorage, and sessionStorage
+func (c *Context) StorageState(path ...string) (*playwright.StorageState, error) {
+	if len(path) > 0 && path[0] != "" {
+		return c.ctx.StorageState(path[0])
+	}
+	return c.ctx.StorageState()
+}

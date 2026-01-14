@@ -412,26 +412,33 @@ func findSubstring(s, substr string) int {
 }
 
 // parseGenerationStatus parses artifact generation status
+// Response format: [[artifact_id, ..., ..., ..., status_code, ...], ...]
 func parseGenerationStatus(data any) (*vo.GenerationStatus, error) {
 	arr, ok := data.([]any)
-	if !ok {
+	if !ok || len(arr) == 0 {
 		return nil, fmt.Errorf("invalid generation status data")
+	}
+
+	// Response is nested: arr[0] contains the artifact data
+	artifactData, ok := arr[0].([]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid artifact data structure")
 	}
 
 	status := &vo.GenerationStatus{
 		Status: "pending",
 	}
 
-	// Parse status structure
-	if len(arr) > 0 {
-		if taskID, ok := arr[0].(string); ok {
+	// TaskID is at artifactData[0]
+	if len(artifactData) > 0 {
+		if taskID, ok := artifactData[0].(string); ok {
 			status.TaskID = taskID
 		}
 	}
 
-	if len(arr) > 1 {
-		// Status code: 1=processing, 2=pending, 3=completed
-		if statusCode, ok := arr[1].(float64); ok {
+	// Status code is at artifactData[4]
+	if len(artifactData) > 4 {
+		if statusCode, ok := artifactData[4].(float64); ok {
 			switch int(statusCode) {
 			case 1:
 				status.Status = "in_progress"
@@ -443,11 +450,45 @@ func parseGenerationStatus(data any) (*vo.GenerationStatus, error) {
 		}
 	}
 
-	// Look for download URL
-	if len(arr) > 3 {
-		if url, ok := arr[3].(string); ok && isURL(url) {
+	return status, nil
+}
+
+// parsePollStatus parses the poll studio response
+// Response format: [?, status_string, url, error]
+func parsePollStatus(data any, taskID string) (*vo.GenerationStatus, error) {
+	status := &vo.GenerationStatus{
+		TaskID: taskID,
+		Status: "pending",
+	}
+
+	// Handle nil response - artifact might not be ready yet
+	if data == nil {
+		return status, nil
+	}
+
+	arr, ok := data.([]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid generation status data")
+	}
+
+	// Status is at index 1
+	if len(arr) > 1 {
+		if statusStr, ok := arr[1].(string); ok {
+			status.Status = statusStr
+		}
+	}
+
+	// URL is at index 2
+	if len(arr) > 2 {
+		if url, ok := arr[2].(string); ok && url != "" {
 			status.DownloadURL = url
-			status.Status = "completed"
+		}
+	}
+
+	// Error is at index 3
+	if len(arr) > 3 {
+		if errStr, ok := arr[3].(string); ok && errStr != "" {
+			status.Error = errStr
 		}
 	}
 
@@ -455,14 +496,22 @@ func parseGenerationStatus(data any) (*vo.GenerationStatus, error) {
 }
 
 // parseArtifactList parses the list artifacts response
+// Response is nested: result[0] contains the actual artifact list
 func parseArtifactList(data any) ([]vo.Artifact, error) {
 	arr, ok := data.([]any)
+	if !ok || len(arr) == 0 {
+		return nil, nil // No artifacts
+	}
+
+	// Response is nested: result[0] is the artifact list
+	artifactList, ok := arr[0].([]any)
 	if !ok {
-		return nil, fmt.Errorf("invalid artifact list response")
+		// If not nested, try using arr directly
+		artifactList = arr
 	}
 
 	var artifacts []vo.Artifact
-	for _, item := range arr {
+	for _, item := range artifactList {
 		artifact, err := parseArtifact(item)
 		if err != nil {
 			continue
@@ -474,6 +523,8 @@ func parseArtifactList(data any) ([]vo.Artifact, error) {
 }
 
 // parseArtifact parses a single artifact
+// Structure: [id, title, type, ?, status, ?, metadata, ...]
+// metadata[5] contains media URLs: [[url, ?, mime_type], ...]
 func parseArtifact(data any) (*vo.Artifact, error) {
 	arr, ok := data.([]any)
 	if !ok || len(arr) < 2 {
@@ -481,34 +532,90 @@ func parseArtifact(data any) (*vo.Artifact, error) {
 	}
 
 	artifact := &vo.Artifact{
-		Status:    "completed",
+		Status:    "pending",
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 
+	// ID at index 0
 	if len(arr) > 0 {
 		if id, ok := arr[0].(string); ok {
 			artifact.ID = id
 		}
 	}
 
+	// Title at index 1
 	if len(arr) > 1 {
 		if title, ok := arr[1].(string); ok {
 			artifact.Title = title
 		}
 	}
 
+	// Type at index 2
 	if len(arr) > 2 {
 		if artType, ok := arr[2].(float64); ok {
 			artifact.ArtifactType = int(artType)
 		}
 	}
 
-	if len(arr) > 3 {
-		if url, ok := arr[3].(string); ok && isURL(url) {
-			artifact.DownloadURL = url
+	// Status at index 4 (1=processing, 2=pending, 3=completed)
+	if len(arr) > 4 {
+		if statusCode, ok := arr[4].(float64); ok {
+			switch int(statusCode) {
+			case 1:
+				artifact.Status = "in_progress"
+			case 2:
+				artifact.Status = "pending"
+			case 3:
+				artifact.Status = "completed"
+			}
 		}
 	}
 
+	// Extract download URL from metadata[6][5]
+	if len(arr) > 6 {
+		artifact.DownloadURL = extractMediaURL(arr[6])
+	}
+
 	return artifact, nil
+}
+
+// extractMediaURL extracts the download URL from artifact metadata
+// Structure: metadata[5] = [[url, ?, mime_type], ...]
+func extractMediaURL(metadata any) string {
+	metaArr, ok := metadata.([]any)
+	if !ok || len(metaArr) <= 5 {
+		return ""
+	}
+
+	mediaList, ok := metaArr[5].([]any)
+	if !ok || len(mediaList) == 0 {
+		return ""
+	}
+
+	// Try to find audio/mp4 or video/mp4 first
+	for _, item := range mediaList {
+		itemArr, ok := item.([]any)
+		if !ok || len(itemArr) < 3 {
+			continue
+		}
+		if url, ok := itemArr[0].(string); ok {
+			if mimeType, ok := itemArr[2].(string); ok {
+				if mimeType == "audio/mp4" || mimeType == "video/mp4" {
+					return url
+				}
+			}
+		}
+	}
+
+	// Fallback: use first URL
+	if len(mediaList) > 0 {
+		if firstItem, ok := mediaList[0].([]any); ok && len(firstItem) > 0 {
+			if url, ok := firstItem[0].(string); ok {
+				return url
+			}
+		}
+	}
+
+	return ""
 }

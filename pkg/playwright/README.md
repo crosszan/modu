@@ -6,6 +6,8 @@ Playwright Go 封装库，简化浏览器自动化操作。
 
 ```go
 import "github.com/crosszan/modu/pkg/playwright"
+
+go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium
 ```
 
 ## 功能

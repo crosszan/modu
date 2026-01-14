@@ -8,43 +8,64 @@ import (
 
 	"github.com/crosszan/modu/pkg/playwright"
 	"github.com/crosszan/modu/repos/notebooklm/rpc"
+	pw "github.com/playwright-community/playwright-go"
 )
 
-// Login performs browser-based Google authentication
+// Login performs browser-based Google authentication using persistent context
 func Login() error {
 	fmt.Fprintln(os.Stderr, "Opening browser for Google login...")
 	fmt.Fprintln(os.Stderr, "Please sign in to your Google account.")
 
-	// Create browser in non-headless mode for manual login
-	browser, err := playwright.New(
+	// Ensure directories exist
+	storageDir := GetStorageDir()
+	if err := os.MkdirAll(storageDir, 0700); err != nil {
+		return fmt.Errorf("failed to create storage directory: %w", err)
+	}
+
+	browserProfileDir := GetBrowserProfileDir()
+	if err := os.MkdirAll(browserProfileDir, 0700); err != nil {
+		return fmt.Errorf("failed to create browser profile directory: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Using persistent profile: %s\n", browserProfileDir)
+
+	// Create persistent context (like Python's launch_persistent_context)
+	pctx, err := playwright.LaunchPersistentContext(
+		browserProfileDir,
 		playwright.WithHeadless(false),
 		playwright.WithBrowserType("chromium"),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create browser: %w", err)
 	}
-	defer browser.Close()
+	defer pctx.Close()
 
-	// Create page with anti-detection
-	page, err := browser.NewPage(
-		playwright.WithAntiDetect(true),
-		playwright.WithViewport(1280, 800),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create page: %w", err)
+	// Get or create page using raw playwright types
+	var page pw.Page
+	pages := pctx.Pages()
+	if len(pages) > 0 {
+		page = pages[0]
+	} else {
+		page, err = pctx.Raw().NewPage()
+		if err != nil {
+			return fmt.Errorf("failed to create page: %w", err)
+		}
 	}
-	defer page.Close()
 
 	// Navigate to NotebookLM
-	if err := page.Goto(rpc.BaseURL, playwright.WithWaitUntil("networkidle")); err != nil {
+	_, err = page.Goto(rpc.BaseURL, pw.PageGotoOptions{
+		WaitUntil: pw.WaitUntilStateNetworkidle,
+	})
+	if err != nil {
 		return fmt.Errorf("failed to navigate: %w", err)
 	}
 
-	fmt.Fprintln(os.Stderr, "Waiting for login to complete...")
-	fmt.Fprintln(os.Stderr, "The browser will close automatically once you're logged in.")
+	fmt.Fprintln(os.Stderr, "\nInstructions:")
+	fmt.Fprintln(os.Stderr, "1. Complete the Google login in the browser window")
+	fmt.Fprintln(os.Stderr, "2. Wait until you see the NotebookLM homepage")
+	fmt.Fprintln(os.Stderr, "3. The browser will close automatically once logged in")
 
 	// Wait for successful login by checking for NotebookLM-specific elements
-	// or URL patterns that indicate successful authentication
 	maxWait := 5 * time.Minute
 	pollInterval := 2 * time.Second
 	start := time.Now()
@@ -61,12 +82,18 @@ func Login() error {
 				if _, err := ExtractCSRFToken(content); err == nil {
 					fmt.Fprintln(os.Stderr, "Login successful!")
 
-					// Save cookies
-					if err := saveBrowserCookies(page); err != nil {
-						return fmt.Errorf("failed to save cookies: %w", err)
+					// Save storage state using Playwright's method
+					storagePath := GetStoragePath()
+					if err := pctx.StorageState(storagePath); err != nil {
+						return fmt.Errorf("failed to save storage state: %w", err)
 					}
 
-					fmt.Fprintf(os.Stderr, "Credentials saved to %s\n", GetStoragePath())
+					// Set restrictive permissions
+					if err := os.Chmod(storagePath, 0600); err != nil {
+						return fmt.Errorf("failed to set file permissions: %w", err)
+					}
+
+					fmt.Fprintf(os.Stderr, "Credentials saved to %s\n", storagePath)
 					return nil
 				}
 			}
@@ -90,26 +117,32 @@ func isLoggedInURL(url string) bool {
 		findSubstring(url, "accounts.google.com") < 0
 }
 
-// saveBrowserCookies extracts and saves cookies from the browser
+// saveBrowserCookies extracts and saves cookies from the browser using StorageState
 func saveBrowserCookies(page *playwright.Page) error {
-	// Get cookies from the page's browser context
+	// Get storage state from the page's browser context
+	// This uses Playwright's built-in method which captures all cookie attributes
 	ctx := page.Context()
-	cookies, err := ctx.Cookies()
+
+	// Save directly to file using Playwright's StorageState method
+	storagePath := GetStoragePath()
+
+	// Ensure directory exists
+	dir := GetStorageDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create storage directory: %w", err)
+	}
+
+	_, err := ctx.StorageState(storagePath)
 	if err != nil {
-		return fmt.Errorf("failed to get cookies: %w", err)
+		return fmt.Errorf("failed to save storage state: %w", err)
 	}
 
-	// Convert to our format
-	var pwCookies []PlaywrightCookie
-	for _, c := range cookies {
-		pwCookies = append(pwCookies, PlaywrightCookie{
-			Name:   c.Name,
-			Value:  c.Value,
-			Domain: c.Domain,
-		})
+	// Set restrictive permissions on the file (contains sensitive cookies)
+	if err := os.Chmod(storagePath, 0600); err != nil {
+		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
 
-	return SaveStorageState(pwCookies)
+	return nil
 }
 
 // LoginWithExistingCookies tries to use existing cookies, falls back to interactive login
