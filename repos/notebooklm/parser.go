@@ -72,7 +72,7 @@ func parseNotebook(data any) (*vo.Notebook, error) {
 	return nb, nil
 }
 
-// parseSource parses a source from API response
+// parseSource parses a source from API response (for list operations)
 func parseSource(data any, notebookID string) (*vo.Source, error) {
 	arr, ok := data.([]any)
 	if !ok {
@@ -128,6 +128,122 @@ func parseSource(data any, notebookID string) (*vo.Source, error) {
 	}
 
 	return source, nil
+}
+
+// parseSourceFromAdd parses source from add_source API response
+// Structure: [[[[id], title, metadata, ...]]] (deeply nested)
+func parseSourceFromAdd(data any, notebookID string) (*vo.Source, error) {
+	source := &vo.Source{
+		NotebookID: notebookID,
+		Status:     "processing",
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+
+	// Navigate the nested structure
+	arr, ok := data.([]any)
+	if !ok || len(arr) == 0 {
+		return nil, fmt.Errorf("invalid source response: not an array")
+	}
+
+	// First level: [[[[id], title, ...]]]
+	level1, ok := arr[0].([]any)
+	if !ok || len(level1) == 0 {
+		return nil, fmt.Errorf("invalid source response: level 1")
+	}
+
+	// Second level: [[[id], title, ...]]
+	level2, ok := level1[0].([]any)
+	if !ok || len(level2) == 0 {
+		return nil, fmt.Errorf("invalid source response: level 2")
+	}
+
+	// Entry level: [[id], title, metadata...]
+	// Could be at level2 directly or one more level
+	var entry []any
+
+	// Check if level2[0] is an array containing the ID
+	if idArr, ok := level2[0].([]any); ok {
+		// level2 is the entry: [[id], title, ...]
+		entry = level2
+		// Extract ID from nested array
+		if len(idArr) > 0 {
+			if id, ok := idArr[0].(string); ok {
+				source.ID = id
+			}
+		}
+	} else if innerArr, ok := level2[0].([]any); ok && len(innerArr) > 0 {
+		// One more level: [[[id], title, ...]]
+		entry = innerArr
+		if idArr, ok := entry[0].([]any); ok && len(idArr) > 0 {
+			if id, ok := idArr[0].(string); ok {
+				source.ID = id
+			}
+		}
+	}
+
+	if entry == nil {
+		entry = level2
+	}
+
+	// Extract title from entry[1]
+	if len(entry) > 1 {
+		if title, ok := entry[1].(string); ok {
+			source.Title = title
+		}
+	}
+
+	// Extract URL from entry[2][7] if present
+	if len(entry) > 2 {
+		if meta, ok := entry[2].([]any); ok && len(meta) > 7 {
+			if urlArr, ok := meta[7].([]any); ok && len(urlArr) > 0 {
+				if url, ok := urlArr[0].(string); ok {
+					source.URL = url
+				}
+			}
+		}
+	}
+
+	// Determine source type based on URL or title
+	if source.URL != "" {
+		source.SourceType = "url"
+		if containsYouTube(source.URL) {
+			source.SourceType = "youtube"
+		}
+	} else if source.Title != "" && (contains(source.Title, "YouTube") || contains(source.Title, "youtube")) {
+		// YouTube sources may not have URL in immediate response
+		source.SourceType = "youtube"
+	} else {
+		source.SourceType = "text"
+	}
+
+	// If still no ID found, try recursive extraction
+	if source.ID == "" {
+		source.ID = extractNestedString(data)
+	}
+
+	if source.ID == "" {
+		return nil, fmt.Errorf("could not extract source ID from response")
+	}
+
+	return source, nil
+}
+
+// extractNestedString recursively finds the first UUID string
+func extractNestedString(data any) string {
+	switch v := data.(type) {
+	case string:
+		if isUUID(v) {
+			return v
+		}
+	case []any:
+		for _, item := range v {
+			if id := extractNestedString(item); id != "" {
+				return id
+			}
+		}
+	}
+	return ""
 }
 
 // findURLInMeta searches for URL in metadata array

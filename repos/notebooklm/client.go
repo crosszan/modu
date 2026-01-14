@@ -284,25 +284,75 @@ func (c *Client) DeleteNotebook(ctx context.Context, notebookID string) error {
 // ========== Source Operations ==========
 
 // AddSourceURL adds a URL source to a notebook
-func (c *Client) AddSourceURL(ctx context.Context, notebookID, url string) (*vo.Source, error) {
-	params := []any{notebookID, []any{[]any{url}}, []any{2}}
-	result, err := c.rpcCall(ctx, vo.RPCAddSourceURL, params, "/notebook/"+notebookID)
-	if err != nil {
-		return nil, err
+// Automatically detects YouTube URLs and uses the appropriate method
+func (c *Client) AddSourceURL(ctx context.Context, notebookID, sourceURL string) (*vo.Source, error) {
+	var params []any
+
+	if isYouTubeURL(sourceURL) {
+		// YouTube format: URL at position 7, with extra params
+		// [[[None, None, None, None, None, None, None, [url], None, None, 1]], notebook_id, [2], [1, None, None, None, None, None, None, None, None, None, [1]]]
+		params = []any{
+			[]any{[]any{nil, nil, nil, nil, nil, nil, nil, []any{sourceURL}, nil, nil, 1}},
+			notebookID,
+			[]any{2},
+			[]any{1, nil, nil, nil, nil, nil, nil, nil, nil, nil, []any{1}},
+		}
+	} else {
+		// Regular URL format: URL at position 2
+		// [[[None, None, [url], None, None, None, None, None]], notebook_id, [2], None, None]
+		params = []any{
+			[]any{[]any{nil, nil, []any{sourceURL}, nil, nil, nil, nil, nil}},
+			notebookID,
+			[]any{2},
+			nil,
+			nil,
+		}
 	}
 
-	return parseSource(result, notebookID)
-}
-
-// AddSourceText adds a text source to a notebook
-func (c *Client) AddSourceText(ctx context.Context, notebookID, title, content string) (*vo.Source, error) {
-	params := []any{notebookID, []any{[]any{nil, nil, nil, []any{title, content}}}, []any{2}}
 	result, err := c.rpcCall(ctx, vo.RPCAddSource, params, "/notebook/"+notebookID)
 	if err != nil {
 		return nil, err
 	}
 
-	return parseSource(result, notebookID)
+	source, err := parseSourceFromAdd(result, notebookID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set URL and type from input since response may not include it
+	if source.URL == "" {
+		source.URL = sourceURL
+	}
+	if isYouTubeURL(sourceURL) {
+		source.SourceType = "youtube"
+	}
+
+	return source, nil
+}
+
+// isYouTubeURL checks if URL is a YouTube video link
+func isYouTubeURL(url string) bool {
+	return strings.Contains(url, "youtube.com/watch") ||
+		strings.Contains(url, "youtu.be/") ||
+		strings.Contains(url, "youtube.com/shorts/")
+}
+
+// AddSourceText adds a text source to a notebook
+func (c *Client) AddSourceText(ctx context.Context, notebookID, title, content string) (*vo.Source, error) {
+	// Python format: [[[None, [title, content], None, None, None, None, None, None]], notebook_id, [2], None, None]
+	params := []any{
+		[]any{[]any{nil, []any{title, content}, nil, nil, nil, nil, nil, nil}},
+		notebookID,
+		[]any{2},
+		nil,
+		nil,
+	}
+	result, err := c.rpcCall(ctx, vo.RPCAddSource, params, "/notebook/"+notebookID)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseSourceFromAdd(result, notebookID)
 }
 
 // DeleteSource deletes a source from a notebook
