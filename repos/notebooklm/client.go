@@ -516,7 +516,8 @@ func (c *Client) AddSourceText(ctx context.Context, notebookID, title, content s
 
 // DeleteSource deletes a source from a notebook
 func (c *Client) DeleteSource(ctx context.Context, notebookID, sourceID string) error {
-	params := []any{notebookID, []any{[]any{[]any{sourceID}}}}
+	// Python format: [[[source_id]]]
+	params := []any{[]any{[]any{sourceID}}}
 	_, err := c.rpcCall(ctx, vo.RPCDeleteSource, params, "/notebook/"+notebookID)
 	return err
 }
