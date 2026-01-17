@@ -10,7 +10,7 @@ import (
 
 func main() {
 	// 命令行参数
-	source := flag.String("source", "hn", "数据源: hn, ph, xhs, tldr, substack, twitter-trending, twitter-user")
+	source := flag.String("source", "hn", "数据源: hn, ph, xhs, tldr, substack, twitter-trending, twitter-user, tophub")
 	limit := flag.Int("limit", 10, "获取条数")
 	format := flag.String("format", "text", "输出格式: text, markdown, json")
 	twitterUser := flag.String("twitter-user", "", "Twitter 用户名 (当 source=twitter-user 时)")
@@ -46,6 +46,8 @@ func main() {
 			os.Exit(1)
 		}
 		items, err = scraper.ScrapeTwitterUser(*twitterUser, *limit)
+	case "tophub":
+		items, err = scraper.ScrapeTopHub(*limit)
 	default:
 		fmt.Printf("不支持的数据源: %s\n", *source)
 		os.Exit(1)
