@@ -136,3 +136,77 @@ func formatText(items []NewsItem) string {
 func intPtr(i int) *int {
 	return &i
 }
+
+// DouyinLiveInfo represents douyin live stream information
+type DouyinLiveInfo struct {
+	RoomID      string `json:"room_id"`
+	URL         string `json:"url"`
+	IsLive      bool   `json:"is_live"`
+	Title       string `json:"title,omitempty"`
+	StreamURL   string `json:"stream_url,omitempty"`
+	Streamer    string `json:"streamer,omitempty"`
+	ViewerCount *int   `json:"viewer_count,omitempty"`
+	Cover       string `json:"cover,omitempty"`
+}
+
+// FormatDouyinLiveInfo formats douyin live info for output
+func FormatDouyinLiveInfo(info *DouyinLiveInfo, format OutputFormat) (string, error) {
+	switch format {
+	case FormatJSON:
+		return formatDouyinJSON(info)
+	case FormatMarkdown:
+		return formatDouyinMarkdown(info), nil
+	default:
+		return formatDouyinText(info), nil
+	}
+}
+
+func formatDouyinJSON(info *DouyinLiveInfo) (string, error) {
+	data, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func formatDouyinMarkdown(info *DouyinLiveInfo) string {
+	var lines []string
+	lines = append(lines, "## 抖音直播间信息")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("- **房间ID**: %s", info.RoomID))
+	lines = append(lines, fmt.Sprintf("- **主播**: %s", info.Streamer))
+	lines = append(lines, fmt.Sprintf("- **标题**: %s", info.Title))
+	lines = append(lines, fmt.Sprintf("- **直播状态**: %s", formatLiveStatus(info.IsLive)))
+	if info.ViewerCount != nil {
+		lines = append(lines, fmt.Sprintf("- **观看人数**: %d", *info.ViewerCount))
+	}
+	if info.IsLive && info.StreamURL != "" {
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("**流地址**: %s", info.StreamURL))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatDouyinText(info *DouyinLiveInfo) string {
+	var lines []string
+	lines = append(lines, "=== 抖音直播间信息 ===")
+	lines = append(lines, fmt.Sprintf("房间ID: %s", info.RoomID))
+	lines = append(lines, fmt.Sprintf("主播: %s", info.Streamer))
+	lines = append(lines, fmt.Sprintf("标题: %s", info.Title))
+	lines = append(lines, fmt.Sprintf("直播状态: %s", formatLiveStatus(info.IsLive)))
+	if info.ViewerCount != nil {
+		lines = append(lines, fmt.Sprintf("观看人数: %d", *info.ViewerCount))
+	}
+	if info.IsLive && info.StreamURL != "" {
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("流地址: %s", info.StreamURL))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatLiveStatus(isLive bool) string {
+	if isLive {
+		return "直播中"
+	}
+	return "未开播"
+}
