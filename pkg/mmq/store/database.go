@@ -1,0 +1,132 @@
+package store
+
+import (
+	"database/sql"
+	"fmt"
+
+	_ "github.com/mattn/go-sqlite3" // SQLite driver
+)
+
+// schema SQLite数据库schema
+const schema = `
+-- 内容寻址存储（Content-Addressable Storage）
+CREATE TABLE IF NOT EXISTS content (
+    hash TEXT PRIMARY KEY,
+    doc TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- 文档元数据
+CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    collection TEXT NOT NULL,
+    path TEXT NOT NULL,
+    title TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    modified_at TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (hash) REFERENCES content(hash) ON DELETE CASCADE,
+    UNIQUE(collection, path)
+);
+
+-- 索引优化
+CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection, active);
+CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(hash);
+CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(path, active);
+
+-- 向量嵌入元数据
+CREATE TABLE IF NOT EXISTS content_vectors (
+    hash TEXT NOT NULL,
+    seq INTEGER NOT NULL DEFAULT 0,
+    pos INTEGER NOT NULL DEFAULT 0,
+    model TEXT NOT NULL,
+    embedding BLOB,
+    embedded_at TEXT NOT NULL,
+    PRIMARY KEY (hash, seq)
+);
+
+-- FTS5全文搜索索引
+CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+    filepath, title, body,
+    tokenize='porter unicode61'
+);
+
+-- LLM缓存
+CREATE TABLE IF NOT EXISTS llm_cache (
+    hash TEXT PRIMARY KEY,
+    result TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- 触发器：INSERT时同步FTS
+CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents
+BEGIN
+    INSERT INTO documents_fts (rowid, filepath, title, body)
+    SELECT NEW.id, NEW.collection || '/' || NEW.path, NEW.title, content.doc
+    FROM content WHERE content.hash = NEW.hash;
+END;
+
+-- 触发器：UPDATE时同步FTS
+CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents
+BEGIN
+    DELETE FROM documents_fts WHERE rowid = OLD.id;
+    INSERT INTO documents_fts (rowid, filepath, title, body)
+    SELECT NEW.id, NEW.collection || '/' || NEW.path, NEW.title, content.doc
+    FROM content WHERE content.hash = NEW.hash AND NEW.active = 1;
+END;
+
+-- 触发器：DELETE时清理FTS
+CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents
+BEGIN
+    DELETE FROM documents_fts WHERE rowid = OLD.id;
+END;
+`
+
+// Store 数据存储
+type Store struct {
+	db     *sql.DB
+	dbPath string
+}
+
+// New 创建新的Store实例
+func New(dbPath string) (*Store, error) {
+	// 打开数据库
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// 启用WAL模式（Write-Ahead Logging）
+	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+	}
+
+	// 启用外键约束
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	}
+
+	// 初始化schema
+	if _, err := db.Exec(schema); err != nil {
+		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+	}
+
+	return &Store{
+		db:     db,
+		dbPath: dbPath,
+	}, nil
+}
+
+// Close 关闭数据库连接
+func (s *Store) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
+}
+
+// DB 返回底层数据库连接（用于高级操作）
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
