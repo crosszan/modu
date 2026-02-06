@@ -4,14 +4,16 @@ package mmq
 import (
 	"fmt"
 
+	"github.com/crosszan/modu/pkg/mmq/llm"
 	"github.com/crosszan/modu/pkg/mmq/store"
 )
 
 // MMQ 核心实例
 type MMQ struct {
-	store *store.Store
-	//	llm   *llm.LLM  // Phase 2实现
-	cfg Config
+	store     *store.Store
+	llm       llm.LLM
+	embedding *llm.EmbeddingGenerator
+	cfg       Config
 }
 
 // New 创建新的MMQ实例
@@ -27,9 +29,20 @@ func New(cfg Config) (*MMQ, error) {
 		return nil, fmt.Errorf("failed to create store: %w", err)
 	}
 
+	// 初始化LLM
+	// 默认使用MockLLM（用于测试和开发）
+	// 生产环境需要使用真实的LlamaCpp实现
+	var llmImpl llm.LLM
+	llmImpl = llm.NewMockLLM(300) // 300维嵌入
+
+	// 创建嵌入生成器
+	embeddingGen := llm.NewEmbeddingGenerator(llmImpl, cfg.EmbeddingModel, 300)
+
 	return &MMQ{
-		store: st,
-		cfg:   cfg,
+		store:     st,
+		llm:       llmImpl,
+		embedding: embeddingGen,
+		cfg:       cfg,
 	}, nil
 }
 
@@ -42,6 +55,14 @@ func NewWithDB(dbPath string) (*MMQ, error) {
 
 // Close 关闭MMQ实例
 func (m *MMQ) Close() error {
+	// 关闭LLM
+	if m.llm != nil {
+		if err := m.llm.Close(); err != nil {
+			return fmt.Errorf("failed to close LLM: %w", err)
+		}
+	}
+
+	// 关闭store
 	if m.store != nil {
 		return m.store.Close()
 	}
@@ -186,12 +207,46 @@ func (m *MMQ) DeleteDocument(id string) error {
 
 // GenerateEmbeddings 生成所有文档的嵌入
 func (m *MMQ) GenerateEmbeddings() error {
-	// TODO: Phase 2实现
-	return fmt.Errorf("not implemented yet")
+	// 获取需要嵌入的文档
+	docs, err := m.store.GetDocumentsNeedingEmbedding()
+	if err != nil {
+		return fmt.Errorf("failed to get documents: %w", err)
+	}
+
+	if len(docs) == 0 {
+		return nil // 没有需要嵌入的文档
+	}
+
+	// 逐个文档生成嵌入
+	for i, doc := range docs {
+		// 分块
+		chunks := store.ChunkDocument(doc.Content, m.cfg.ChunkSize, m.cfg.ChunkOverlap)
+
+		// 为每个块生成嵌入
+		for j, chunk := range chunks {
+			embedding, err := m.embedding.Generate(chunk.Text, false)
+			if err != nil {
+				return fmt.Errorf("failed to generate embedding for doc %s chunk %d: %w",
+					doc.Hash, j, err)
+			}
+
+			// 存储嵌入
+			err = m.store.StoreEmbedding(doc.Hash, j, chunk.Pos, embedding, m.cfg.EmbeddingModel)
+			if err != nil {
+				return fmt.Errorf("failed to store embedding: %w", err)
+			}
+		}
+
+		// 打印进度
+		if (i+1)%10 == 0 || i == len(docs)-1 {
+			fmt.Printf("Embedded %d/%d documents\n", i+1, len(docs))
+		}
+	}
+
+	return nil
 }
 
 // EmbedText 对文本生成嵌入向量
 func (m *MMQ) EmbedText(text string) ([]float32, error) {
-	// TODO: Phase 2实现
-	return nil, fmt.Errorf("not implemented yet")
+	return m.embedding.Generate(text, true)
 }

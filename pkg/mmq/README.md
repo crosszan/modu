@@ -346,3 +346,41 @@ fmt.Printf("文档数: %d\n", status.TotalDocuments) // 2
 ## License
 
 与modu项目保持一致
+
+## Phase 2: LLM推理层 ✅
+
+### 嵌入功能
+
+```go
+// 生成单个文本的嵌入
+embedding, err := m.EmbedText("查询文本")
+// 返回: []float32{...} 300维向量，已归一化
+
+// 为所有文档生成嵌入
+err := m.GenerateEmbeddings()
+// 输出: Embedded 100/100 documents
+```
+
+### 模型下载
+
+```go
+import "github.com/crosszan/modu/pkg/mmq/llm"
+
+// 下载默认模型
+err := llm.DownloadDefaultModels(cacheDir, func(model string, downloaded, total int64) {
+    fmt.Printf("%s: %.1f%%\n", model, float64(downloaded)/float64(total)*100)
+})
+```
+
+### 双实现架构
+
+**MockLLM (默认)**
+- 用于测试和开发
+- 零外部依赖
+- 确定性输出
+
+**LlamaCpp (生产)**
+- 真实LLM推理
+- 需要编译标签: `-tags "fts5,llama"`
+- 需要下载模型文件
+

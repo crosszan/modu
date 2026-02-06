@@ -3,6 +3,7 @@ package mmq
 import (
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Config MMQ配置
@@ -19,6 +20,10 @@ type Config struct {
 	ChunkSize int
 	// ChunkOverlap 分块重叠（字符数）
 	ChunkOverlap int
+	// Threads LLM推理线程数
+	Threads int
+	// InactivityTimeout 模型空闲自动卸载时间
+	InactivityTimeout time.Duration
 }
 
 // DefaultConfig 返回默认配置
@@ -26,12 +31,14 @@ func DefaultConfig() Config {
 	homeDir, _ := os.UserHomeDir()
 
 	return Config{
-		DBPath:         filepath.Join(homeDir, ".modu", "memory.db"),
-		CacheDir:       filepath.Join(homeDir, ".cache", "modu", "models"),
-		EmbeddingModel: "embeddinggemma-300M-Q8_0",
-		RerankModel:    "qwen3-reranker-0.6b-q8_0",
-		ChunkSize:      3200, // ~800 tokens
-		ChunkOverlap:   480,  // 15% overlap
+		DBPath:            filepath.Join(homeDir, ".modu", "memory.db"),
+		CacheDir:          filepath.Join(homeDir, ".cache", "modu", "models"),
+		EmbeddingModel:    "embeddinggemma-300M-Q8_0",
+		RerankModel:       "qwen3-reranker-0.6b-q8_0",
+		ChunkSize:         3200,           // ~800 tokens
+		ChunkOverlap:      480,            // 15% overlap
+		Threads:           4,              // 4线程
+		InactivityTimeout: 5 * time.Minute, // 5分钟自动卸载
 	}
 }
 
@@ -69,6 +76,14 @@ func (c *Config) Validate() error {
 
 	if c.RerankModel == "" {
 		c.RerankModel = "qwen3-reranker-0.6b-q8_0"
+	}
+
+	if c.Threads == 0 {
+		c.Threads = 4
+	}
+
+	if c.InactivityTimeout == 0 {
+		c.InactivityTimeout = 5 * time.Minute
 	}
 
 	return nil
