@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/crosszan/modu/pkg/mmq/llm"
+	"github.com/crosszan/modu/pkg/mmq/rag"
 	"github.com/crosszan/modu/pkg/mmq/store"
 )
 
@@ -13,6 +14,7 @@ type MMQ struct {
 	store     *store.Store
 	llm       llm.LLM
 	embedding *llm.EmbeddingGenerator
+	retriever *rag.Retriever
 	cfg       Config
 }
 
@@ -38,10 +40,14 @@ func New(cfg Config) (*MMQ, error) {
 	// 创建嵌入生成器
 	embeddingGen := llm.NewEmbeddingGenerator(llmImpl, cfg.EmbeddingModel, 300)
 
+	// 创建RAG检索器
+	retriever := rag.NewRetriever(st, llmImpl, embeddingGen)
+
 	return &MMQ{
 		store:     st,
 		llm:       llmImpl,
 		embedding: embeddingGen,
+		retriever: retriever,
 		cfg:       cfg,
 	}, nil
 }
@@ -110,8 +116,37 @@ func convertSearchResults(storeResults []store.SearchResult) []SearchResult {
 
 // RetrieveContext 检索相关上下文
 func (m *MMQ) RetrieveContext(query string, opts RetrieveOptions) ([]Context, error) {
-	// TODO: Phase 3实现
-	return nil, fmt.Errorf("not implemented yet")
+	// 转换为rag.RetrieveOptions
+	ragOpts := rag.RetrieveOptions{
+		Limit:      opts.Limit,
+		MinScore:   opts.MinScore,
+		Collection: opts.Collection,
+		Strategy:   rag.RetrievalStrategy(opts.Strategy),
+		Rerank:     opts.Rerank,
+	}
+
+	// 调用retriever
+	ragContexts, err := m.retriever.Retrieve(query, ragOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换类型
+	return convertRagContexts(ragContexts), nil
+}
+
+// convertRagContexts 转换rag.Context到mmq.Context
+func convertRagContexts(ragContexts []rag.Context) []Context {
+	contexts := make([]Context, len(ragContexts))
+	for i, rc := range ragContexts {
+		contexts[i] = Context{
+			Text:      rc.Text,
+			Source:    rc.Source,
+			Relevance: rc.Relevance,
+			Metadata:  rc.Metadata,
+		}
+	}
+	return contexts
 }
 
 // Search 搜索文档
@@ -127,8 +162,46 @@ func (m *MMQ) Search(query string, opts SearchOptions) ([]SearchResult, error) {
 
 // HybridSearch 混合搜索
 func (m *MMQ) HybridSearch(query string, opts SearchOptions) ([]SearchResult, error) {
-	// TODO: Phase 3实现（需要llm包）
-	return nil, fmt.Errorf("not implemented yet")
+	// 转换为rag.RetrieveOptions
+	ragOpts := rag.RetrieveOptions{
+		Limit:      opts.Limit,
+		MinScore:   opts.MinScore,
+		Collection: opts.Collection,
+		Strategy:   rag.StrategyHybrid,
+		Rerank:     false, // HybridSearch默认不重排
+	}
+
+	// 调用retriever获取上下文
+	contexts, err := m.retriever.Retrieve(query, ragOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为SearchResult
+	results := make([]SearchResult, len(contexts))
+	for i, ctx := range contexts {
+		results[i] = SearchResult{
+			Score:      ctx.Relevance,
+			Title:      getMetadataString(ctx.Metadata, "title"),
+			Content:    ctx.Text,
+			Snippet:    getMetadataString(ctx.Metadata, "snippet"),
+			Source:     getMetadataString(ctx.Metadata, "source"),
+			Collection: getMetadataString(ctx.Metadata, "collection"),
+			Path:       getMetadataString(ctx.Metadata, "path"),
+		}
+	}
+
+	return results, nil
+}
+
+// getMetadataString 从元数据中获取字符串值
+func getMetadataString(metadata map[string]interface{}, key string) string {
+	if val, ok := metadata[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
 }
 
 // --- 记忆存储API（Phase 4实现）---
