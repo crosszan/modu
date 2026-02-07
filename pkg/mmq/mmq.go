@@ -155,7 +155,7 @@ func convertRagContexts(ragContexts []rag.Context) []Context {
 	return contexts
 }
 
-// Search 搜索文档
+// Search BM25全文搜索（对标QMD的search）
 func (m *MMQ) Search(query string, opts SearchOptions) ([]SearchResult, error) {
 	results, err := m.store.SearchFTS(query, opts.Limit, opts.Collection)
 	if err != nil {
@@ -163,6 +163,24 @@ func (m *MMQ) Search(query string, opts SearchOptions) ([]SearchResult, error) {
 	}
 
 	// 转换类型
+	return convertSearchResults(results), nil
+}
+
+// VectorSearch 向量语义搜索（对标QMD的vsearch）
+// 返回完整文档（文档级别），不是文本块
+func (m *MMQ) VectorSearch(query string, opts SearchOptions) ([]SearchResult, error) {
+	// 生成查询向量
+	queryEmbed, err := m.embedding.Generate(query, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
+	}
+
+	// 文档级向量搜索
+	results, err := m.store.SearchVectorDocuments(query, queryEmbed, opts.Limit, opts.Collection)
+	if err != nil {
+		return nil, err
+	}
+
 	return convertSearchResults(results), nil
 }
 
@@ -328,6 +346,271 @@ func convertToMMQMemories(memories []memory.Memory) []Memory {
 	return mmqMemories
 }
 
+// --- Collection管理API（Phase 5.2实现）---
+
+// CreateCollection 创建集合
+func (m *MMQ) CreateCollection(name, path string, opts CollectionOptions) error {
+	// 设置默认mask
+	mask := opts.Mask
+	if mask == "" {
+		mask = "**/*.md" // 默认索引markdown文件
+	}
+
+	// 创建集合记录
+	err := m.store.CreateCollection(name, path, mask)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ListCollections 列出所有集合
+func (m *MMQ) ListCollections() ([]Collection, error) {
+	storeCollections, err := m.store.ListCollections()
+	if err != nil {
+		return nil, err
+	}
+
+	collections := make([]Collection, len(storeCollections))
+	for i, sc := range storeCollections {
+		collections[i] = Collection{
+			Name:      sc.Name,
+			Path:      sc.Path,
+			Mask:      sc.Mask,
+			CreatedAt: sc.CreatedAt,
+			UpdatedAt: sc.UpdatedAt,
+			DocCount:  sc.DocCount,
+		}
+	}
+
+	return collections, nil
+}
+
+// GetCollection 获取集合信息
+func (m *MMQ) GetCollection(name string) (*Collection, error) {
+	sc, err := m.store.GetCollection(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Collection{
+		Name:      sc.Name,
+		Path:      sc.Path,
+		Mask:      sc.Mask,
+		CreatedAt: sc.CreatedAt,
+		UpdatedAt: sc.UpdatedAt,
+		DocCount:  sc.DocCount,
+	}, nil
+}
+
+// RemoveCollection 删除集合
+func (m *MMQ) RemoveCollection(name string) error {
+	return m.store.RemoveCollection(name)
+}
+
+// RenameCollection 重命名集合
+func (m *MMQ) RenameCollection(oldName, newName string) error {
+	return m.store.RenameCollection(oldName, newName)
+}
+
+// --- Context管理API（Phase 5.3实现）---
+
+// AddContext 添加或更新上下文
+func (m *MMQ) AddContext(path, content string) error {
+	return m.store.AddContext(path, content)
+}
+
+// ListContexts 列出所有上下文
+func (m *MMQ) ListContexts() ([]ContextEntry, error) {
+	storeContexts, err := m.store.ListContexts()
+	if err != nil {
+		return nil, err
+	}
+
+	contexts := make([]ContextEntry, len(storeContexts))
+	for i, sc := range storeContexts {
+		contexts[i] = ContextEntry{
+			Path:      sc.Path,
+			Content:   sc.Content,
+			CreatedAt: sc.CreatedAt,
+			UpdatedAt: sc.UpdatedAt,
+		}
+	}
+
+	return contexts, nil
+}
+
+// GetContext 获取指定路径的上下文
+func (m *MMQ) GetContext(path string) (*ContextEntry, error) {
+	sc, err := m.store.GetContext(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ContextEntry{
+		Path:      sc.Path,
+		Content:   sc.Content,
+		CreatedAt: sc.CreatedAt,
+		UpdatedAt: sc.UpdatedAt,
+	}, nil
+}
+
+// RemoveContext 删除上下文
+func (m *MMQ) RemoveContext(path string) error {
+	return m.store.RemoveContext(path)
+}
+
+// CheckMissingContexts 检查缺失上下文的集合和路径
+func (m *MMQ) CheckMissingContexts() ([]string, error) {
+	return m.store.CheckMissingContexts()
+}
+
+// GetContextsForPath 获取路径的所有相关上下文
+func (m *MMQ) GetContextsForPath(path string) ([]ContextEntry, error) {
+	storeContexts, err := m.store.GetContextsForPath(path)
+	if err != nil {
+		return nil, err
+	}
+
+	contexts := make([]ContextEntry, len(storeContexts))
+	for i, sc := range storeContexts {
+		contexts[i] = ContextEntry{
+			Path:      sc.Path,
+			Content:   sc.Content,
+			CreatedAt: sc.CreatedAt,
+			UpdatedAt: sc.UpdatedAt,
+		}
+	}
+
+	return contexts, nil
+}
+
+// GetDocumentContexts 获取文档的所有相关上下文（按优先级）
+func (m *MMQ) GetDocumentContexts(collection, path string) ([]ContextEntry, error) {
+	storeContexts, err := m.store.GetAllContextsForDocument(collection, path)
+	if err != nil {
+		return nil, err
+	}
+
+	contexts := make([]ContextEntry, len(storeContexts))
+	for i, sc := range storeContexts {
+		contexts[i] = ContextEntry{
+			Path:      sc.Path,
+			Content:   sc.Content,
+			CreatedAt: sc.CreatedAt,
+			UpdatedAt: sc.UpdatedAt,
+		}
+	}
+
+	return contexts, nil
+}
+
+// --- 文档查询API（Phase 5.4实现）---
+
+// ListDocuments 列出集合或路径下的文档
+// - collection 为空：列出所有集合
+// - collection 不为空，path 为空：列出集合下所有文档
+// - collection 和 path 都不为空：列出路径下的文档（前缀匹配）
+func (m *MMQ) ListDocuments(collection, path string) ([]DocumentListEntry, error) {
+	storeEntries, err := m.store.ListDocumentsByPath(collection, path)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]DocumentListEntry, len(storeEntries))
+	for i, se := range storeEntries {
+		entries[i] = DocumentListEntry{
+			ID:         se.ID,
+			DocID:      se.DocID,
+			Collection: se.Collection,
+			Path:       se.Path,
+			Title:      se.Title,
+			Hash:       se.Hash,
+			CreatedAt:  se.CreatedAt,
+			ModifiedAt: se.ModifiedAt,
+		}
+	}
+
+	return entries, nil
+}
+
+// GetDocumentByPath 通过路径获取文档
+// 路径格式：collection/path 或 qmd://collection/path
+func (m *MMQ) GetDocumentByPath(filePath string) (*DocumentDetail, error) {
+	storeDoc, err := m.store.GetDocumentByPath(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DocumentDetail{
+		ID:         storeDoc.ID,
+		DocID:      storeDoc.DocID,
+		Collection: storeDoc.Collection,
+		Path:       storeDoc.Path,
+		Title:      storeDoc.Title,
+		Content:    storeDoc.Content,
+		Hash:       storeDoc.Hash,
+		CreatedAt:  storeDoc.CreatedAt,
+		ModifiedAt: storeDoc.ModifiedAt,
+	}, nil
+}
+
+// GetDocumentByID 通过短docid获取文档
+// docid 格式：#abc123 或 abc123
+func (m *MMQ) GetDocumentByID(docID string) (*DocumentDetail, error) {
+	storeDoc, err := m.store.GetDocumentByID(docID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DocumentDetail{
+		ID:         storeDoc.ID,
+		DocID:      storeDoc.DocID,
+		Collection: storeDoc.Collection,
+		Path:       storeDoc.Path,
+		Title:      storeDoc.Title,
+		Content:    storeDoc.Content,
+		Hash:       storeDoc.Hash,
+		CreatedAt:  storeDoc.CreatedAt,
+		ModifiedAt: storeDoc.ModifiedAt,
+	}, nil
+}
+
+// GetMultipleDocuments 批量获取文档
+// 支持：
+// - 逗号分隔的docid列表：#abc123, #def456
+// - 逗号分隔的路径列表：docs/a.md, docs/b.md
+// - Glob模式：docs/**/*.md
+func (m *MMQ) GetMultipleDocuments(pattern string, maxBytes int) ([]DocumentDetail, error) {
+	storeDocs, err := m.store.GetMultipleDocuments(pattern, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	var docs []DocumentDetail
+	for _, sd := range storeDocs {
+		// 跳过 nil 元素（被 maxBytes 过滤掉的）
+		if sd == nil {
+			continue
+		}
+
+		docs = append(docs, DocumentDetail{
+			ID:         sd.ID,
+			DocID:      sd.DocID,
+			Collection: sd.Collection,
+			Path:       sd.Path,
+			Title:      sd.Title,
+			Content:    sd.Content,
+			Hash:       sd.Hash,
+			CreatedAt:  sd.CreatedAt,
+			ModifiedAt: sd.ModifiedAt,
+		})
+	}
+
+	return docs, nil
+}
+
 // --- 文档管理API ---
 
 // IndexDocument 索引单个文档
@@ -342,12 +625,6 @@ func (m *MMQ) IndexDocument(doc Document) error {
 		ModifiedAt: doc.ModifiedAt,
 	}
 	return m.store.IndexDocument(storeDoc)
-}
-
-// IndexDirectory 索引目录
-func (m *MMQ) IndexDirectory(path string, opts IndexOptions) error {
-	// TODO: 实现目录遍历和批量索引
-	return fmt.Errorf("not implemented yet")
 }
 
 // GetDocument 获取文档

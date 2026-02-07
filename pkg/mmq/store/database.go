@@ -77,6 +77,29 @@ CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE INDEX IF NOT EXISTS idx_memories_timestamp ON memories(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories(expires_at);
 
+-- 集合管理
+CREATE TABLE IF NOT EXISTS collections (
+    name TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    mask TEXT NOT NULL DEFAULT '**/*',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- 集合索引
+CREATE INDEX IF NOT EXISTS idx_collections_path ON collections(path);
+
+-- 上下文管理
+CREATE TABLE IF NOT EXISTS contexts (
+    path TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- 上下文索引
+CREATE INDEX IF NOT EXISTS idx_contexts_path ON contexts(path);
+
 -- 触发器：INSERT时同步FTS
 CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents
 BEGIN

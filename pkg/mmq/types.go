@@ -115,3 +115,53 @@ type RecallOptions struct {
 	WeightByImportance  bool         // 是否按重要性加权
 	MinRelevance        float64      // 最小相关度
 }
+
+// Collection 集合
+type Collection struct {
+	Name      string    `json:"name"`
+	Path      string    `json:"path"`
+	Mask      string    `json:"mask"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	DocCount  int       `json:"doc_count"`
+}
+
+// CollectionOptions 集合选项
+type CollectionOptions struct {
+	Mask      string // Glob模式，如 "**/*.md"
+	Recursive bool   // 是否递归（默认true）
+	GitPull   bool   // 是否先执行git pull
+}
+
+// ContextEntry 上下文条目
+type ContextEntry struct {
+	Path      string    `json:"path"`       // 路径（/为全局，qmd://collection为集合级）
+	Content   string    `json:"content"`    // 上下文内容
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// DocumentListEntry 文档列表条目
+type DocumentListEntry struct {
+	ID         int       `json:"id"`
+	DocID      string    `json:"docid"`      // 短docid（前6位哈希）
+	Collection string    `json:"collection"`
+	Path       string    `json:"path"`
+	Title      string    `json:"title"`
+	Hash       string    `json:"hash"`
+	CreatedAt  time.Time `json:"created_at"`
+	ModifiedAt time.Time `json:"modified_at"`
+}
+
+// DocumentDetail 文档详情
+type DocumentDetail struct {
+	ID         int       `json:"id"`
+	DocID      string    `json:"docid"`
+	Collection string    `json:"collection"`
+	Path       string    `json:"path"`
+	Title      string    `json:"title"`
+	Content    string    `json:"content"`
+	Hash       string    `json:"hash"`
+	CreatedAt  time.Time `json:"created_at"`
+	ModifiedAt time.Time `json:"modified_at"`
+}
