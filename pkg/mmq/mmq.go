@@ -5,17 +5,19 @@ import (
 	"fmt"
 
 	"github.com/crosszan/modu/pkg/mmq/llm"
+	"github.com/crosszan/modu/pkg/mmq/memory"
 	"github.com/crosszan/modu/pkg/mmq/rag"
 	"github.com/crosszan/modu/pkg/mmq/store"
 )
 
 // MMQ 核心实例
 type MMQ struct {
-	store     *store.Store
-	llm       llm.LLM
-	embedding *llm.EmbeddingGenerator
-	retriever *rag.Retriever
-	cfg       Config
+	store         *store.Store
+	llm           llm.LLM
+	embedding     *llm.EmbeddingGenerator
+	retriever     *rag.Retriever
+	memoryManager *memory.Manager
+	cfg           Config
 }
 
 // New 创建新的MMQ实例
@@ -43,12 +45,16 @@ func New(cfg Config) (*MMQ, error) {
 	// 创建RAG检索器
 	retriever := rag.NewRetriever(st, llmImpl, embeddingGen)
 
+	// 创建记忆管理器
+	memoryMgr := memory.NewManager(st, embeddingGen)
+
 	return &MMQ{
-		store:     st,
-		llm:       llmImpl,
-		embedding: embeddingGen,
-		retriever: retriever,
-		cfg:       cfg,
+		store:         st,
+		llm:           llmImpl,
+		embedding:     embeddingGen,
+		retriever:     retriever,
+		memoryManager: memoryMgr,
+		cfg:           cfg,
 	}, nil
 }
 
@@ -208,26 +214,118 @@ func getMetadataString(metadata map[string]interface{}, key string) string {
 
 // StoreMemory 存储记忆
 func (m *MMQ) StoreMemory(mem Memory) error {
-	// TODO: Phase 4实现
-	return fmt.Errorf("not implemented yet")
+	memoryMem := memory.Memory{
+		ID:         mem.ID,
+		Type:       memory.MemoryType(mem.Type),
+		Content:    mem.Content,
+		Metadata:   mem.Metadata,
+		Tags:       mem.Tags,
+		Timestamp:  mem.Timestamp,
+		ExpiresAt:  mem.ExpiresAt,
+		Importance: mem.Importance,
+	}
+
+	return m.memoryManager.Store(memoryMem)
 }
 
 // RecallMemories 回忆记忆
-func (m *MMQ) RecallMemories(query string, limit int) ([]Memory, error) {
-	// TODO: Phase 4实现
-	return nil, fmt.Errorf("not implemented yet")
+func (m *MMQ) RecallMemories(query string, opts RecallOptions) ([]Memory, error) {
+	memOpts := memory.RecallOptions{
+		Limit:              opts.Limit,
+		MemoryTypes:        convertMemoryTypes(opts.MemoryTypes),
+		ApplyDecay:         opts.ApplyDecay,
+		DecayHalflife:      opts.DecayHalflife,
+		WeightByImportance: opts.WeightByImportance,
+		MinRelevance:       opts.MinRelevance,
+	}
+
+	memories, err := m.memoryManager.Recall(query, memOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertToMMQMemories(memories), nil
 }
 
 // UpdateMemory 更新记忆
 func (m *MMQ) UpdateMemory(id string, mem Memory) error {
-	// TODO: Phase 4实现
-	return fmt.Errorf("not implemented yet")
+	memoryMem := memory.Memory{
+		ID:         mem.ID,
+		Type:       memory.MemoryType(mem.Type),
+		Content:    mem.Content,
+		Metadata:   mem.Metadata,
+		Tags:       mem.Tags,
+		Timestamp:  mem.Timestamp,
+		ExpiresAt:  mem.ExpiresAt,
+		Importance: mem.Importance,
+	}
+
+	return m.memoryManager.Update(id, memoryMem)
 }
 
 // DeleteMemory 删除记忆
 func (m *MMQ) DeleteMemory(id string) error {
-	// TODO: Phase 4实现
-	return fmt.Errorf("not implemented yet")
+	return m.memoryManager.Delete(id)
+}
+
+// GetMemoryByID 根据ID获取记忆
+func (m *MMQ) GetMemoryByID(id string) (*Memory, error) {
+	mem, err := m.memoryManager.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Memory{
+		ID:         mem.ID,
+		Type:       MemoryType(mem.Type),
+		Content:    mem.Content,
+		Metadata:   mem.Metadata,
+		Tags:       mem.Tags,
+		Timestamp:  mem.Timestamp,
+		ExpiresAt:  mem.ExpiresAt,
+		Importance: mem.Importance,
+	}, nil
+}
+
+// CleanupExpiredMemories 清理过期记忆
+func (m *MMQ) CleanupExpiredMemories() (int, error) {
+	return m.memoryManager.CleanupExpired()
+}
+
+// CountMemories 统计记忆数量
+func (m *MMQ) CountMemories() (int, error) {
+	return m.memoryManager.Count()
+}
+
+// convertMemoryTypes 转换记忆类型
+func convertMemoryTypes(types []MemoryType) []memory.MemoryType {
+	if types == nil {
+		return nil
+	}
+
+	memTypes := make([]memory.MemoryType, len(types))
+	for i, t := range types {
+		memTypes[i] = memory.MemoryType(t)
+	}
+	return memTypes
+}
+
+// convertToMMQMemories 转换记忆到MMQ类型
+func convertToMMQMemories(memories []memory.Memory) []Memory {
+	mmqMemories := make([]Memory, len(memories))
+	for i, mem := range memories {
+		mmqMemories[i] = Memory{
+			ID:         mem.ID,
+			Type:       MemoryType(mem.Type),
+			Content:    mem.Content,
+			Metadata:   mem.Metadata,
+			Tags:       mem.Tags,
+			Timestamp:  mem.Timestamp,
+			ExpiresAt:  mem.ExpiresAt,
+			Importance: mem.Importance,
+		}
+	}
+	return mmqMemories
 }
 
 // --- 文档管理API ---
@@ -322,4 +420,19 @@ func (m *MMQ) GenerateEmbeddings() error {
 // EmbedText 对文本生成嵌入向量
 func (m *MMQ) EmbedText(text string) ([]float32, error) {
 	return m.embedding.Generate(text, true)
+}
+
+// GetStore 获取Store实例（用于高级用法）
+func (m *MMQ) GetStore() *store.Store {
+	return m.store
+}
+
+// GetEmbedding 获取EmbeddingGenerator实例（用于高级用法）
+func (m *MMQ) GetEmbedding() *llm.EmbeddingGenerator {
+	return m.embedding
+}
+
+// GetMemoryManager 获取MemoryManager实例（用于高级用法）
+func (m *MMQ) GetMemoryManager() *memory.Manager {
+	return m.memoryManager
 }

@@ -105,3 +105,13 @@ type Status struct {
 	DBPath         string   `json:"db_path"`
 	CacheDir       string   `json:"cache_dir"`
 }
+
+// RecallOptions 记忆回忆选项
+type RecallOptions struct {
+	Limit               int          // 返回记忆数量
+	MemoryTypes         []MemoryType // 过滤记忆类型
+	ApplyDecay          bool         // 是否应用时间衰减
+	DecayHalflife       time.Duration // 衰减半衰期
+	WeightByImportance  bool         // 是否按重要性加权
+	MinRelevance        float64      // 最小相关度
+}

@@ -59,6 +59,24 @@ CREATE TABLE IF NOT EXISTS llm_cache (
     created_at TEXT NOT NULL
 );
 
+-- 记忆存储
+CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    metadata TEXT,
+    tags TEXT,
+    timestamp TEXT NOT NULL,
+    expires_at TEXT,
+    importance REAL NOT NULL DEFAULT 0.5,
+    embedding BLOB
+);
+
+-- 记忆索引
+CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
+CREATE INDEX IF NOT EXISTS idx_memories_timestamp ON memories(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_expires ON memories(expires_at);
+
 -- 触发器：INSERT时同步FTS
 CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents
 BEGIN
