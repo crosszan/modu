@@ -11,6 +11,24 @@ import (
 	"github.com/openmodu/modu/pkg/types"
 )
 
+func TestAccountUsageCountsTurns(t *testing.T) {
+	s := NewStore()
+	g, _ := s.Start("count turns")
+
+	// Two productive turns (output > 0) plus a zero-usage flush.
+	s.AccountUsage(types.AgentUsage{Input: 50, Output: 20}, 1, false, g.ID)
+	s.AccountUsage(types.AgentUsage{Output: 5}, 1, false, g.ID)
+	s.AccountUsage(types.AgentUsage{}, 0, false, g.ID) // pause/flush, not a turn
+
+	got, _ := s.Current()
+	if got.Turns != 2 {
+		t.Fatalf("Turns = %d, want 2 (zero-usage flush must not count)", got.Turns)
+	}
+	if stats := goalCompletionStats(got); !strings.Contains(stats, "2 turns") {
+		t.Fatalf("completion stats = %q, want it to include '2 turns'", stats)
+	}
+}
+
 func TestAddGoalParksPreviousActive(t *testing.T) {
 	s := NewStore()
 	first, err := s.Start("first")
