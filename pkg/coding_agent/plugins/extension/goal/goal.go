@@ -853,12 +853,30 @@ func formatGoalActionFeedback(g Goal) string {
 	case StatusPaused:
 		return icon + " paused"
 	case StatusComplete:
-		return fmt.Sprintf("%s complete · %s", icon, obj)
+		// Claude-Code-style compact close: the agent already summarized the
+		// work, so the goal line is just the outcome plus elapsed/tokens.
+		return strings.TrimRight(fmt.Sprintf("%s Goal achieved %s", icon, goalCompletionStats(g)), " ")
 	case StatusBudgetLimited:
 		return fmt.Sprintf("%s budget-limited · %s", icon, obj)
 	default: // active
 		return fmt.Sprintf("%s %s", icon, obj)
 	}
+}
+
+// goalCompletionStats renders "(37s · 26K tokens)" from the goal's tallies, or
+// "" when nothing was recorded.
+func goalCompletionStats(g Goal) string {
+	var parts []string
+	if g.TimeUsedSeconds > 0 {
+		parts = append(parts, formatElapsed(g.TimeUsedSeconds))
+	}
+	if g.TokensUsed > 0 {
+		parts = append(parts, formatTokensCompact(g.TokensUsed)+" tokens")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "(" + strings.Join(parts, " · ") + ")"
 }
 
 func (e *Extension) tell(msg string) {
