@@ -122,3 +122,39 @@ func TestEventPresenterMapsSessionEvents(t *testing.T) {
 		t.Fatalf("compact node = %#v", compact.Nodes)
 	}
 }
+
+func TestEventPresenterCompactsSubagentLifecycle(t *testing.T) {
+	presenter := NewEventPresenter(nil, "")
+
+	start, ok := presenter.SessionEvent(coding_agent.SessionEvent{
+		Type:         coding_agent.SessionEventSubagentStart,
+		SubagentName: "goal-verifier",
+		SubagentTask: "The agent claims the following objective is complete:\nline one\nline two\n" + strings.Repeat("x", 400),
+	})
+	if !ok {
+		t.Fatal("subagent start not presented")
+	}
+	startText := start.Nodes[0].(modutui.MarkdownNode).Text
+	if !strings.Contains(startText, "subagent start: goal-verifier") {
+		t.Fatalf("start missing name: %q", startText)
+	}
+	if strings.Contains(startText, "\n") {
+		t.Fatalf("start should be a single line, got:\n%s", startText)
+	}
+	if len([]rune(startText)) > 140 {
+		t.Fatalf("start not truncated (%d runes): %q", len([]rune(startText)), startText)
+	}
+
+	stop, _ := presenter.SessionEvent(coding_agent.SessionEvent{
+		Type:         coding_agent.SessionEventSubagentStop,
+		SubagentName: "goal-verifier",
+		ErrorMessage: "subagent \"goal-verifier\": subagent exceeded max_turns=20",
+	})
+	stopText := stop.Nodes[0].(modutui.MarkdownNode).Text
+	if strings.Contains(stopText, "\n") {
+		t.Fatalf("stop should be a single line, got:\n%s", stopText)
+	}
+	if !strings.Contains(stopText, "error:") || !strings.Contains(stopText, "max_turns=20") {
+		t.Fatalf("stop should keep the error: %q", stopText)
+	}
+}
