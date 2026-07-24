@@ -105,14 +105,20 @@ func (p EventPresenter) SessionEvent(event coding_agent.SessionEvent) (modutui.E
 	case coding_agent.SessionEventWorktreeRemove:
 		return infoEntry("worktree removed: " + event.Path), true
 	case coding_agent.SessionEventSubagentStart:
-		return infoEntry("subagent start: " + event.SubagentName + "\n" + event.SubagentTask), true
+		text := "subagent start: " + event.SubagentName
+		if preview := firstLinePreview(event.SubagentTask, 80); preview != "" {
+			text += " · " + preview
+		}
+		return infoEntry(text), true
 	case coding_agent.SessionEventSubagentStop:
 		text := "subagent stop: " + event.SubagentName
+		// Keep the lifecycle line to one row: errors matter, but the full
+		// task prompt and result would flood the transcript — the result is
+		// already delivered to the agent and shown in the task panel.
 		if event.ErrorMessage != "" {
-			text += "\nerror: " + event.ErrorMessage
-		}
-		if event.SubagentResult != "" {
-			text += "\n" + event.SubagentResult
+			text += " · error: " + firstLinePreview(event.ErrorMessage, 140)
+		} else if preview := firstLinePreview(event.SubagentResult, 80); preview != "" {
+			text += " · " + preview
 		}
 		return infoEntry(text), true
 	case coding_agent.SessionEventPermissionReq:
@@ -188,6 +194,21 @@ func markdownEntry(role modutui.Role, text string) modutui.Entry {
 
 func infoEntry(text string) modutui.Entry {
 	return markdownEntry(modutui.RoleAssistant, strings.TrimSpace(text))
+}
+
+// firstLinePreview collapses text to a single trimmed line and truncates it to
+// limit runes, so multi-line prompts and results render as one compact row in
+// lifecycle lines instead of flooding the transcript.
+func firstLinePreview(text string, limit int) string {
+	text = strings.TrimSpace(strings.Join(strings.Fields(text), " "))
+	runes := []rune(text)
+	if limit <= 0 || len(runes) <= limit {
+		return text
+	}
+	if limit <= 1 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-1]) + "…"
 }
 
 func toolEntry(node modutui.ToolNode) modutui.Entry {
