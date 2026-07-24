@@ -32,7 +32,10 @@ import (
 
 const (
 	defaultVerifierMaxRejects = 3
-	defaultVerifierMaxTurns   = 12
+	// A verifier often runs a build plus several tests and inspects files
+	// before it can judge; 12 turns was tight enough that real checks hit
+	// the cap and fell through as "unverified". 20 gives normal checks room.
+	defaultVerifierMaxTurns = 20
 )
 
 // verifierTools is the child's tool whitelist: discovery plus execution,
@@ -286,7 +289,8 @@ func (e *Extension) verifyCompletion(ctx context.Context) (string, bool) {
 		MaxTurns:     cfg.maxTurns(),
 	})
 	if err != nil {
-		e.tell(fmt.Sprintf("verifier unavailable (%v) — accepting completion unverified", err))
+		e.markGoalUnverified(g.ID)
+		e.tell(fmt.Sprintf("verifier could not run (%v) — completing WITHOUT independent verification", err))
 		return "", false
 	}
 

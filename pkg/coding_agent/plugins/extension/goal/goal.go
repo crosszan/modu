@@ -39,10 +39,12 @@ type Extension struct {
 	agentTurnInProgress     bool
 	completedThisTurnGoalID string
 	lastSessionStartReason  string
-	// verifiedGoalID marks the goal whose completion the independent verifier
-	// most recently confirmed, so the user-facing completion message can note
-	// it was checked. Consumed (cleared) when that goal's completion prints.
-	verifiedGoalID string
+	// verifiedGoalID / unverifiedGoalID mark the goal whose completion the
+	// independent verifier most recently confirmed, or could not check
+	// (verifier failed to run), so the completion message can say which.
+	// Consumed (cleared) when that goal's completion prints.
+	verifiedGoalID   string
+	unverifiedGoalID string
 	// pendingChildUsage accumulates token usage reported by subagent
 	// (ForkSession) children during the current agent turn. It is folded
 	// into the turn's own usage at agent_end so a goal's budget reflects
@@ -533,26 +535,45 @@ func (e *Extension) apiHasPendingMessages() bool {
 func (e *Extension) markGoalVerified(id string) {
 	e.mu.Lock()
 	e.verifiedGoalID = id
+	e.unverifiedGoalID = ""
 	e.mu.Unlock()
 }
 
-// takeGoalVerified reports (and clears) whether id was just verified.
-func (e *Extension) takeGoalVerified(id string) bool {
+// markGoalUnverified records that the verifier was enabled but could not run,
+// so the completion is going through without an independent check.
+func (e *Extension) markGoalUnverified(id string) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.verifiedGoalID != "" && e.verifiedGoalID == id {
-		e.verifiedGoalID = ""
-		return true
-	}
-	return false
+	e.unverifiedGoalID = id
+	e.verifiedGoalID = ""
+	e.mu.Unlock()
 }
 
-// completionFeedback is the user-facing completion message, noting the
-// independent verifier's verdict when it gated this completion.
+// takeGoalVerificationNote reports (and clears) how id's completion was
+// checked: "verified", "unverified", or "" (no verifier involved).
+func (e *Extension) takeGoalVerificationNote(id string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch {
+	case e.verifiedGoalID != "" && e.verifiedGoalID == id:
+		e.verifiedGoalID = ""
+		return "verified"
+	case e.unverifiedGoalID != "" && e.unverifiedGoalID == id:
+		e.unverifiedGoalID = ""
+		return "unverified"
+	default:
+		return ""
+	}
+}
+
+// completionFeedback is the user-facing completion message, noting whether an
+// independent verifier confirmed the completion or could not run.
 func (e *Extension) completionFeedback(g Goal) string {
 	msg := formatGoalActionFeedback(g)
-	if e.takeGoalVerified(g.ID) {
+	switch e.takeGoalVerificationNote(g.ID) {
+	case "verified":
 		msg += "\n✓ Passed an independent completion check"
+	case "unverified":
+		msg += "\n⚠ Completed without verification — the verifier could not run"
 	}
 	return msg
 }
