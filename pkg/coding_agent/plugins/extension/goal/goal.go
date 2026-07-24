@@ -151,6 +151,7 @@ func (e *Extension) RuntimeState() any {
 		"outputTokens":     g.OutputTokens,
 		"cacheReadTokens":  g.CacheReadTokens,
 		"cacheWriteTokens": g.CacheWriteTokens,
+		"turns":            g.Turns,
 		"timeUsedSeconds":  g.TimeUsedSeconds,
 		"createdAt":        g.CreatedAt,
 		"updatedAt":        g.UpdatedAt,
@@ -869,6 +870,13 @@ func goalCompletionStats(g Goal) string {
 	var parts []string
 	if g.TimeUsedSeconds > 0 {
 		parts = append(parts, formatElapsed(g.TimeUsedSeconds))
+	}
+	if g.Turns > 0 {
+		unit := " turns"
+		if g.Turns == 1 {
+			unit = " turn"
+		}
+		parts = append(parts, fmt.Sprintf("%d%s", g.Turns, unit))
 	}
 	if g.TokensUsed > 0 {
 		parts = append(parts, formatTokensCompact(g.TokensUsed)+" tokens")

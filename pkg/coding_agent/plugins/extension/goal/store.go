@@ -53,16 +53,18 @@ type Goal struct {
 	// TokensUsed is the budget counter: fresh Input + Output, excluding
 	// cache reads/writes. The breakdown fields below are display-only
 	// accumulators and are not compared against TokenBudget.
-	TokensUsed       int    `json:"tokensUsed"`
-	InputTokens      int    `json:"inputTokens,omitempty"`
-	OutputTokens     int    `json:"outputTokens,omitempty"`
-	CacheReadTokens  int    `json:"cacheReadTokens,omitempty"`
-	CacheWriteTokens int    `json:"cacheWriteTokens,omitempty"`
-	TimeUsedSeconds  int64  `json:"timeUsedSeconds"`
-	CreatedAt        int64  `json:"createdAt"`
-	UpdatedAt        int64  `json:"updatedAt"`
-	LastStartedAt    *int64 `json:"lastStartedAt,omitempty"`
-	CompletedAt      *int64 `json:"completedAt,omitempty"`
+	TokensUsed       int `json:"tokensUsed"`
+	InputTokens      int `json:"inputTokens,omitempty"`
+	OutputTokens     int `json:"outputTokens,omitempty"`
+	CacheReadTokens  int `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int `json:"cacheWriteTokens,omitempty"`
+	// Turns counts agent runs that produced output while the goal was active.
+	Turns           int    `json:"turns,omitempty"`
+	TimeUsedSeconds int64  `json:"timeUsedSeconds"`
+	CreatedAt       int64  `json:"createdAt"`
+	UpdatedAt       int64  `json:"updatedAt"`
+	LastStartedAt   *int64 `json:"lastStartedAt,omitempty"`
+	CompletedAt     *int64 `json:"completedAt,omitempty"`
 	// VerifierRejects counts consecutive completion claims the independent
 	// goal verifier has rejected. Reset whenever the goal (re)enters active
 	// via an explicit status update, so a user resume grants a fresh round.
@@ -436,6 +438,11 @@ func (s *Store) accountUsage(usage types.AgentUsage, elapsedSeconds int64, mode 
 	current.OutputTokens += max(usage.Output, 0)
 	current.CacheReadTokens += max(usage.CacheRead, 0)
 	current.CacheWriteTokens += max(usage.CacheWrite, 0)
+	// A turn is one agent run that actually produced output; zero-usage
+	// accounting flushes (pause/clear/before-complete) do not count.
+	if usage.Output > 0 {
+		current.Turns++
+	}
 	current.TimeUsedSeconds += elapsedSeconds
 	current.UpdatedAt = nowSeconds()
 	current.Status = statusAfterAccounting(current.Status, current.TokensUsed, current.TokenBudget, mode)
