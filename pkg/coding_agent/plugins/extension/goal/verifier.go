@@ -275,7 +275,7 @@ func (e *Extension) verifyCompletion(ctx context.Context) (string, bool) {
 	// by an unexplained goal-verifier subagent, and the goal's completion
 	// message only lands after that child finishes — which reads as the goal
 	// finishing, stalling, then finishing again.
-	e.tell("goal: completion claimed — running an independent verifier before marking it done…")
+	e.tell("completion claimed — running an independent verifier before marking it done…")
 	out, err := e.api.ForkSession(ctx, extension.ForkOptions{
 		Name:         "goal-verifier",
 		SystemPrompt: sysPrompt,
@@ -286,14 +286,14 @@ func (e *Extension) verifyCompletion(ctx context.Context) (string, bool) {
 		MaxTurns:     cfg.maxTurns(),
 	})
 	if err != nil {
-		e.tell(fmt.Sprintf("goal: verifier unavailable (%v) — accepting completion unverified", err))
+		e.tell(fmt.Sprintf("verifier unavailable (%v) — accepting completion unverified", err))
 		return "", false
 	}
 
 	verdict, parsed := parseVerifierVerdict(out)
 	if parsed && verdict.Verdict == "PASS" {
 		e.markGoalVerified(g.ID)
-		e.tell("goal: verifier PASS — completion confirmed by independent check")
+		e.tell("verifier PASS — completion confirmed by independent check")
 		return "", false
 	}
 	reasons := verdict.Reasons
@@ -323,11 +323,11 @@ func (e *Extension) verifyCompletion(ctx context.Context) (string, bool) {
 	if rejects >= maxRejects {
 		if paused, perr := e.store.Pause(); perr == nil {
 			e.stopAgentGoalAccounting(paused.ID)
-			e.tell(fmt.Sprintf("goal: paused after %d consecutive verifier rejects — needs human review\n%s", rejects, FormatGoalForUser(&paused)))
+			e.tell(fmt.Sprintf("paused after %d consecutive verifier rejects — needs human review\n%s", rejects, FormatGoalForUser(&paused)))
 			fmt.Fprintf(&b, "\nThe goal has been PAUSED after %d consecutive rejects and now needs human review. Stop working on it and summarize the open gaps for the user.", rejects)
 		}
 	} else {
-		e.tell(fmt.Sprintf("goal: verifier REJECT (%d/%d)\n- %s", rejects, maxRejects, strings.Join(reasons, "\n- ")))
+		e.tell(fmt.Sprintf("verifier REJECT (%d/%d)\n- %s", rejects, maxRejects, strings.Join(reasons, "\n- ")))
 	}
 	return strings.TrimRight(b.String(), "\n"), true
 }

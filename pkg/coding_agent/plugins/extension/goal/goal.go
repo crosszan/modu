@@ -365,7 +365,7 @@ func (e *Extension) onAgentStart(_ types.Event) {
 
 	g, ok, err := e.store.CurrentErr()
 	if err != nil {
-		e.tell(fmt.Sprintf("goal: read failed: %v", err))
+		e.tell(fmt.Sprintf("read failed: %v", err))
 		e.clearAgentGoalAccounting()
 		return
 	}
@@ -383,7 +383,7 @@ func (e *Extension) onSessionStart(event types.Event) {
 
 	g, ok, err := e.store.CurrentErr()
 	if err != nil {
-		e.tell(fmt.Sprintf("goal: read failed: %v", err))
+		e.tell(fmt.Sprintf("read failed: %v", err))
 		e.clearAgentGoalAccounting()
 		return
 	}
@@ -391,7 +391,7 @@ func (e *Extension) onSessionStart(event types.Event) {
 		e.beginAgentGoalAccounting(g)
 		if ShouldQueueContinuationWhenIdle(&g, e.apiIsIdle(), e.apiHasPendingMessages()) {
 			if err := e.queueHiddenGoalPrompt(goalContinuationType, BuildContinuationPrompt(g)); err != nil {
-				e.tell(fmt.Sprintf("goal: startup continuation inject failed: %v", err))
+				e.tell(fmt.Sprintf("startup continuation inject failed: %v", err))
 			}
 		}
 		return
@@ -402,7 +402,7 @@ func (e *Extension) onSessionStart(event types.Event) {
 func (e *Extension) onUIReady(_ types.Event) {
 	g, ok, err := e.store.CurrentErr()
 	if err != nil {
-		e.tell(fmt.Sprintf("goal: read failed: %v", err))
+		e.tell(fmt.Sprintf("read failed: %v", err))
 		return
 	}
 	if !ok || g.Status != StatusPaused {
@@ -415,7 +415,7 @@ func (e *Extension) onUIReady(_ types.Event) {
 		return
 	}
 	if err := e.cmdResume(""); err != nil {
-		e.tell(fmt.Sprintf("goal: resume failed: %v", err))
+		e.tell(fmt.Sprintf("resume failed: %v", err))
 	}
 }
 
@@ -475,7 +475,7 @@ func (e *Extension) onAgentEnd(event types.Event) {
 		// after-agent-end policy only cares about pending user messages.
 		if ShouldQueueContinuationAfterAgentEnd(&g, e.apiHasPendingMessages()) {
 			if err := e.queueHiddenGoalPrompt(goalContinuationType, BuildContinuationPrompt(g)); err != nil {
-				e.tell(fmt.Sprintf("goal: continuation inject failed: %v (loop will halt)", err))
+				e.tell(fmt.Sprintf("continuation inject failed: %v (loop will halt)", err))
 			}
 		}
 		return
@@ -483,7 +483,7 @@ func (e *Extension) onAgentEnd(event types.Event) {
 	e.clearAgentGoalAccounting()
 	if g.Status == StatusBudgetLimited && !e.apiHasPendingMessages() {
 		if err := e.queueHiddenGoalPrompt(goalBudgetLimitType, BuildBudgetLimitedPrompt(g)); err != nil {
-			e.tell(fmt.Sprintf("goal: budget-limit prompt inject failed: %v", err))
+			e.tell(fmt.Sprintf("budget-limit prompt inject failed: %v", err))
 		}
 	}
 }
@@ -627,7 +627,7 @@ func (e *Extension) accountCurrentAgentTurn(usage types.AgentUsage, includeCompl
 	if goalID == "" {
 		g, ok, err := e.store.CurrentErr()
 		if err != nil {
-			e.tell(fmt.Sprintf("goal: usage accounting failed: %v", err))
+			e.tell(fmt.Sprintf("usage accounting failed: %v", err))
 			return Goal{}, false
 		}
 		return g, ok
@@ -638,7 +638,7 @@ func (e *Extension) accountCurrentAgentTurn(usage types.AgentUsage, includeCompl
 	}
 	g, ok, err := e.store.AccountUsage(usage, elapsed, includeComplete, goalID)
 	if err != nil {
-		e.tell(fmt.Sprintf("goal: usage accounting failed: %v", err))
+		e.tell(fmt.Sprintf("usage accounting failed: %v", err))
 		return Goal{}, false
 	}
 	if ok && g.ID == goalID {
@@ -757,12 +757,26 @@ func goalIndicatorText(g Goal) string {
 	}
 }
 
-// formatGoalActionFeedback assembles the slash-command echo / host
-// notification body. The FormatGoalForUser header already leads with the
-// status icon and label, so callers see the full state (status / tokens /
-// time / completion) without a duplicate "Goal <status>" prefix.
+// formatGoalActionFeedback is the concise, single-line echo for a goal action
+// (set / resume / pause / complete). The host already prefixes "goal: " and
+// the full multi-line card lives behind /goal-status, so setting a goal reads
+// as one clean status line instead of a card with meaningless 0 tokens / 0s.
 func formatGoalActionFeedback(g Goal) string {
-	return FormatGoalForUser(&g)
+	obj := strings.TrimSpace(strings.Join(strings.Fields(g.Objective), " "))
+	if r := []rune(obj); len(r) > 72 {
+		obj = string(r[:71]) + "…"
+	}
+	icon := goalStatusIcon(g.Status)
+	switch g.Status {
+	case StatusPaused:
+		return icon + " paused"
+	case StatusComplete:
+		return fmt.Sprintf("%s complete · %s", icon, obj)
+	case StatusBudgetLimited:
+		return fmt.Sprintf("%s budget-limited · %s", icon, obj)
+	default: // active
+		return fmt.Sprintf("%s %s", icon, obj)
+	}
 }
 
 func (e *Extension) tell(msg string) {
