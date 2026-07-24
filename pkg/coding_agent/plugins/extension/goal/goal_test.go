@@ -430,10 +430,8 @@ func TestUpdateGoalCompleteStopsLoop(t *testing.T) {
 	}
 	foundCompleteNotice := false
 	for _, notice := range api.notices {
-		// formatGoalActionFeedback emits FormatGoalForUser, whose header leads
-		// with the status icon+label and puts the objective on its own line —
-		// match each independently rather than wedging a fixed separator.
-		if strings.Contains(notice, "✓ complete") && strings.Contains(notice, "compile success") {
+		// Completion echoes a compact "✓ Goal achieved (…)" close line.
+		if strings.Contains(notice, "Goal achieved") {
 			foundCompleteNotice = true
 			break
 		}
