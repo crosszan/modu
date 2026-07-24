@@ -685,8 +685,13 @@ func TestSlashGoalNotifiesHost(t *testing.T) {
 	if len(api.notices) == 0 {
 		t.Fatal("expected host notification")
 	}
-	if got := api.notices[len(api.notices)-1]; !strings.Contains(got, "● active") ||
-		!strings.Contains(got, "notify the tui") {
+	// Setting a goal echoes a concise one-line status (icon + objective),
+	// not the full /goal-status card.
+	got := api.notices[len(api.notices)-1]
+	if !strings.Contains(got, "● notify the tui") {
 		t.Fatalf("notification mismatch: %q", got)
+	}
+	if strings.Contains(got, "Tokens") {
+		t.Fatalf("goal set echo should not include the token/time card: %q", got)
 	}
 }

@@ -37,6 +37,12 @@ type Extension struct {
 	agentTurnInProgress     bool
 	completedThisTurnGoalID string
 	lastSessionStartReason  string
+	// verifiedGoalID / unverifiedGoalID mark the goal whose completion the
+	// independent verifier most recently confirmed, or could not check
+	// (verifier failed to run), so the completion message can say which.
+	// Consumed (cleared) when that goal's completion prints.
+	verifiedGoalID   string
+	unverifiedGoalID string
 	// pendingChildUsage accumulates token usage reported by subagent
 	// (ForkSession) children during the current agent turn. It is folded
 	// into the turn's own usage at agent_end so a goal's budget reflects
@@ -422,7 +428,7 @@ func (e *Extension) onAgentStart(_ types.Event) {
 
 	g, ok, err := e.store.CurrentErr()
 	if err != nil {
-		e.tell(fmt.Sprintf("goal: read failed: %v", err))
+		e.tell(fmt.Sprintf("read failed: %v", err))
 		e.clearAgentGoalAccounting()
 		return
 	}
@@ -440,7 +446,7 @@ func (e *Extension) onSessionStart(event types.Event) {
 
 	g, ok, err := e.store.CurrentErr()
 	if err != nil {
-		e.tell(fmt.Sprintf("goal: read failed: %v", err))
+		e.tell(fmt.Sprintf("read failed: %v", err))
 		e.clearAgentGoalAccounting()
 		return
 	}
@@ -448,7 +454,7 @@ func (e *Extension) onSessionStart(event types.Event) {
 		e.beginAgentGoalAccounting(g)
 		if ShouldQueueContinuationWhenIdle(&g, e.apiIsIdle(), e.apiHasPendingMessages()) {
 			if err := e.queueHiddenGoalPrompt(goalContinuationType, BuildContinuationPrompt(g)); err != nil {
-				e.tell(fmt.Sprintf("goal: startup continuation inject failed: %v", err))
+				e.tell(fmt.Sprintf("startup continuation inject failed: %v", err))
 			}
 		}
 		return
@@ -459,7 +465,7 @@ func (e *Extension) onSessionStart(event types.Event) {
 func (e *Extension) onUIReady(_ types.Event) {
 	g, ok, err := e.store.CurrentErr()
 	if err != nil {
-		e.tell(fmt.Sprintf("goal: read failed: %v", err))
+		e.tell(fmt.Sprintf("read failed: %v", err))
 		return
 	}
 	if !ok || g.Status != StatusPaused {
@@ -472,7 +478,7 @@ func (e *Extension) onUIReady(_ types.Event) {
 		return
 	}
 	if err := e.cmdResume(""); err != nil {
-		e.tell(fmt.Sprintf("goal: resume failed: %v", err))
+		e.tell(fmt.Sprintf("resume failed: %v", err))
 	}
 }
 
@@ -522,7 +528,7 @@ func (e *Extension) onAgentEnd(event types.Event) {
 	}
 	if includeComplete && g.Status == StatusComplete {
 		e.clearAgentGoalAccounting()
-		e.tell(formatGoalActionFeedback(g))
+		e.tell(e.completionFeedback(g))
 		return
 	}
 	if g.Status == StatusActive {
@@ -532,7 +538,7 @@ func (e *Extension) onAgentEnd(event types.Event) {
 		// after-agent-end policy only cares about pending user messages.
 		if ShouldQueueContinuationAfterAgentEnd(&g, e.apiHasPendingMessages()) {
 			if err := e.queueHiddenGoalPrompt(goalContinuationType, BuildContinuationPrompt(g)); err != nil {
-				e.tell(fmt.Sprintf("goal: continuation inject failed: %v (loop will halt)", err))
+				e.tell(fmt.Sprintf("continuation inject failed: %v (loop will halt)", err))
 			}
 		}
 		return
@@ -540,7 +546,7 @@ func (e *Extension) onAgentEnd(event types.Event) {
 	e.clearAgentGoalAccounting()
 	if g.Status == StatusBudgetLimited && !e.apiHasPendingMessages() {
 		if err := e.queueHiddenGoalPrompt(goalBudgetLimitType, BuildBudgetLimitedPrompt(g)); err != nil {
-			e.tell(fmt.Sprintf("goal: budget-limit prompt inject failed: %v", err))
+			e.tell(fmt.Sprintf("budget-limit prompt inject failed: %v", err))
 		}
 	}
 }
@@ -583,6 +589,54 @@ func (e *Extension) apiHasPendingMessages() bool {
 		return false
 	}
 	return e.api.HasPendingMessages()
+}
+
+// markGoalVerified records that the independent verifier confirmed this
+// goal's completion, so the completion message can say so.
+func (e *Extension) markGoalVerified(id string) {
+	e.mu.Lock()
+	e.verifiedGoalID = id
+	e.unverifiedGoalID = ""
+	e.mu.Unlock()
+}
+
+// markGoalUnverified records that the verifier was enabled but could not run,
+// so the completion is going through without an independent check.
+func (e *Extension) markGoalUnverified(id string) {
+	e.mu.Lock()
+	e.unverifiedGoalID = id
+	e.verifiedGoalID = ""
+	e.mu.Unlock()
+}
+
+// takeGoalVerificationNote reports (and clears) how id's completion was
+// checked: "verified", "unverified", or "" (no verifier involved).
+func (e *Extension) takeGoalVerificationNote(id string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	switch {
+	case e.verifiedGoalID != "" && e.verifiedGoalID == id:
+		e.verifiedGoalID = ""
+		return "verified"
+	case e.unverifiedGoalID != "" && e.unverifiedGoalID == id:
+		e.unverifiedGoalID = ""
+		return "unverified"
+	default:
+		return ""
+	}
+}
+
+// completionFeedback is the user-facing completion message, noting whether an
+// independent verifier confirmed the completion or could not run.
+func (e *Extension) completionFeedback(g Goal) string {
+	msg := formatGoalActionFeedback(g)
+	switch e.takeGoalVerificationNote(g.ID) {
+	case "verified":
+		msg += "\n✓ Passed an independent completion check"
+	case "unverified":
+		msg += "\n⚠ Completed without verification — the verifier could not run"
+	}
+	return msg
 }
 
 func (e *Extension) beginAgentGoalAccounting(g Goal) {
@@ -655,7 +709,7 @@ func (e *Extension) accountCurrentAgentTurn(usage types.AgentUsage, includeCompl
 	if goalID == "" {
 		g, ok, err := e.store.CurrentErr()
 		if err != nil {
-			e.tell(fmt.Sprintf("goal: usage accounting failed: %v", err))
+			e.tell(fmt.Sprintf("usage accounting failed: %v", err))
 			return Goal{}, false
 		}
 		return g, ok
@@ -666,7 +720,7 @@ func (e *Extension) accountCurrentAgentTurn(usage types.AgentUsage, includeCompl
 	}
 	g, ok, err := e.store.AccountUsage(usage, elapsed, includeComplete, goalID)
 	if err != nil {
-		e.tell(fmt.Sprintf("goal: usage accounting failed: %v", err))
+		e.tell(fmt.Sprintf("usage accounting failed: %v", err))
 		return Goal{}, false
 	}
 	if ok && g.ID == goalID {
@@ -785,12 +839,26 @@ func goalIndicatorText(g Goal) string {
 	}
 }
 
-// formatGoalActionFeedback assembles the slash-command echo / host
-// notification body. The FormatGoalForUser header already leads with the
-// status icon and label, so callers see the full state (status / tokens /
-// time / completion) without a duplicate "Goal <status>" prefix.
+// formatGoalActionFeedback is the concise, single-line echo for a goal action
+// (set / resume / pause / complete). The host already prefixes "goal: " and
+// the full multi-line card lives behind /goal-status, so setting a goal reads
+// as one clean status line instead of a card with meaningless 0 tokens / 0s.
 func formatGoalActionFeedback(g Goal) string {
-	return FormatGoalForUser(&g)
+	obj := strings.TrimSpace(strings.Join(strings.Fields(g.Objective), " "))
+	if r := []rune(obj); len(r) > 72 {
+		obj = string(r[:71]) + "…"
+	}
+	icon := goalStatusIcon(g.Status)
+	switch g.Status {
+	case StatusPaused:
+		return icon + " paused"
+	case StatusComplete:
+		return fmt.Sprintf("%s complete · %s", icon, obj)
+	case StatusBudgetLimited:
+		return fmt.Sprintf("%s budget-limited · %s", icon, obj)
+	default: // active
+		return fmt.Sprintf("%s %s", icon, obj)
+	}
 }
 
 func (e *Extension) tell(msg string) {
