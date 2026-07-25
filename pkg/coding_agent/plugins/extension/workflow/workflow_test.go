@@ -120,8 +120,9 @@ func (f *fakeAPI) BackgroundTasks() []extension.TaskSnapshot { return nil }
 func (f *fakeAPI) InterruptBackgroundTask(string, string) (extension.TaskSnapshot, bool) {
 	return extension.TaskSnapshot{}, false
 }
-func (f *fakeAPI) AddPending(delta int) { f.pendingWg.Add(delta) }
-func (f *fakeAPI) DonePending()         { f.pendingWg.Done() }
+func (f *fakeAPI) SendToBackgroundTask(string, string) bool { return false }
+func (f *fakeAPI) AddPending(delta int)                     { f.pendingWg.Add(delta) }
+func (f *fakeAPI) DonePending()                             { f.pendingWg.Done() }
 func (f *fakeAPI) ForkSession(ctx context.Context, opts extension.ForkOptions) (string, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, opts)

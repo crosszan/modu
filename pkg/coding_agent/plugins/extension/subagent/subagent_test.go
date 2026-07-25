@@ -35,6 +35,14 @@ type fakeAPI struct {
 	confirmFn   func(title, body string, defaultYes bool) bool
 	agentDir    string
 	cwd         string
+	// followUps records messages pushed back into the parent conversation,
+	// and handlers captures On() subscriptions so a test can emit a host
+	// event by hand.
+	followUps []string
+	handlers  map[string][]extension.EventHandler
+	// sendToTaskFn drives SendToBackgroundTask; nil means "no live task".
+	sendToTaskFn func(id, text string) bool
+	sentToTasks  []string
 }
 
 func (f *fakeAPI) RegisterTool(t types.Tool) { f.registered = append(f.registered, t) }
@@ -44,13 +52,43 @@ func (f *fakeAPI) RegisterCommand(name string, _ string, h extension.CommandHand
 	}
 	f.commands[name] = h
 }
-func (f *fakeAPI) AddHook(extension.ToolHook)        {}
-func (f *fakeAPI) On(string, extension.EventHandler) {}
-func (f *fakeAPI) SendMessage(string) error          { return nil }
+func (f *fakeAPI) AddHook(extension.ToolHook) {}
+func (f *fakeAPI) On(event string, h extension.EventHandler) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.handlers == nil {
+		f.handlers = map[string][]extension.EventHandler{}
+	}
+	f.handlers[event] = append(f.handlers[event], h)
+}
+func (f *fakeAPI) SendMessage(string) error { return nil }
 func (f *fakeAPI) SendMessageWithOptions(string, extension.MessageOptions) error {
 	return nil
 }
-func (f *fakeAPI) SendFollowUpMessage(string) error { return nil }
+func (f *fakeAPI) SendFollowUpMessage(text string) error {
+	f.mu.Lock()
+	f.followUps = append(f.followUps, text)
+	f.mu.Unlock()
+	return nil
+}
+
+// emit delivers an event to every handler registered for it, standing in for
+// the host's event bus.
+func (f *fakeAPI) emit(event string, ev types.Event) {
+	f.mu.Lock()
+	handlers := append([]extension.EventHandler(nil), f.handlers[event]...)
+	f.mu.Unlock()
+	for _, h := range handlers {
+		h(ev)
+	}
+}
+
+// followUpsSnapshot copies the recorded follow-up messages under the mutex.
+func (f *fakeAPI) followUpsSnapshot() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.followUps...)
+}
 func (f *fakeAPI) SetActiveTools([]string)          {}
 func (f *fakeAPI) SetModel(string, string) error    { return nil }
 func (f *fakeAPI) GetCommands() []extension.Command { return nil }
@@ -107,6 +145,17 @@ func (f *fakeAPI) InterruptBackgroundTask(id, reason string) (extension.TaskSnap
 		return f.interruptFn(id, reason)
 	}
 	return extension.TaskSnapshot{}, false
+}
+
+func (f *fakeAPI) SendToBackgroundTask(id, text string) bool {
+	f.mu.Lock()
+	f.sentToTasks = append(f.sentToTasks, id+": "+text)
+	fn := f.sendToTaskFn
+	f.mu.Unlock()
+	if fn == nil {
+		return false
+	}
+	return fn(id, text)
 }
 
 func (f *fakeAPI) AddPending(int) {}
@@ -208,11 +257,11 @@ func TestInitNoProfilesRegistersManagementToolOnly(t *testing.T) {
 	if err := ext.Init(api); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	// Always-on tools: the subagent management/exec tool plus the intercom
-	// send tool. The spawn_subagent compatibility alias only appears when
-	// at least one profile is discovered.
+	// Always-on tools: the dispatch tool, the profile-admin tool, and the
+	// intercom send tool. The spawn_subagent compatibility alias only appears
+	// when at least one profile is discovered.
 	got := registeredToolNames(api)
-	want := map[string]bool{"subagent": false, "subagent_intercom_send": false}
+	want := map[string]bool{"subagent": false, "subagent_admin": false, "subagent_intercom_send": false}
 	for _, name := range got {
 		if _, ok := want[name]; ok {
 			want[name] = true

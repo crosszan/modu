@@ -158,3 +158,49 @@ func TestEventPresenterCompactsSubagentLifecycle(t *testing.T) {
 		t.Fatalf("stop should keep the error: %q", stopText)
 	}
 }
+
+func TestEventPresenterSubagentClosingStats(t *testing.T) {
+	presenter := NewEventPresenter(nil, "")
+
+	start, ok := presenter.SessionEvent(coding_agent.SessionEvent{
+		Type:          coding_agent.SessionEventSubagentStart,
+		SubagentName:  "explorer",
+		SubagentLabel: "map auth flow",
+		SubagentTask:  "Read every file under pkg/auth and summarise the login path",
+	})
+	if !ok {
+		t.Fatal("subagent start not presented")
+	}
+	startText := start.Nodes[0].(modutui.MarkdownNode).Text
+	// The short label wins over the raw task text.
+	if !strings.Contains(startText, "map auth flow") || strings.Contains(startText, "Read every file") {
+		t.Fatalf("start should use the label: %q", startText)
+	}
+
+	stop, _ := presenter.SessionEvent(coding_agent.SessionEvent{
+		Type:               coding_agent.SessionEventSubagentStop,
+		SubagentName:       "explorer",
+		SubagentLabel:      "map auth flow",
+		SubagentResult:     "the login path starts in handler.go",
+		SubagentTurns:      3,
+		SubagentTokens:     12400,
+		SubagentDurationMs: 8200,
+	})
+	stopText := stop.Nodes[0].(modutui.MarkdownNode).Text
+	if !strings.Contains(stopText, "Done (3 turns · 12.4K tokens · 8s)") {
+		t.Fatalf("stop missing closing stats: %q", stopText)
+	}
+	if strings.Contains(stopText, "\n") {
+		t.Fatalf("stop should be a single line, got:\n%s", stopText)
+	}
+}
+
+func TestSubagentRunStatsTextOmitsMissingFigures(t *testing.T) {
+	if got := subagentRunStatsText(coding_agent.SessionEvent{}); got != "" {
+		t.Fatalf("empty run should render no stats, got %q", got)
+	}
+	got := subagentRunStatsText(coding_agent.SessionEvent{SubagentTurns: 1, SubagentDurationMs: 125_000})
+	if got != "(1 turn · 2m5s)" {
+		t.Fatalf("stats = %q, want (1 turn · 2m5s)", got)
+	}
+}

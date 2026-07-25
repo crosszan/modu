@@ -69,6 +69,7 @@ func (e *Extension) Init(api extension.ExtensionAPI) error {
 	e.loader = csubagent.NewLoader()
 	e.discover()
 	api.RegisterTool(newSubagentTool(e))
+	api.RegisterTool(newAdminTool(e))
 	api.RegisterTool(newIntercomSendTool(e))
 	if e.loader.Count() > 0 {
 		api.RegisterTool(newLegacySpawnSubagentTool(e))
@@ -81,6 +82,7 @@ func (e *Extension) Init(api extension.ExtensionAPI) error {
 	e.childActivity.rebuildFromTasks(api.BackgroundTasks())
 	e.controlCounters = newControlCounterRegistry()
 	api.On("subagent_child_event", e.onChildEvent)
+	api.On(extension.SubagentTaskDoneEvent, e.onTaskDone)
 	api.RegisterCommand("run", "Run one subagent: /run <agent> [task]", e.cmdRun)
 	api.RegisterCommand("parallel", "Run subagents in parallel: /parallel <agent> <task> -> <agent> <task>", e.cmdParallel)
 	api.RegisterCommand("chain", "Run subagents in sequence: /chain <agent> <task> -> <agent> <task>", e.cmdChain)

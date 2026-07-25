@@ -16,13 +16,23 @@ func NewLoader() *Loader {
 	return &Loader{definitions: make(map[string]*SubagentDefinition)}
 }
 
-// Discover loads subagent definitions from:
-//   - {agentDir}/agents/       (global, "user" source)
-//   - {cwd}/.coding_agent/agents/ (project, "project" source — overrides global)
+// Discover loads subagent definitions from, in increasing priority:
+//   - ~/.claude/agents/           (global, "user" source — Claude Code layout)
+//   - {agentDir}/agents/          (global, "user" source)
+//   - {cwd}/.claude/agents/       (project, "project" source — Claude Code layout)
+//   - {cwd}/.coding_agent/agents/ (project, "project" source)
+//
+// The .claude paths are scanned so a repo already carrying Claude Code agent
+// profiles works without moving files; a same-named profile in modu's own
+// directory wins because later loads overwrite earlier ones.
 //
 // Missing directories are silently skipped.
 func (l *Loader) Discover(agentDir, cwd string) {
+	if home, err := os.UserHomeDir(); err == nil {
+		l.loadFromDir(filepath.Join(home, ".claude", "agents"), "user")
+	}
 	l.loadFromDir(filepath.Join(agentDir, "agents"), "user")
+	l.loadFromDir(filepath.Join(cwd, ".claude", "agents"), "project")
 	l.loadFromDir(filepath.Join(cwd, ".coding_agent", "agents"), "project")
 }
 

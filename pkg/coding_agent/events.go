@@ -47,6 +47,11 @@ type SessionEvent struct {
 	SubagentTask       string `json:"subagentTask,omitempty"`
 	SubagentBackground bool   `json:"subagentBackground,omitempty"`
 	SubagentResult     string `json:"subagentResult,omitempty"`
+	SubagentLabel      string `json:"subagentLabel,omitempty"`
+	SubagentTaskID     string `json:"subagentTaskId,omitempty"`
+	SubagentTurns      int    `json:"subagentTurns,omitempty"`
+	SubagentTokens     int    `json:"subagentTokens,omitempty"`
+	SubagentDurationMs int64  `json:"subagentDurationMs,omitempty"`
 
 	// Permission fields
 	ToolName string `json:"toolName,omitempty"`
@@ -68,6 +73,20 @@ type HarnessSubagentRun struct {
 	Name       string `json:"name"`
 	Task       string `json:"task"`
 	Background bool   `json:"background"`
+	// Label is the caller-supplied short description of this run, used as the
+	// transcript line instead of the raw task text. Empty falls back to Task.
+	Label string `json:"label,omitempty"`
+	// TaskID is the host task id for background runs; empty for synchronous
+	// ones.
+	TaskID string `json:"taskId,omitempty"`
+}
+
+// SubagentRunStats is the closing tally of one subagent run, rendered by host
+// UIs as a Claude-Code-style "Done (…)" line.
+type SubagentRunStats struct {
+	Turns      int   `json:"turns,omitempty"`
+	Tokens     int   `json:"tokens,omitempty"`
+	DurationMs int64 `json:"durationMs,omitempty"`
 }
 
 func (s *engine) runHarnessPermissionRequest(call HarnessToolCall) {
@@ -107,12 +126,12 @@ func (s *engine) runHarnessWorktreeRemove(path string) {
 	})
 }
 
-func (s *engine) OnSubagentStart(name, task string, background bool) {
-	s.onSubagentStart(HarnessSubagentRun{Name: name, Task: task, Background: background})
+func (s *engine) OnSubagentStart(run HarnessSubagentRun) {
+	s.onSubagentStart(run)
 }
 
-func (s *engine) OnSubagentStop(name, task string, background bool, result string, err error) {
-	s.onSubagentStop(HarnessSubagentRun{Name: name, Task: task, Background: background}, result, err)
+func (s *engine) OnSubagentStop(run HarnessSubagentRun, result string, err error, stats SubagentRunStats) {
+	s.onSubagentStop(run, result, err, stats)
 }
 
 func (s *engine) onSubagentStart(run HarnessSubagentRun) {
@@ -121,15 +140,22 @@ func (s *engine) onSubagentStart(run HarnessSubagentRun) {
 		SubagentName:       run.Name,
 		SubagentTask:       run.Task,
 		SubagentBackground: run.Background,
+		SubagentLabel:      run.Label,
+		SubagentTaskID:     run.TaskID,
 	})
 }
 
-func (s *engine) onSubagentStop(run HarnessSubagentRun, result string, err error) {
+func (s *engine) onSubagentStop(run HarnessSubagentRun, result string, err error, stats SubagentRunStats) {
 	evt := SessionEvent{
 		Type:               SessionEventSubagentStop,
 		SubagentName:       run.Name,
 		SubagentTask:       run.Task,
 		SubagentBackground: run.Background,
+		SubagentLabel:      run.Label,
+		SubagentTaskID:     run.TaskID,
+		SubagentTurns:      stats.Turns,
+		SubagentTokens:     stats.Tokens,
+		SubagentDurationMs: stats.DurationMs,
 	}
 	if result != "" {
 		preview := result

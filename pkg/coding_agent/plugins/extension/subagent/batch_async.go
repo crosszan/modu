@@ -173,14 +173,31 @@ func dispatchBatchAsync(ctx context.Context, ext *Extension, mode string, args m
 		if err != nil {
 			_ = artRun.complete("", err)
 			ext.batchTasks.fail(task.ID, err)
+			ext.pushNotice(formatTaskDoneNotice(batchDone(task, "failed", err.Error())))
 			return
 		}
 		out = appendIncludedProgress(ext, args, out)
 		_ = artRun.complete(out, nil)
 		ext.batchTasks.complete(task.ID, out)
+		ext.pushNotice(formatTaskDoneNotice(batchDone(task, "completed", out)))
 	}()
 	_ = ctx // currently unused; batch async detaches from the parent ctx
 	return fmt.Sprintf("Started subagent %s batch in background. Use action=status with task_id=%s to inspect the result.", mode, task.ID), nil
+}
+
+// batchDone describes a finished batch in the same shape the host uses for a
+// single background child, so both paths render one notice format. The
+// per-child turn/token tallies live in the child activity registry rather
+// than on the batch, so the figures stay zero here and the notice carries
+// just the aggregated text.
+func batchDone(task *batchTask, status, result string) extension.SubagentTaskDone {
+	return extension.SubagentTaskDone{
+		TaskID:  task.ID,
+		Agent:   task.Mode + " batch",
+		Status:  status,
+		Result:  result,
+		Summary: fmt.Sprintf("%s batch", task.Mode),
+	}
 }
 
 // mergeBatchTasks appends the extension's batch tasks to the host-provided

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	coding_agent "github.com/openmodu/modu/pkg/coding_agent"
@@ -106,19 +107,23 @@ func (p EventPresenter) SessionEvent(event coding_agent.SessionEvent) (modutui.E
 		return infoEntry("worktree removed: " + event.Path), true
 	case coding_agent.SessionEventSubagentStart:
 		text := "subagent start: " + event.SubagentName
-		if preview := firstLinePreview(event.SubagentTask, 80); preview != "" {
-			text += " · " + preview
+		if label := subagentLabel(event); label != "" {
+			text += " · " + label
 		}
 		return infoEntry(text), true
 	case coding_agent.SessionEventSubagentStop:
 		text := "subagent stop: " + event.SubagentName
+		if label := subagentLabel(event); label != "" {
+			text += " · " + label
+		}
 		// Keep the lifecycle line to one row: errors matter, but the full
 		// task prompt and result would flood the transcript — the result is
-		// already delivered to the agent and shown in the task panel.
+		// already delivered to the agent and shown in the task panel. The
+		// closing tally is what tells the user what the run actually cost.
 		if event.ErrorMessage != "" {
 			text += " · error: " + firstLinePreview(event.ErrorMessage, 140)
-		} else if preview := firstLinePreview(event.SubagentResult, 80); preview != "" {
-			text += " · " + preview
+		} else if stats := subagentRunStatsText(event); stats != "" {
+			text += " · Done " + stats
 		}
 		return infoEntry(text), true
 	case coding_agent.SessionEventPermissionReq:
@@ -199,6 +204,63 @@ func infoEntry(text string) modutui.Entry {
 // firstLinePreview collapses text to a single trimmed line and truncates it to
 // limit runes, so multi-line prompts and results render as one compact row in
 // lifecycle lines instead of flooding the transcript.
+// subagentLabel is the short run label the dispatcher supplied, falling back
+// to a preview of the raw task when it didn't.
+func subagentLabel(event coding_agent.SessionEvent) string {
+	if label := firstLinePreview(event.SubagentLabel, 60); label != "" {
+		return label
+	}
+	return firstLinePreview(event.SubagentTask, 80)
+}
+
+// subagentRunStatsText renders the closing "(3 turns · 12.4K tokens · 8s)"
+// tally, omitting whichever figures the run didn't record.
+func subagentRunStatsText(event coding_agent.SessionEvent) string {
+	var parts []string
+	if event.SubagentTurns > 0 {
+		unit := " turns"
+		if event.SubagentTurns == 1 {
+			unit = " turn"
+		}
+		parts = append(parts, fmt.Sprintf("%d%s", event.SubagentTurns, unit))
+	}
+	if event.SubagentTokens > 0 {
+		parts = append(parts, compactTokens(event.SubagentTokens)+" tokens")
+	}
+	if event.SubagentDurationMs > 0 {
+		parts = append(parts, compactDuration(event.SubagentDurationMs))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "(" + strings.Join(parts, " · ") + ")"
+}
+
+func compactTokens(tokens int) string {
+	switch {
+	case tokens >= 1_000_000:
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(tokens)/1_000_000), ".0") + "M"
+	case tokens >= 1_000:
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(tokens)/1_000), ".0") + "K"
+	default:
+		return strconv.Itoa(tokens)
+	}
+}
+
+func compactDuration(ms int64) string {
+	seconds := ms / 1000
+	if ms > 0 && seconds == 0 {
+		seconds = 1
+	}
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	if rest := seconds % 60; rest != 0 {
+		return fmt.Sprintf("%dm%ds", seconds/60, rest)
+	}
+	return fmt.Sprintf("%dm", seconds/60)
+}
+
 func firstLinePreview(text string, limit int) string {
 	text = strings.TrimSpace(strings.Join(strings.Fields(text), " "))
 	runes := []rune(text)

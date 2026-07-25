@@ -1230,6 +1230,169 @@ Return a short message.`), 0o644); err != nil {
 	}
 }
 
+// taskDoneRecorder captures the subagent_task_done events the host emits when
+// a background child reaches a terminal state.
+type taskDoneRecorder struct {
+	mu     sync.Mutex
+	events []extension.SubagentTaskDone
+}
+
+func (r *taskDoneRecorder) Name() string { return "task-done-recorder" }
+
+func (r *taskDoneRecorder) Init(api extension.ExtensionAPI) error {
+	api.On(extension.SubagentTaskDoneEvent, func(ev types.Event) {
+		done, ok := ev.Args.(extension.SubagentTaskDone)
+		if !ok {
+			return
+		}
+		r.mu.Lock()
+		r.events = append(r.events, done)
+		r.mu.Unlock()
+	})
+	return nil
+}
+
+func (r *taskDoneRecorder) snapshot() []extension.SubagentTaskDone {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]extension.SubagentTaskDone(nil), r.events...)
+}
+
+// A background child must announce its own completion and stay reachable
+// while it runs: without the first the orchestrator has to poll, without the
+// second a message can only land after the run is already over.
+func TestSubagentBackgroundAnnouncesCompletionAndAcceptsSteer(t *testing.T) {
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, ".coding_agent")
+	agentsDir := filepath.Join(agentDir, "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsDir, "helper.md"), []byte(`---
+description: background helper
+background: true
+---
+Return a short message.`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	model := newTestModel()
+	// The first turn parks until released, giving the test a window in which
+	// the child is genuinely mid-run.
+	release := make(chan struct{})
+	var once sync.Once
+	streamFn := func(ctx context.Context, _ *types.Model, _ *types.LLMContext, _ *types.SimpleStreamOptions) (types.EventStream, error) {
+		first := false
+		once.Do(func() { first = true })
+		stream := types.NewEventStream()
+		go func() {
+			if first {
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+			}
+			msg := &types.AssistantMessage{
+				Role:       "assistant",
+				ProviderID: model.ProviderID,
+				Model:      model.ID,
+				StopReason: "stop",
+				Content:    []types.ContentBlock{&types.TextContent{Type: "text", Text: "done"}},
+				Usage:      types.AgentUsage{Input: 70, Output: 30},
+				Timestamp:  time.Now().UnixMilli(),
+			}
+			stream.Push(types.StreamEvent{Type: "done", Reason: "stop", Message: msg})
+			stream.Resolve(msg, nil)
+			stream.Close()
+		}()
+		return stream, nil
+	}
+
+	rec := &taskDoneRecorder{}
+	session, err := NewCodingSession(CodingSessionOptions{
+		Cwd:        dir,
+		AgentDir:   agentDir,
+		Model:      model,
+		GetAPIKey:  func(provider string) (string, error) { return "", nil },
+		StreamFn:   streamFn,
+		Extensions: []extension.Extension{subagentext.New(), rec},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var subagentTool types.Tool
+	for _, tool := range session.GetAgent().GetState().Tools {
+		if tool.Name() == "subagent" {
+			subagentTool = tool
+			break
+		}
+	}
+	if subagentTool == nil {
+		t.Fatalf("expected subagent tool, got %v", session.GetActiveToolNames())
+	}
+
+	result, err := subagentTool.Execute(context.Background(), "bg-1", map[string]any{
+		"agent":       "helper",
+		"task":        "hello",
+		"description": "say hello",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	details, _ := result.Details.(map[string]string)
+	taskID := details["task_id"]
+	if taskID == "" {
+		t.Fatalf("expected background task id, got %#v", result.Details)
+	}
+
+	// The short description becomes the task summary rather than the raw task.
+	if task, ok := session.taskManager.Get(taskID); !ok {
+		t.Fatalf("task %s not tracked", taskID)
+	} else if !strings.Contains(task.Summary, "say hello") {
+		t.Fatalf("task summary = %q, want it to use the description", task.Summary)
+	}
+
+	// While parked the child is reachable.
+	steered := false
+	for i := 0; i < 100; i++ {
+		if session.taskManager.Steer(taskID, "<intercom>also say goodbye</intercom>") {
+			steered = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !steered {
+		t.Fatal("a running background child did not accept a steer message")
+	}
+	close(release)
+
+	var done []extension.SubagentTaskDone
+	for i := 0; i < 100; i++ {
+		if done = rec.snapshot(); len(done) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(done) != 1 {
+		t.Fatalf("got %d task-done events, want 1", len(done))
+	}
+	got := done[0]
+	if got.TaskID != taskID || got.Status != "completed" || got.Agent != "helper" {
+		t.Fatalf("unexpected task-done event: %+v", got)
+	}
+	if got.Summary != "say hello" {
+		t.Errorf("task-done summary = %q, want \"say hello\"", got.Summary)
+	}
+	if got.Turns < 1 || got.Tokens < 100 {
+		t.Errorf("task-done stats not tallied: turns=%d tokens=%d", got.Turns, got.Tokens)
+	}
+
+	// Once finished, the task is no longer reachable.
+	if session.taskManager.Steer(taskID, "too late") {
+		t.Error("a finished child still accepted a steer message")
+	}
+}
+
 func TestBatchAsyncBubblesChildEventsUnderBatchID(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, ".coding_agent")

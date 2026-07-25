@@ -18,10 +18,15 @@ import (
 )
 
 type Manager struct {
-	mu       sync.RWMutex
-	nextID   int64
-	tasks    map[string]taskoutput.Task
-	cancel   map[string]context.CancelFunc
+	mu     sync.RWMutex
+	nextID int64
+	tasks  map[string]taskoutput.Task
+	cancel map[string]context.CancelFunc
+	// steer holds the live delivery function for each running task, so a
+	// message can reach a background child mid-run instead of only being
+	// readable once it finished. Registered alongside cancel and dropped by
+	// the same goroutine when the run ends.
+	steer    map[string]func(string)
 	path     string
 	runRoot  string
 	onChange func()
@@ -31,6 +36,7 @@ func New() *Manager {
 	return &Manager{
 		tasks:  make(map[string]taskoutput.Task),
 		cancel: make(map[string]context.CancelFunc),
+		steer:  make(map[string]func(string)),
 	}
 }
 
@@ -111,7 +117,37 @@ func (m *Manager) RegisterCancel(id string, cancel context.CancelFunc) {
 func (m *Manager) UnregisterCancel(id string) {
 	m.mu.Lock()
 	delete(m.cancel, id)
+	delete(m.steer, id)
 	m.mu.Unlock()
+}
+
+// RegisterSteer records how to deliver a message into a live task's child
+// agent. Paired with RegisterCancel and cleared by UnregisterCancel.
+func (m *Manager) RegisterSteer(id string, deliver func(string)) {
+	if deliver == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.steer == nil {
+		m.steer = make(map[string]func(string))
+	}
+	m.steer[id] = deliver
+	m.mu.Unlock()
+}
+
+// Steer delivers text into a running task's child agent. It reports false
+// when the task is unknown, already finished, or was started by a previous
+// process (no live delivery function in this lifetime).
+func (m *Manager) Steer(id, text string) bool {
+	m.mu.RLock()
+	task, ok := m.tasks[id]
+	deliver := m.steer[id]
+	m.mu.RUnlock()
+	if !ok || deliver == nil || task.Status != "running" {
+		return false
+	}
+	deliver(text)
+	return true
 }
 
 func (m *Manager) Complete(id, output string) {

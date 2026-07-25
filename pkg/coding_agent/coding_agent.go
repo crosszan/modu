@@ -578,6 +578,12 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 					UpdatedAt:   task.UpdatedAt,
 				}, true
 			},
+			func(id, text string) bool {
+				if cs.taskManager == nil {
+					return false
+				}
+				return cs.taskManager.Steer(id, text)
+			},
 			// ForkSession dispatches a child agent via the same plumbing
 			// exposed by extension/subagent and its spawn_subagent alias
 			// (skills/memory injection, optional worktree isolation,

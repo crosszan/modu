@@ -35,18 +35,25 @@ func (t *subagentTool) Description() string {
   - chain: run agent/task pairs sequentially. {previous} in a task is
     replaced with the prior step's reply before dispatch.
 
-Management actions:
-  - list: show discovered subagent profiles.
-  - get: show one profile's full detail; requires "agent".
-  - create: create a new profile; requires "config" object with name plus
-    optional description / systemPrompt / tools / model / scope etc.
-  - update: merge updates into an existing profile; requires "agent" and "config".
-  - delete: remove a profile; requires "agent".
+Do not delegate unless the work calls for it. A subagent starts cold and
+re-derives context you already have, so a task you can finish with your own
+tools should stay here — "thorough", "multi-angle", or multi-part is not by
+itself a reason to spawn one.
+
+The child's reply is returned to you, not shown to the user: relay whatever
+matters in your own answer. A background dispatch (async, or a profile with
+background: true) returns a task id immediately and notifies you when the run
+finishes — never invent a pending child's result before that notice arrives.
+
+Runtime actions:
   - status: show runtime background subagent tasks; pass id for one task.
   - resume: restart a completed/failed/interrupted background task with a follow-up message.
+    To reach a task that is still running, use the subagent_intercom_send tool instead.
   - interrupt: cancel a live background task in this process.
-  - doctor: show read-only setup diagnostics.
-  - intercom: read the per-task intercom inbox; pair with the subagent_intercom_send tool to send messages.`)
+  - intercom: read the per-task intercom inbox; pair with the subagent_intercom_send tool to send messages.
+
+Profile management (list / get / create / update / delete / doctor) lives on
+the separate subagent_admin tool.`)
 	if t.ext != nil && t.ext.loader != nil {
 		defs := t.ext.loader.List()
 		if len(defs) > 0 {
@@ -79,21 +86,16 @@ func (t *subagentTool) Parameters() any {
 			},
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"list", "get", "create", "update", "delete", "status", "resume", "interrupt", "doctor", "intercom"},
-				"description": "Management action. Omit for execution mode.",
+				"enum":        []string{"status", "resume", "interrupt", "intercom"},
+				"description": "Runtime action on a background task. Omit for execution mode. Profile management lives on subagent_admin.",
 			},
 			"id": map[string]any{
 				"type":        "string",
 				"description": "Task id or prefix for action=status|resume|interrupt.",
 			},
-			"config": map[string]any{
-				"type":        "object",
-				"description": "Profile config for action=create|update. Recognised keys: name, description, systemPrompt, scope, model, tools, disallowed_tools, skills, memory, permission_mode, background, effort, isolation, default_context, thinking, max_turns, default_reads, default_progress, harness_block_tools.",
-			},
-			"agentScope": map[string]any{
+			"description": map[string]any{
 				"type":        "string",
-				"enum":        []string{"user", "project", "both"},
-				"description": "Filter discovered agents by source for action=list|get. Default 'both'.",
+				"description": "Short (3-5 word) label for this run, shown in the transcript and task list in place of the raw task text.",
 			},
 			"message": map[string]any{
 				"type":        "string",
@@ -198,10 +200,11 @@ func (t *subagentTool) Parameters() any {
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"agent":      map[string]any{"type": "string"},
-						"task":       map[string]any{"type": "string"},
-						"output":     map[string]any{"type": "string"},
-						"outputMode": map[string]any{"type": "string", "enum": []string{"inline", "file-only"}},
+						"agent":       map[string]any{"type": "string"},
+						"description": map[string]any{"type": "string", "description": "Short label for this item, used in the transcript and task list."},
+						"task":        map[string]any{"type": "string"},
+						"output":      map[string]any{"type": "string"},
+						"outputMode":  map[string]any{"type": "string", "enum": []string{"inline", "file-only"}},
 						"reads": map[string]any{
 							"oneOf": []any{
 								map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -230,18 +233,19 @@ func (t *subagentTool) Parameters() any {
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"agent":      map[string]any{"type": "string"},
-						"task":       map[string]any{"type": "string"},
-						"count":      map[string]any{"type": "integer", "minimum": 1},
-						"output":     map[string]any{"type": "string"},
-						"outputMode": map[string]any{"type": "string", "enum": []string{"inline", "file-only"}},
-						"reads":      map[string]any{"oneOf": []any{map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, map[string]any{"type": "boolean"}}},
-						"progress":   map[string]any{"type": "boolean"},
-						"chainDir":   map[string]any{"type": "string"},
-						"model":      map[string]any{"type": "string"},
-						"cwd":        map[string]any{"type": "string"},
-						"thinking":   map[string]any{"type": "string"},
-						"skill":      map[string]any{"oneOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, map[string]any{"type": "boolean"}}},
+						"agent":       map[string]any{"type": "string"},
+						"description": map[string]any{"type": "string", "description": "Short label for this item, used in the transcript and task list."},
+						"task":        map[string]any{"type": "string"},
+						"count":       map[string]any{"type": "integer", "minimum": 1},
+						"output":      map[string]any{"type": "string"},
+						"outputMode":  map[string]any{"type": "string", "enum": []string{"inline", "file-only"}},
+						"reads":       map[string]any{"oneOf": []any{map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, map[string]any{"type": "boolean"}}},
+						"progress":    map[string]any{"type": "boolean"},
+						"chainDir":    map[string]any{"type": "string"},
+						"model":       map[string]any{"type": "string"},
+						"cwd":         map[string]any{"type": "string"},
+						"thinking":    map[string]any{"type": "string"},
+						"skill":       map[string]any{"oneOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, map[string]any{"type": "boolean"}}},
 					},
 					"required": []string{"agent", "task"},
 				},
@@ -261,10 +265,11 @@ func (t *subagentTool) Parameters() any {
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"agent":      map[string]any{"type": "string"},
-						"task":       map[string]any{"type": "string"},
-						"output":     map[string]any{"type": "string"},
-						"outputMode": map[string]any{"type": "string", "enum": []string{"inline", "file-only"}},
+						"agent":       map[string]any{"type": "string"},
+						"description": map[string]any{"type": "string", "description": "Short label for this item, used in the transcript and task list."},
+						"task":        map[string]any{"type": "string"},
+						"output":      map[string]any{"type": "string"},
+						"outputMode":  map[string]any{"type": "string", "enum": []string{"inline", "file-only"}},
 						"reads": map[string]any{
 							"oneOf": []any{
 								map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
