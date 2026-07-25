@@ -16,9 +16,14 @@ const (
 	SessionEventWorktreeRemove  SessionEventType = "worktree_remove"
 	SessionEventSubagentStart   SessionEventType = "subagent_start"
 	SessionEventSubagentStop    SessionEventType = "subagent_stop"
-	SessionEventPermissionReq   SessionEventType = "permission_request"
-	SessionEventPermissionDeny  SessionEventType = "permission_denied"
-	SessionEventExtensionNotify SessionEventType = "extension_notify"
+	// SessionEventSubagentProgress reports one step of a running child so a
+	// host UI can show what it is doing while it works. Reason distinguishes
+	// the kinds: "tool" (a child tool call finished) and "turn" (the child
+	// completed a model turn).
+	SessionEventSubagentProgress SessionEventType = "subagent_progress"
+	SessionEventPermissionReq    SessionEventType = "permission_request"
+	SessionEventPermissionDeny   SessionEventType = "permission_denied"
+	SessionEventExtensionNotify  SessionEventType = "extension_notify"
 )
 
 // SessionEvent represents a session-level event emitted via the EventBus.
@@ -76,8 +81,9 @@ type HarnessSubagentRun struct {
 	// Label is the caller-supplied short description of this run, used as the
 	// transcript line instead of the raw task text. Empty falls back to Task.
 	Label string `json:"label,omitempty"`
-	// TaskID is the host task id for background runs; empty for synchronous
-	// ones.
+	// TaskID identifies this run for the lifetime of the session: the host
+	// task id for background runs, and a synthetic run id for synchronous
+	// ones. Host UIs key a run's live progress block on it.
 	TaskID string `json:"taskId,omitempty"`
 }
 
@@ -132,6 +138,22 @@ func (s *engine) OnSubagentStart(run HarnessSubagentRun) {
 
 func (s *engine) OnSubagentStop(run HarnessSubagentRun, result string, err error, stats SubagentRunStats) {
 	s.onSubagentStop(run, result, err, stats)
+}
+
+// onSubagentProgress reports one step of a running child. Kept to the fields
+// a UI needs for a single nested line — the child's full transcript lives in
+// its own session file, not in the parent's event stream.
+func (s *engine) onSubagentProgress(runID, agentName, reason, toolName, detail, errMessage string, tokens int) {
+	s.emitSessionEvent(SessionEvent{
+		Type:           SessionEventSubagentProgress,
+		Reason:         reason,
+		SubagentTaskID: runID,
+		SubagentName:   agentName,
+		SubagentTokens: tokens,
+		ToolName:       toolName,
+		Message:        detail,
+		ErrorMessage:   errMessage,
+	})
 }
 
 func (s *engine) onSubagentStart(run HarnessSubagentRun) {

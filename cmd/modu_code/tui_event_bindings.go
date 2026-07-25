@@ -12,6 +12,7 @@ type moduTUIEventBindings struct {
 	client        modutui.Client
 	workflow      *moduTUIWorkflowController
 	presenter     codetui.EventPresenter
+	subagents     *codetui.SubagentActivity
 	duration      *moduTUIAgentDurationTracker
 	refreshFooter func()
 }
@@ -31,7 +32,12 @@ func (b moduTUIEventBindings) Subscribe() func() {
 		}
 	})
 	unsubSession := b.session.SubscribeSession(func(ev coding_agent.SessionEvent) {
-		if !b.workflow.HandleSessionEvent(ev) {
+		// A subagent run owns one transcript block that it rewrites as it
+		// goes, so it upserts instead of appending and takes precedence over
+		// the presenter's flat lifecycle lines.
+		if entry, ok := b.subagents.HandleSessionEvent(ev); ok {
+			b.client.UpsertEntry(entry)
+		} else if !b.workflow.HandleSessionEvent(ev) {
 			if entry, ok := b.presenter.SessionEvent(ev); ok {
 				b.client.AppendEntry(entry)
 			}
