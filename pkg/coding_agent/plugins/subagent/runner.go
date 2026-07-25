@@ -54,11 +54,28 @@ func RunWithMessages(
 	return RunWithMessagesObserved(ctx, def, initialMessages, task, allTools, model, getAPIKey, streamFn, nil)
 }
 
+// Handle is a live handle to a running subagent. The host holds one for
+// background children so a message can be delivered into the child's next
+// turn instead of only being readable after it finishes.
+type Handle interface {
+	// Steer queues a message that the child picks up at its next turn
+	// boundary.
+	Steer(message types.AgentMessage)
+}
+
+// RunHooks bundles the optional callbacks a caller can attach to a run.
+type RunHooks struct {
+	// Observe receives the child agent's events live (turn_end,
+	// tool_execution_end, agent_end, ...) as they happen.
+	Observe func(types.Event)
+	// OnStart is called once, with a live handle to the child, right before
+	// the child begins its first turn.
+	OnStart func(Handle)
+}
+
 // RunWithMessagesObserved is RunWithMessages plus an optional observe
-// callback that receives the child agent's events live (turn_end,
-// tool_execution_end, agent_end, ...) as they happen. The host uses this to
-// bubble a background child's activity up to extensions. A nil observe makes
-// this identical to RunWithMessages.
+// callback. The host uses this to bubble a background child's activity up to
+// extensions. A nil observe makes this identical to RunWithMessages.
 func RunWithMessagesObserved(
 	ctx context.Context,
 	def *SubagentDefinition,
@@ -69,6 +86,22 @@ func RunWithMessagesObserved(
 	getAPIKey func(string) (string, error),
 	streamFn types.StreamFn,
 	observe func(types.Event),
+) (RunResult, error) {
+	return RunWithHooks(ctx, def, initialMessages, task, allTools, model, getAPIKey, streamFn, RunHooks{Observe: observe})
+}
+
+// RunWithHooks is RunWithMessagesObserved with the full hook set, including
+// the live child handle needed to steer a background subagent mid-run.
+func RunWithHooks(
+	ctx context.Context,
+	def *SubagentDefinition,
+	initialMessages []types.AgentMessage,
+	task string,
+	allTools []types.Tool,
+	model *types.Model,
+	getAPIKey func(string) (string, error),
+	streamFn types.StreamFn,
+	hooks RunHooks,
 ) (RunResult, error) {
 	activeTools := filterTools(def.Tools, def.DisallowedTools, allTools)
 	activeTools = applyPermissionMode(activeTools, def.PermissionMode)
@@ -105,9 +138,12 @@ func RunWithMessagesObserved(
 		},
 	})
 
-	if observe != nil {
-		unsubscribe := ag.Subscribe(observe)
+	if hooks.Observe != nil {
+		unsubscribe := ag.Subscribe(hooks.Observe)
 		defer unsubscribe()
+	}
+	if hooks.OnStart != nil {
+		hooks.OnStart(ag)
 	}
 
 	if err := ag.Prompt(ctx, task); err != nil {

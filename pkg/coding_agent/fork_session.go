@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/openmodu/modu/pkg/coding_agent/plugins/extension"
@@ -56,9 +57,10 @@ func (cs *engine) forkSession(ctx context.Context, opts extension.ForkOptions) (
 	}
 
 	if opts.Background {
-		return cs.forkInBackground(ctx, def, childCwd, initialMessages, opts.Task, opts.ParentTaskID, opts.OutputPath, opts.OutputMode, cs.resolveForkSessionDir(opts.SessionDir), opts.BubbleTaskID)
+		return cs.forkInBackground(ctx, def, childCwd, initialMessages, opts, cs.resolveForkSessionDir(opts.SessionDir))
 	}
-	cs.OnSubagentStart(def.Name, opts.Task, false)
+	run := HarnessSubagentRun{Name: def.Name, Task: opts.Task, Label: opts.Summary}
+	cs.OnSubagentStart(run)
 	// Synchronous children bubble their live events only when the caller
 	// asked for it via BubbleTaskID (batch dispatch does, so every child of a
 	// batch aggregates under the batch id). Plain sync children stay quiet.
@@ -67,6 +69,7 @@ func (cs *engine) forkSession(ctx context.Context, opts extension.ForkOptions) (
 		result        string
 		childMessages []types.AgentMessage
 	)
+	startedAt := time.Now()
 	if strings.EqualFold(opts.Isolation, "worktree") {
 		result, childMessages, err = cs.forkInWorktree(ctx, def, initialMessages, opts.Task, observe)
 	} else {
@@ -84,9 +87,33 @@ func (cs *engine) forkSession(ctx context.Context, opts extension.ForkOptions) (
 		)
 		result, childMessages, err = runResult.Text, runResult.Messages, runErr
 	}
-	cs.OnSubagentStop(def.Name, opts.Task, false, result, err)
+	cs.OnSubagentStop(run, result, err, subagentRunStats(childMessages, startedAt))
 	cs.emitSubagentChildUsage(opts.BubbleTaskID, childMessages)
 	return result, err
+}
+
+// subagentRunStats tallies one child run into the closing figures host UIs
+// render: one turn per assistant message, tokens as fresh input+output, and
+// the wall-clock time since the run started.
+func subagentRunStats(messages []types.AgentMessage, startedAt time.Time) SubagentRunStats {
+	stats := SubagentRunStats{DurationMs: time.Since(startedAt).Milliseconds()}
+	for _, msg := range messages {
+		var assistant types.AssistantMessage
+		switch m := msg.(type) {
+		case types.AssistantMessage:
+			assistant = m
+		case *types.AssistantMessage:
+			if m == nil {
+				continue
+			}
+			assistant = *m
+		default:
+			continue
+		}
+		stats.Turns++
+		stats.Tokens += assistant.Usage.Input + assistant.Usage.Output
+	}
+	return stats
 }
 
 // childObserver returns an event observer that re-emits a child's events
@@ -148,7 +175,7 @@ func (cs *engine) emitSubagentChildEvent(taskID string, ev types.Event) {
 // dropping the request. When sessionDirOverride is non-empty the task's
 // session.jsonl/status.json land under that parent dir; otherwise the
 // task manager picks its default run root.
-func (cs *engine) forkInBackground(ctx context.Context, def *subagent.SubagentDefinition, childCwd string, initialMessages []types.AgentMessage, task, parentID, outputPath, outputMode, sessionDirOverride, bubbleOverride string) (string, error) {
+func (cs *engine) forkInBackground(ctx context.Context, def *subagent.SubagentDefinition, childCwd string, initialMessages []types.AgentMessage, opts extension.ForkOptions, sessionDirOverride string) (string, error) {
 	if cs.taskManager == nil {
 		return "", fmt.Errorf("background fork requested but task manager is not configured")
 	}
@@ -156,24 +183,31 @@ func (cs *engine) forkInBackground(ctx context.Context, def *subagent.SubagentDe
 	if def != nil && strings.TrimSpace(def.Name) != "" {
 		name = def.Name
 	}
-	outputPath = cs.resolveForkOutputPath(outputPath)
-	taskID := cs.taskManager.CreateWithMetadataInDir("subagent", fmt.Sprintf("%s: %s", name, task), name, task, parentID, outputPath, sessionDirOverride)
+	task := opts.Task
+	outputPath := cs.resolveForkOutputPath(opts.OutputPath)
+	summary := strings.TrimSpace(opts.Summary)
+	if summary == "" {
+		summary = task
+	}
+	taskID := cs.taskManager.CreateWithMetadataInDir("subagent", fmt.Sprintf("%s: %s", name, summary), name, task, opts.ParentTaskID, outputPath, sessionDirOverride)
 	// Events bubble under the caller-supplied id when set (batch children all
 	// share the batch id) so a batch's control counters aggregate across its
 	// children; otherwise under this background task's own id.
 	bubbleID := taskID
-	if bubbleOverride != "" {
-		bubbleID = bubbleOverride
+	if opts.BubbleTaskID != "" {
+		bubbleID = opts.BubbleTaskID
 	}
+	run := HarnessSubagentRun{Name: name, Task: task, Background: true, Label: strings.TrimSpace(opts.Summary), TaskID: taskID}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	cs.taskManager.RegisterCancel(taskID, cancel)
 	go func() {
 		defer cs.taskManager.UnregisterCancel(taskID)
 		if def != nil {
-			cs.OnSubagentStart(def.Name, task, true)
+			cs.OnSubagentStart(run)
 		}
 		tools := cs.toolsForFork(childCwd, def.Tools)
-		result, err := subagent.RunWithMessagesObserved(
+		startedAt := time.Now()
+		result, err := subagent.RunWithHooks(
 			runCtx,
 			subagent.WithWorkingDirectory(def, childCwd),
 			initialMessages,
@@ -182,9 +216,20 @@ func (cs *engine) forkInBackground(ctx context.Context, def *subagent.SubagentDe
 			cs.model,
 			cs.getAPIKey,
 			cs.streamFn,
-			cs.childObserver(bubbleID),
+			subagent.RunHooks{
+				Observe: cs.childObserver(bubbleID),
+				// Registering the live handle here — rather than before the
+				// goroutine starts — keeps the steer map in step with the
+				// child that actually exists.
+				OnStart: func(h subagent.Handle) {
+					cs.taskManager.RegisterSteer(taskID, func(text string) {
+						h.Steer(types.UserMessage{Role: types.RoleUser, Content: text})
+					})
+				},
+			},
 		)
 		text := result.Text
+		stats := subagentRunStats(result.Messages, startedAt)
 		cs.emitSubagentChildUsage(bubbleID, result.Messages)
 		if taskRecord, ok := cs.taskManager.Get(taskID); ok {
 			if writeErr := writeSubagentSessionFile(taskRecord.SessionFile, childCwd, cs.GetSessionID(), taskID, result.Messages); writeErr != nil && err == nil {
@@ -192,7 +237,7 @@ func (cs *engine) forkInBackground(ctx context.Context, def *subagent.SubagentDe
 			}
 		}
 		if err == nil && strings.TrimSpace(outputPath) != "" {
-			savedText, saveErr := saveForkOutput(outputPath, outputMode, text)
+			savedText, saveErr := saveForkOutput(outputPath, opts.OutputMode, text)
 			if saveErr != nil {
 				err = saveErr
 			} else {
@@ -200,15 +245,44 @@ func (cs *engine) forkInBackground(ctx context.Context, def *subagent.SubagentDe
 			}
 		}
 		if def != nil {
-			cs.OnSubagentStop(def.Name, task, true, text, err)
+			cs.OnSubagentStop(run, text, err, stats)
 		}
 		if err != nil {
 			cs.taskManager.Fail(taskID, err.Error())
+			cs.emitSubagentTaskDone(taskID, name, summary, "failed", err.Error(), opts.BubbleTaskID, stats)
 			return
 		}
 		cs.taskManager.Complete(taskID, text)
+		cs.emitSubagentTaskDone(taskID, name, summary, "completed", text, opts.BubbleTaskID, stats)
 	}()
 	return fmt.Sprintf("Started extension-fork in background. Use task_output with task_id=%s to inspect the result.", taskID), nil
+}
+
+// emitSubagentTaskDone tells extensions that a background child finished, so
+// the extension that dispatched it can push a completion notice back into the
+// parent conversation instead of waiting to be polled. Carries the same
+// figures the host UI renders, plus the child's final text.
+func (cs *engine) emitSubagentTaskDone(taskID, agentName, summary, status, result, batchID string, stats SubagentRunStats) {
+	if cs.extensions == nil || taskID == "" {
+		return
+	}
+	cs.extensions.EmitEvent(types.Event{
+		Type:    types.EventType(extension.SubagentTaskDoneEvent),
+		TaskID:  taskID,
+		Reason:  status,
+		IsError: status == "failed",
+		Args: extension.SubagentTaskDone{
+			TaskID:     taskID,
+			Agent:      agentName,
+			Summary:    summary,
+			Status:     status,
+			BatchID:    batchID,
+			Result:     result,
+			Turns:      stats.Turns,
+			Tokens:     stats.Tokens,
+			DurationMs: stats.DurationMs,
+		},
+	})
 }
 
 func (cs *engine) resolveChildCwd(cwd string) string {

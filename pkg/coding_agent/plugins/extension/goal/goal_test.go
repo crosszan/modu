@@ -92,8 +92,9 @@ func (f *fakeAPI) BackgroundTasks() []extension.TaskSnapshot {
 func (f *fakeAPI) InterruptBackgroundTask(string, string) (extension.TaskSnapshot, bool) {
 	return extension.TaskSnapshot{}, false
 }
-func (f *fakeAPI) AddPending(int) {}
-func (f *fakeAPI) DonePending()   {}
+func (f *fakeAPI) SendToBackgroundTask(string, string) bool { return false }
+func (f *fakeAPI) AddPending(int)                           {}
+func (f *fakeAPI) DonePending()                             {}
 func (f *fakeAPI) ForkSession(ctx context.Context, opts extension.ForkOptions) (string, error) {
 	f.mu.Lock()
 	f.forkOpts = append(f.forkOpts, opts)

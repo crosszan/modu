@@ -30,6 +30,7 @@ type Runner struct {
 	selectChoice   func(title string, options []string) string
 	tasks          func() []TaskSnapshot
 	interruptTask  func(id, reason string) (TaskSnapshot, bool)
+	sendToTask     func(id, text string) bool
 	forkSession    func(ctx context.Context, opts ForkOptions) (string, error)
 	mu             sync.RWMutex
 	pendingWg      sync.WaitGroup
@@ -63,6 +64,7 @@ func (r *Runner) SetCallbacks(
 	selectChoice func(title string, options []string) string,
 	tasks func() []TaskSnapshot,
 	interruptTask func(id, reason string) (TaskSnapshot, bool),
+	sendToTask func(id, text string) bool,
 	forkSession func(ctx context.Context, opts ForkOptions) (string, error),
 ) {
 	r.mu.Lock()
@@ -82,6 +84,7 @@ func (r *Runner) SetCallbacks(
 	r.selectChoice = selectChoice
 	r.tasks = tasks
 	r.interruptTask = interruptTask
+	r.sendToTask = sendToTask
 	r.forkSession = forkSession
 }
 
@@ -288,6 +291,17 @@ func (r *Runner) Confirm(title, body string, defaultYes bool) bool {
 		return defaultYes
 	}
 	return fn(title, body, defaultYes)
+}
+
+// SendToBackgroundTask implements ExtensionAPI.
+func (r *Runner) SendToBackgroundTask(id, text string) bool {
+	r.mu.RLock()
+	fn := r.sendToTask
+	r.mu.RUnlock()
+	if fn == nil {
+		return false
+	}
+	return fn(id, text)
 }
 
 // ForkSession implements ExtensionAPI.

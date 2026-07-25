@@ -19,6 +19,9 @@ type ForkOptions struct {
 	SystemPrompt string
 	// Task is the user message the child agent runs against. Required.
 	Task string
+	// Summary is a short (3-5 word) label for this run, used by host UIs and
+	// task listings instead of the raw task text. Empty falls back to Task.
+	Summary string
 	// AllowedTools restricts the child's tool set to the named tools.
 	// Empty means "inherit every tool the caller has active".
 	AllowedTools []string
@@ -119,6 +122,32 @@ type MessageOptions struct {
 	DeliverAs  string
 }
 
+// SubagentTaskDoneEvent is the payload the host puts in Event.Args when it
+// emits a "subagent_task_done" event — one background subagent child reached
+// a terminal state. Extensions use it to push a completion notice back into
+// the parent conversation instead of waiting to be polled.
+const SubagentTaskDoneEvent = "subagent_task_done"
+
+// SubagentTaskDone describes a finished background subagent child.
+type SubagentTaskDone struct {
+	TaskID string
+	Agent  string
+	// Summary is the short run label when the caller supplied one, otherwise
+	// the raw task text.
+	Summary string
+	// Status is "completed" or "failed".
+	Status string
+	// BatchID is set when this child belongs to a batch run that reports its
+	// own completion. Consumers should stay quiet for those and let the batch
+	// speak once.
+	BatchID string
+	// Result is the child's final text, or the error message when failed.
+	Result     string
+	Turns      int
+	Tokens     int
+	DurationMs int64
+}
+
 // TaskSnapshot is a lightweight view of a host-managed background task.
 type TaskSnapshot struct {
 	ID          string `json:"id"`
@@ -187,6 +216,11 @@ type ExtensionAPI interface {
 	// background task. It returns false when the task is unknown or no longer
 	// live in this process.
 	InterruptBackgroundTask(id, reason string) (TaskSnapshot, bool)
+	// SendToBackgroundTask delivers a message into a running background
+	// task's child agent, which picks it up at its next turn boundary. It
+	// returns false when the task is unknown, already finished, or was
+	// started by a previous process.
+	SendToBackgroundTask(id, text string) bool
 	// ForkSession spawns a one-shot child agent with a custom system
 	// prompt and tool whitelist, returning the child's final assistant
 	// text. The child runs synchronously in the caller's goroutine until
