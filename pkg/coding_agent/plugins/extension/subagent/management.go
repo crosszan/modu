@@ -391,8 +391,9 @@ func formatDoctor(ext *Extension) string {
 		lines = append(lines, "- host cwd: "+ext.api.Cwd())
 		// Four directories feed discovery now that the Claude Code layout is
 		// read too, so name them rather than making the user guess which one
-		// a profile came from.
-		lines = append(lines, "- scanned (later wins): ~/.claude/agents, <agent_dir>/agents, <cwd>/.claude/agents, <cwd>/.coding_agent/agents")
+		// a profile came from. Written without angle brackets: hosts render
+		// this notice as Markdown, which swallows <cwd> as an HTML tag.
+		lines = append(lines, "- scanned (later wins): ~/.claude/agents, {agent_dir}/agents, {cwd}/.claude/agents, {cwd}/.coding_agent/agents")
 	}
 	if ext.api != nil {
 		runtimeDir := subagentRuntimeDir(ext)

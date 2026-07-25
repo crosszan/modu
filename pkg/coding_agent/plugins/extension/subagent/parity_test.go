@@ -221,3 +221,35 @@ func TestAdminToolOwnsProfileManagement(t *testing.T) {
 		t.Error("dispatch description should point at subagent_admin")
 	}
 }
+
+// The doctor notice is rendered as Markdown by hosts, so a directory
+// placeholder written with angle brackets disappears as an HTML tag — the
+// line then names three paths where it means four.
+func TestDoctorScanPathsSurviveMarkdown(t *testing.T) {
+	ext, _ := newExtensionWithProfiles(t, map[string]string{
+		"explorer": frontmatterBody("explorer", "reads code"),
+	})
+	ext.cfg.AgentsDir = ""
+
+	doctor := formatDoctor(ext)
+	line := ""
+	for _, l := range strings.Split(doctor, "\n") {
+		if strings.Contains(l, "scanned (later wins)") {
+			line = l
+		}
+	}
+	if line == "" {
+		t.Fatalf("doctor did not list the scan paths:\n%s", doctor)
+	}
+	if strings.ContainsAny(line, "<>") {
+		t.Errorf("scan-path line uses angle brackets, which Markdown eats: %q", line)
+	}
+	for _, want := range []string{"~/.claude/agents", "/agents", "/.claude/agents", "/.coding_agent/agents"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("scan-path line missing %q: %q", want, line)
+		}
+	}
+	if got := strings.Count(line, ","); got != 3 {
+		t.Errorf("scan-path line should name four directories, got %d separators: %q", got, line)
+	}
+}
