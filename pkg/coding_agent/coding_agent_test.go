@@ -1230,6 +1230,142 @@ Return a short message.`), 0o644); err != nil {
 	}
 }
 
+// A synchronous child used to bubble nothing at all, so a foreground
+// delegation was a silent gap in the UI. Every child now reports its tool
+// calls and turns under a run id the UI can key a live block on.
+func TestSyncSubagentReportsProgress(t *testing.T) {
+	dir := t.TempDir()
+	agentDir := t.TempDir()
+	agentsDir := filepath.Join(agentDir, "agents")
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsDir, "helper.md"), []byte(`---
+name: helper
+description: helper
+---
+Do the task.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	model := newTestModel()
+	streamFn := func(ctx context.Context, _ *types.Model, _ *types.LLMContext, _ *types.SimpleStreamOptions) (types.EventStream, error) {
+		stream := types.NewEventStream()
+		go func() {
+			defer stream.Close()
+			msg := &types.AssistantMessage{
+				Role:       "assistant",
+				ProviderID: model.ProviderID,
+				Model:      model.ID,
+				StopReason: "stop",
+				Content:    []types.ContentBlock{&types.TextContent{Type: "text", Text: "done"}},
+				Usage:      types.AgentUsage{Input: 120, Output: 80},
+				Timestamp:  time.Now().UnixMilli(),
+			}
+			stream.Push(types.StreamEvent{Type: "done", Reason: "stop", Message: msg})
+			stream.Resolve(msg, nil)
+		}()
+		return stream, nil
+	}
+
+	session, err := NewCodingSession(CodingSessionOptions{
+		Cwd:        dir,
+		AgentDir:   agentDir,
+		Model:      model,
+		GetAPIKey:  func(provider string) (string, error) { return "", nil },
+		StreamFn:   streamFn,
+		Extensions: []extension.Extension{subagentext.New()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var events []SessionEvent
+	unsub := session.SubscribeSession(func(ev SessionEvent) {
+		mu.Lock()
+		events = append(events, ev)
+		mu.Unlock()
+	})
+	defer unsub()
+
+	var subagentTool types.Tool
+	for _, tool := range session.GetAgent().GetState().Tools {
+		if tool.Name() == "subagent" {
+			subagentTool = tool
+			break
+		}
+	}
+	if subagentTool == nil {
+		t.Fatalf("expected subagent tool, got %v", session.GetActiveToolNames())
+	}
+	if _, err := subagentTool.Execute(context.Background(), "sync-1", map[string]any{
+		"agent":       "helper",
+		"task":        "do it",
+		"description": "do the thing",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	var runID string
+	var sawTurn bool
+	for _, ev := range events {
+		switch ev.Type {
+		case SessionEventSubagentStart:
+			// Synchronous runs get a synthetic id so the UI has a stable
+			// handle for the run's block.
+			if ev.SubagentTaskID == "" {
+				t.Fatal("sync subagent start carried no run id")
+			}
+			if ev.SubagentLabel != "do the thing" {
+				t.Errorf("start label = %q, want the description", ev.SubagentLabel)
+			}
+			runID = ev.SubagentTaskID
+		case SessionEventSubagentProgress:
+			if ev.SubagentTaskID != runID {
+				t.Errorf("progress run id = %q, want %q", ev.SubagentTaskID, runID)
+			}
+			if ev.Reason == "turn" {
+				sawTurn = true
+				if ev.SubagentTokens != 200 {
+					t.Errorf("turn tokens = %d, want 200", ev.SubagentTokens)
+				}
+			}
+		case SessionEventSubagentStop:
+			if ev.SubagentTaskID != runID {
+				t.Errorf("stop run id = %q, want %q", ev.SubagentTaskID, runID)
+			}
+			if ev.SubagentTurns != 1 || ev.SubagentTokens != 200 {
+				t.Errorf("stop tally = %d turns / %d tokens, want 1/200", ev.SubagentTurns, ev.SubagentTokens)
+			}
+		}
+	}
+	if runID == "" {
+		t.Fatal("no subagent start event observed")
+	}
+	if !sawTurn {
+		t.Fatal("sync child reported no turn progress")
+	}
+}
+
+func TestToolCallDetailPicksThePrimaryArgument(t *testing.T) {
+	if got := toolCallDetail(map[string]any{"file_path": "pkg/auth/handler.go", "limit": 20}); got != "pkg/auth/handler.go" {
+		t.Errorf("detail = %q, want the file path", got)
+	}
+	if got := toolCallDetail(map[string]any{"command": "go test ./...\nsecond line"}); got != "go test ./..." {
+		t.Errorf("detail = %q, want the first line only", got)
+	}
+	if got := toolCallDetail(map[string]any{"unknown": "x"}); got != "" {
+		t.Errorf("detail = %q, want empty for an unrecognised shape", got)
+	}
+	if got := toolCallDetail("not a map"); got != "" {
+		t.Errorf("detail = %q, want empty for a non-map", got)
+	}
+}
+
 // taskDoneRecorder captures the subagent_task_done events the host emits when
 // a background child reaches a terminal state.
 type taskDoneRecorder struct {

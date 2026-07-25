@@ -197,6 +197,7 @@ func runModuTUI(ctx context.Context, session *coding_agent.CodingSession, model 
 		client:        uiClient,
 		workflow:      workflowController,
 		presenter:     eventPresenter,
+		subagents:     codetui.NewSubagentActivity(),
 		duration:      durationTracker,
 		refreshFooter: sendFooter,
 	}).Subscribe()

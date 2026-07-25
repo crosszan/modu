@@ -218,11 +218,7 @@ func subagentLabel(event coding_agent.SessionEvent) string {
 func subagentRunStatsText(event coding_agent.SessionEvent) string {
 	var parts []string
 	if event.SubagentTurns > 0 {
-		unit := " turns"
-		if event.SubagentTurns == 1 {
-			unit = " turn"
-		}
-		parts = append(parts, fmt.Sprintf("%d%s", event.SubagentTurns, unit))
+		parts = append(parts, pluralTurns(event.SubagentTurns))
 	}
 	if event.SubagentTokens > 0 {
 		parts = append(parts, compactTokens(event.SubagentTokens)+" tokens")
@@ -234,6 +230,13 @@ func subagentRunStatsText(event coding_agent.SessionEvent) string {
 		return ""
 	}
 	return "(" + strings.Join(parts, " · ") + ")"
+}
+
+func pluralTurns(turns int) string {
+	if turns == 1 {
+		return "1 turn"
+	}
+	return fmt.Sprintf("%d turns", turns)
 }
 
 func compactTokens(tokens int) string {

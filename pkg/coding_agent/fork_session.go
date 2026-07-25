@@ -59,12 +59,13 @@ func (cs *engine) forkSession(ctx context.Context, opts extension.ForkOptions) (
 	if opts.Background {
 		return cs.forkInBackground(ctx, def, childCwd, initialMessages, opts, cs.resolveForkSessionDir(opts.SessionDir))
 	}
-	run := HarnessSubagentRun{Name: def.Name, Task: opts.Task, Label: opts.Summary}
+	// Synchronous runs have no host task to key on, so they get a synthetic
+	// run id — the UI needs a stable handle to update one run's progress
+	// block, and the extension bus still only sees BubbleTaskID.
+	runID := "run-" + uuid.NewString()
+	run := HarnessSubagentRun{Name: def.Name, Task: opts.Task, Label: opts.Summary, TaskID: runID}
 	cs.OnSubagentStart(run)
-	// Synchronous children bubble their live events only when the caller
-	// asked for it via BubbleTaskID (batch dispatch does, so every child of a
-	// batch aggregates under the batch id). Plain sync children stay quiet.
-	observe := cs.childObserver(opts.BubbleTaskID)
+	observe := cs.childObserver(runID, def.Name, opts.BubbleTaskID)
 	var (
 		result        string
 		childMessages []types.AgentMessage
@@ -116,14 +117,81 @@ func subagentRunStats(messages []types.AgentMessage, startedAt time.Time) Subage
 	return stats
 }
 
-// childObserver returns an event observer that re-emits a child's events
-// under bubbleID, or nil when there is nothing to bubble to. Used for both
-// synchronous and background children so the caller can share one code path.
-func (cs *engine) childObserver(bubbleID string) func(types.Event) {
-	if cs.extensions == nil || bubbleID == "" {
-		return nil
+// childObserver returns an event observer for one child run. It feeds two
+// independent consumers:
+//
+//   - extensions, via "subagent_child_event" under bubbleID — unchanged
+//     behaviour, still limited to callers that asked for it (batch dispatch
+//     and background children);
+//   - host UIs, via SessionEventSubagentProgress under runID, so a live run
+//     can show what it is doing. Every child reports here, synchronous ones
+//     included: a foreground delegation is exactly the case where the user is
+//     sitting there watching.
+func (cs *engine) childObserver(runID, agentName, bubbleID string) func(types.Event) {
+	return func(ev types.Event) {
+		cs.emitSubagentChildEvent(bubbleID, ev)
+		cs.emitSubagentProgress(runID, agentName, ev)
 	}
-	return func(ev types.Event) { cs.emitSubagentChildEvent(bubbleID, ev) }
+}
+
+// emitSubagentProgress translates one child event into the single line a UI
+// shows for it. Only tool completions and turn boundaries are reported —
+// streaming deltas would drown the parent's event stream for no gain.
+func (cs *engine) emitSubagentProgress(runID, agentName string, ev types.Event) {
+	if runID == "" {
+		return
+	}
+	switch ev.Type {
+	case types.EventTypeToolExecutionEnd:
+		errMessage := ""
+		if ev.IsError {
+			errMessage = "failed"
+		}
+		cs.onSubagentProgress(runID, agentName, "tool", ev.ToolName, toolCallDetail(ev.Args), errMessage, 0)
+	case types.EventTypeTurnEnd:
+		cs.onSubagentProgress(runID, agentName, "turn", "", "", "", turnTokens(ev.Message))
+	}
+}
+
+// toolCallDetail picks the one argument worth showing beside a tool name —
+// the path, command, or pattern that says what the call was about. Falls back
+// to the first short string argument, and to "" when nothing fits.
+func toolCallDetail(args any) string {
+	m, ok := args.(map[string]any)
+	if !ok {
+		return ""
+	}
+	for _, key := range []string{"file_path", "path", "command", "pattern", "query", "url", "task", "agent"} {
+		if s, ok := m[key].(string); ok && strings.TrimSpace(s) != "" {
+			return firstLineOf(s, 60)
+		}
+	}
+	return ""
+}
+
+func firstLineOf(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if idx := strings.IndexByte(text, '\n'); idx >= 0 {
+		text = text[:idx]
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + "…"
+}
+
+// turnTokens returns the fresh input+output tokens a turn_end event carries.
+func turnTokens(msg types.AgentMessage) int {
+	switch m := msg.(type) {
+	case types.AssistantMessage:
+		return m.Usage.Input + m.Usage.Output
+	case *types.AssistantMessage:
+		if m != nil {
+			return m.Usage.Input + m.Usage.Output
+		}
+	}
+	return 0
 }
 
 // emitSubagentChildUsage broadcasts a child agent's token usage to
@@ -217,7 +285,7 @@ func (cs *engine) forkInBackground(ctx context.Context, def *subagent.SubagentDe
 			cs.getAPIKey,
 			cs.streamFn,
 			subagent.RunHooks{
-				Observe: cs.childObserver(bubbleID),
+				Observe: cs.childObserver(taskID, name, bubbleID),
 				// Registering the live handle here — rather than before the
 				// goroutine starts — keeps the steer map in step with the
 				// child that actually exists.
