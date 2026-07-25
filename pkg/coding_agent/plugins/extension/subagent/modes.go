@@ -57,7 +57,9 @@ func runSingle(ctx context.Context, ext *Extension, args map[string]any) (string
 		yes := true
 		background = &yes
 	}
+	description, _ := args["description"].(string)
 	return forkOne(ctx, ext, agentName, task, callOptions{
+		description:   description,
 		background:    background,
 		outputPath:    outputPath,
 		outputMode:    output.mode,
@@ -218,6 +220,7 @@ func runParallelCalls(ctx context.Context, ext *Extension, calls []callSpec, opt
 					isolationOverride = "worktree"
 				}
 				text, err = forkOne(childCtx, ext, call.agent, task, callOptions{
+					description:   call.description,
 					outputPath:    outputPath,
 					outputMode:    call.outputMode,
 					reads:         call.reads,
@@ -362,6 +365,7 @@ func runChain(ctx context.Context, ext *Extension, args map[string]any) (string,
 		}
 		batchTaskID, _ := args["_batchTaskID"].(string)
 		text, err := forkOne(ctx, ext, c.agent, task, callOptions{
+			description:   c.description,
 			outputPath:    outputPath,
 			outputMode:    c.outputMode,
 			reads:         c.reads,
@@ -400,20 +404,26 @@ type chainStep struct {
 
 // callSpec is one (agent, task) entry inside a parallel or chain list.
 type callSpec struct {
-	agent      string
-	task       string
-	output     string
-	outputMode string
-	reads      readOptions
-	progress   *bool
-	chainDir   string
-	model      string
-	skill      skillOverride
-	cwd        string
-	thinking   string
+	agent string
+	task  string
+	// description is the short run label shown in the transcript and task
+	// list instead of the raw task text.
+	description string
+	output      string
+	outputMode  string
+	reads       readOptions
+	progress    *bool
+	chainDir    string
+	model       string
+	skill       skillOverride
+	cwd         string
+	thinking    string
 }
 
 type callOptions struct {
+	// description is the caller's short label for this run. Empty means host
+	// UIs fall back to the task text.
+	description   string
 	background    *bool
 	parentID      string
 	outputPath    string
@@ -537,6 +547,7 @@ func decodeCallObject(obj map[string]any, label string, defaultPrevious bool) ([
 			return nil, fmt.Errorf("%s: missing \"task\"", label)
 		}
 	}
+	description, _ := obj["description"].(string)
 	output, _ := obj["output"].(string)
 	outputMode, _ := obj["outputMode"].(string)
 	count, err := optionalItemCount(obj["count"])
@@ -562,17 +573,18 @@ func decodeCallObject(obj map[string]any, label string, defaultPrevious bool) ([
 	out := make([]callSpec, 0, count)
 	for repeat := 0; repeat < count; repeat++ {
 		out = append(out, callSpec{
-			agent:      agent,
-			task:       task,
-			output:     output,
-			outputMode: outputMode,
-			reads:      reads,
-			progress:   progress,
-			chainDir:   chainDir,
-			model:      model,
-			skill:      skill,
-			cwd:        cwd,
-			thinking:   thinking,
+			agent:       agent,
+			task:        task,
+			description: description,
+			output:      output,
+			outputMode:  outputMode,
+			reads:       reads,
+			progress:    progress,
+			chainDir:    chainDir,
+			model:       model,
+			skill:       skill,
+			cwd:         cwd,
+			thinking:    thinking,
 		})
 	}
 	return out, nil
@@ -671,6 +683,7 @@ func forkOptionsFor(def *csubagent.SubagentDefinition, cfg Config, task string, 
 		Name:            def.Name,
 		SystemPrompt:    sysPrompt,
 		Task:            task,
+		Summary:         strings.TrimSpace(opts.description),
 		AllowedTools:    def.Tools,
 		DisallowedTools: def.DisallowedTools,
 		Model:           effectiveModel(def, cfg, opts.model),

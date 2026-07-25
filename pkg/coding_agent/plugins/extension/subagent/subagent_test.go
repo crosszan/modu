@@ -257,11 +257,11 @@ func TestInitNoProfilesRegistersManagementToolOnly(t *testing.T) {
 	if err := ext.Init(api); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	// Always-on tools: the subagent management/exec tool plus the intercom
-	// send tool. The spawn_subagent compatibility alias only appears when
-	// at least one profile is discovered.
+	// Always-on tools: the dispatch tool, the profile-admin tool, and the
+	// intercom send tool. The spawn_subagent compatibility alias only appears
+	// when at least one profile is discovered.
 	got := registeredToolNames(api)
-	want := map[string]bool{"subagent": false, "subagent_intercom_send": false}
+	want := map[string]bool{"subagent": false, "subagent_admin": false, "subagent_intercom_send": false}
 	for _, name := range got {
 		if _, ok := want[name]; ok {
 			want[name] = true
