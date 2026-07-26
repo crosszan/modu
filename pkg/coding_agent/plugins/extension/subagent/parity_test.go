@@ -224,7 +224,7 @@ func TestAdminToolOwnsProfileManagement(t *testing.T) {
 
 // The doctor notice is rendered as Markdown by hosts, so a directory
 // placeholder written with angle brackets disappears as an HTML tag — the
-// line then names three paths where it means four.
+// line then names a path starting at the filesystem root.
 func TestDoctorScanPathsSurviveMarkdown(t *testing.T) {
 	ext, _ := newExtensionWithProfiles(t, map[string]string{
 		"explorer": frontmatterBody("explorer", "reads code"),
@@ -244,12 +244,13 @@ func TestDoctorScanPathsSurviveMarkdown(t *testing.T) {
 	if strings.ContainsAny(line, "<>") {
 		t.Errorf("scan-path line uses angle brackets, which Markdown eats: %q", line)
 	}
-	for _, want := range []string{"~/.claude/agents", "/agents", "/.claude/agents", "/.coding_agent/agents"} {
+	for _, want := range []string{"{agent_dir}/agents", "{cwd}/.coding_agent/agents"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("scan-path line missing %q: %q", want, line)
 		}
 	}
-	if got := strings.Count(line, ","); got != 3 {
-		t.Errorf("scan-path line should name four directories, got %d separators: %q", got, line)
+	// Discovery is modu's own directories only.
+	if strings.Contains(line, ".claude") {
+		t.Errorf("scan-path line advertises another tool's directory: %q", line)
 	}
 }
