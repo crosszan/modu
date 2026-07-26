@@ -88,7 +88,7 @@ func TestDiscoverProjectOverridesUser(t *testing.T) {
 	agentDir := t.TempDir()
 	cwd := t.TempDir()
 	writeFile(t, filepath.Join(agentDir, "prompts", "dup.md"), "user body")
-	writeFile(t, filepath.Join(cwd, ".coding_agent", "prompts", "dup.md"), "project body")
+	writeFile(t, filepath.Join(cwd, ".modu", "prompts", "dup.md"), "project body")
 
 	m := NewManager(agentDir, cwd)
 	tmpl, ok := m.Get("dup")

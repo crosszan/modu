@@ -2906,7 +2906,7 @@ func newExtensionWithUserAndProjectProfiles(t *testing.T, userProfiles, projectP
 	agentDir := t.TempDir()
 	cwd := t.TempDir()
 	userDir := filepath.Join(agentDir, "agents")
-	projectDir := filepath.Join(cwd, ".coding_agent", "agents")
+	projectDir := filepath.Join(cwd, ".modu", "agents")
 	if err := os.MkdirAll(userDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

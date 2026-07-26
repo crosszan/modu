@@ -17,22 +17,26 @@ func writeProfile(t *testing.T, dir, name, description string) {
 	}
 }
 
-// Discovery stays inside modu's own directories. Another tool's profiles are
-// not modu's to run: picking them up would put agents the user never wrote
-// for modu into the subagent tool description and its context budget.
-func TestDiscoverIgnoresForeignAgentDirs(t *testing.T) {
+// Discovery uses exactly two directories. Another tool's profiles are not
+// modu's to run, and a retired root is not a second home — either one would
+// put agents the user never wrote for modu into the subagent tool
+// description and its context budget.
+func TestDiscoverIgnoresForeignAndRetiredAgentDirs(t *testing.T) {
 	agentDir := t.TempDir()
 	cwd := t.TempDir()
 
 	writeProfile(t, filepath.Join(agentDir, "agents"), "user-agent", "modu user profile")
-	writeProfile(t, filepath.Join(cwd, ".coding_agent", "agents"), "project-agent", "modu project profile")
+	writeProfile(t, filepath.Join(cwd, ".modu", "agents"), "project-agent", "modu project profile")
 	writeProfile(t, filepath.Join(cwd, ".claude", "agents"), "claude-agent", "another tool's profile")
+	writeProfile(t, filepath.Join(cwd, ".coding_agent", "agents"), "retired-agent", "profile in a retired root")
 
 	l := NewLoader()
 	l.Discover(agentDir, cwd)
 
-	if _, ok := l.Get("claude-agent"); ok {
-		t.Error("a profile from .claude/agents must not be discovered")
+	for _, name := range []string{"claude-agent", "retired-agent"} {
+		if _, ok := l.Get(name); ok {
+			t.Errorf("profile %q must not be discovered", name)
+		}
 	}
 	user, ok := l.Get("user-agent")
 	if !ok {
@@ -43,7 +47,7 @@ func TestDiscoverIgnoresForeignAgentDirs(t *testing.T) {
 	}
 	project, ok := l.Get("project-agent")
 	if !ok {
-		t.Fatal("profile from .coding_agent/agents not discovered")
+		t.Fatal("profile from .modu/agents not discovered")
 	}
 	if project.Source != "project" {
 		t.Errorf("project-agent source = %q, want project", project.Source)
@@ -55,7 +59,7 @@ func TestDiscoverProjectOverridesUser(t *testing.T) {
 	agentDir := t.TempDir()
 	cwd := t.TempDir()
 	writeProfile(t, filepath.Join(agentDir, "agents"), "reviewer", "user reviewer")
-	writeProfile(t, filepath.Join(cwd, ".coding_agent", "agents"), "reviewer", "project reviewer")
+	writeProfile(t, filepath.Join(cwd, ".modu", "agents"), "reviewer", "project reviewer")
 
 	l := NewLoader()
 	l.Discover(agentDir, cwd)

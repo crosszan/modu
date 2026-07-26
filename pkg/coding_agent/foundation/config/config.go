@@ -221,7 +221,7 @@ func LegacyGlobalSettingsPath(agentDir string) string {
 
 // ProjectSettingsPath returns the project-local settings override path.
 func ProjectSettingsPath(cwd string) string {
-	return projectdir.Resolve(cwd, "settings.json")
+	return projectdir.Path(cwd, "settings.json")
 }
 
 // Load reads configuration from global config.toml [settings], legacy global

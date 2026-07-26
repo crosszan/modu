@@ -91,7 +91,7 @@ func TestProjectOverridesGlobal(t *testing.T) {
 
 	writeFile(t, filepath.Join(agentDir, "skills", "dup.md"),
 		"---\ndescription: global one\n---\nglobal")
-	writeFile(t, filepath.Join(cwd, ".coding_agent", "skills", "dup.md"),
+	writeFile(t, filepath.Join(cwd, ".modu", "skills", "dup.md"),
 		"---\ndescription: project one\n---\nproject")
 
 	if err := m.Discover(); err != nil {

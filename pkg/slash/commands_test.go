@@ -159,10 +159,9 @@ func TestHandleContextShowsMemorySummaryMode(t *testing.T) {
 	cwd := t.TempDir()
 	agentDir := filepath.Join(cwd, ".coding_agent")
 	model := &types.Model{ID: "test", Name: "Test", ProviderID: "test"}
-	// The memory store resolves its project directory when the session is
-	// constructed, so an existing checkout's legacy directory has to be in
-	// place first — which is what a real upgrade looks like.
-	memoryDir := filepath.Join(cwd, ".modu_code", "memory")
+	// The memory store reads its project directory when the session is
+	// constructed, so the file has to be in place first.
+	memoryDir := filepath.Join(cwd, ".modu", "memory")
 	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

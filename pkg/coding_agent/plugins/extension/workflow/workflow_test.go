@@ -585,7 +585,7 @@ func TestSavedWorkflowApprovalDenialSkipsBackgroundRun(t *testing.T) {
 	clearWorkflowDisableEnv(t)
 	cwd := t.TempDir()
 	sessionDir := t.TempDir()
-	projectDir := filepath.Join(cwd, ".coding_agent", "workflows")
+	projectDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1349,7 +1349,7 @@ return await pipeline(["a"],
 
 func TestNestedWorkflowLoadsSavedNameAndPassesArgs(t *testing.T) {
 	cwd := t.TempDir()
-	workflowDir := filepath.Join(cwd, ".coding_agent", "workflows")
+	workflowDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1440,7 +1440,7 @@ return await workflow("child");
 }
 func TestNestedWorkflowSharesBudget(t *testing.T) {
 	cwd := t.TempDir()
-	workflowDir := filepath.Join(cwd, ".coding_agent", "workflows")
+	workflowDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1474,7 +1474,7 @@ return { first: child.first, second: second, spent: budget.spent(), remaining: b
 
 func TestNestedWorkflowSharesAgentLimit(t *testing.T) {
 	cwd := t.TempDir()
-	workflowDir := filepath.Join(cwd, ".coding_agent", "workflows")
+	workflowDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1505,7 +1505,7 @@ return { first: child.first, second: second };
 
 func TestNestedWorkflowRejectsSecondLevelNesting(t *testing.T) {
 	cwd := t.TempDir()
-	workflowDir := filepath.Join(cwd, ".coding_agent", "workflows")
+	workflowDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1683,8 +1683,8 @@ func TestToolExecuteLoadsSavedWorkflowNameWithProjectPrecedence(t *testing.T) {
 	repo := t.TempDir()
 	cwd := filepath.Join(repo, "services", "api")
 	agentDir := t.TempDir()
-	rootProjectDir := filepath.Join(repo, ".coding_agent", "workflows")
-	nearestProjectDir := filepath.Join(repo, "services", ".coding_agent", "workflows")
+	rootProjectDir := filepath.Join(repo, ".modu", "workflows")
+	nearestProjectDir := filepath.Join(repo, "services", ".modu", "workflows")
 	userDir := filepath.Join(agentDir, "workflows")
 	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1786,22 +1786,21 @@ return agent("x", { label: "x" })`
 		t.Fatalf("saved path = %q, want %q", path, want)
 	}
 
-	// An existing legacy directory nearer the cwd is reused, so a half-migrated
-	// checkout keeps its saved workflows together instead of splitting them.
-	legacyWorkflowDir := filepath.Join(repo, "services", ".coding_agent", "workflows")
-	if err := os.MkdirAll(legacyWorkflowDir, 0o755); err != nil {
+	// A retired root is not a save target, even sitting nearer the cwd.
+	retiredDir := filepath.Join(repo, "services", ".coding_agent", "workflows")
+	if err := os.MkdirAll(retiredDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	ext = &Extension{cfg: DefaultConfig(), api: &fakeAPI{cwd: cwd}}
-	path, err = ext.saveWorkflowRunScript(run, "legacy_nearest", "project")
+	path, err = ext.saveWorkflowRunScript(run, "not_legacy", "project")
 	if err != nil {
-		t.Fatalf("save legacy nearest: %v", err)
+		t.Fatalf("save with retired dir present: %v", err)
 	}
-	if want := filepath.Join(legacyWorkflowDir, "legacy_nearest.js"); path != want {
-		t.Fatalf("legacy nearest saved path = %q, want %q", path, want)
+	if want := filepath.Join(repo, ".modu", "workflows", "not_legacy.js"); path != want {
+		t.Fatalf("saved path = %q, want %q — a retired root must not be reused", path, want)
 	}
 
-	// The current layout wins over a legacy directory at the same level.
+	// The nearest .modu directory wins over the repo root.
 	nearestWorkflowDir := filepath.Join(repo, "services", ".modu", "workflows")
 	if err := os.MkdirAll(nearestWorkflowDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -1838,6 +1837,7 @@ func TestDiscoverSavedWorkflowCommandsUsesNearestProjectPrecedence(t *testing.T)
 		filepath.Join(repo, ".modu", "workflows"),
 		filepath.Join(repo, "apps", ".modu", "workflows"),
 		filepath.Join(repo, "apps", ".coding_agent", "workflows"),
+		filepath.Join(repo, "apps", ".modu_code", "workflows"),
 		filepath.Join(repo, "apps", ".claude", "workflows"),
 		filepath.Join(agentDir, "workflows"),
 	} {
@@ -1846,11 +1846,12 @@ func TestDiscoverSavedWorkflowCommandsUsesNearestProjectPrecedence(t *testing.T)
 		}
 	}
 	for path, body := range map[string]string{
-		filepath.Join(repo, ".modu", "workflows", "review.js"):                 `meta({ name: "root", description: "root" })`,
-		filepath.Join(repo, "apps", ".modu", "workflows", "review.js"):         `meta({ name: "nearest", description: "nearest" })`,
-		filepath.Join(repo, "apps", ".coding_agent", "workflows", "legacy.js"): `meta({ name: "legacy", description: "legacy" })`,
-		filepath.Join(repo, "apps", ".claude", "workflows", "foreign.js"):      `meta({ name: "foreign", description: "foreign" })`,
-		filepath.Join(agentDir, "workflows", "personal.js"):                    `meta({ name: "personal", description: "personal" })`,
+		filepath.Join(repo, ".modu", "workflows", "review.js"):                   `meta({ name: "root", description: "root" })`,
+		filepath.Join(repo, "apps", ".modu", "workflows", "review.js"):           `meta({ name: "nearest", description: "nearest" })`,
+		filepath.Join(repo, "apps", ".coding_agent", "workflows", "retired1.js"): `meta({ name: "retired1", description: "retired" })`,
+		filepath.Join(repo, "apps", ".modu_code", "workflows", "retired2.js"):    `meta({ name: "retired2", description: "retired" })`,
+		filepath.Join(repo, "apps", ".claude", "workflows", "foreign.js"):        `meta({ name: "foreign", description: "foreign" })`,
+		filepath.Join(agentDir, "workflows", "personal.js"):                      `meta({ name: "personal", description: "personal" })`,
 	} {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -1868,9 +1869,11 @@ func TestDiscoverSavedWorkflowCommandsUsesNearestProjectPrecedence(t *testing.T)
 	if got, want := byName["review"], filepath.Join(repo, "apps", ".modu", "workflows", "review.js"); got != want {
 		t.Fatalf("review path = %q, want %q", got, want)
 	}
-	// A legacy project directory is still discovered.
-	if got, want := byName["legacy"], filepath.Join(repo, "apps", ".coding_agent", "workflows", "legacy.js"); got != want {
-		t.Fatalf("legacy path = %q, want %q", got, want)
+	// Retired roots are not scanned — one project directory, no second home.
+	for _, name := range []string{"retired1", "retired2"} {
+		if got, ok := byName[name]; ok {
+			t.Errorf("workflow from a retired root was discovered at %q", got)
+		}
 	}
 	if got, want := byName["personal"], filepath.Join(agentDir, "workflows", "personal.js"); got != want {
 		t.Fatalf("personal path = %q, want %q", got, want)
@@ -2931,7 +2934,7 @@ func TestSavedWorkflowCommandRegistersProjectPrecedenceAndRuns(t *testing.T) {
 	cwd := t.TempDir()
 	agentDir := t.TempDir()
 	sessionDir := t.TempDir()
-	projectDir := filepath.Join(cwd, ".coding_agent", "workflows")
+	projectDir := filepath.Join(cwd, ".modu", "workflows")
 	userDir := filepath.Join(agentDir, "workflows")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -3006,7 +3009,7 @@ return agent("project " + args.suffix, { label: "project" })
 func TestSavedWorkflowCommandKeepsReservedDirectCommandFree(t *testing.T) {
 	clearWorkflowDisableEnv(t)
 	cwd := t.TempDir()
-	projectDir := filepath.Join(cwd, ".coding_agent", "workflows")
+	projectDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -3039,7 +3042,7 @@ return agent("reserved", { label: "reserved" })
 func TestSavedWorkflowCommandRejectsInvalidJSONArgs(t *testing.T) {
 	clearWorkflowDisableEnv(t)
 	cwd := t.TempDir()
-	projectDir := filepath.Join(cwd, ".coding_agent", "workflows")
+	projectDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -3073,7 +3076,7 @@ func TestSavedWorkflowCompletesInPrintMode(t *testing.T) {
 	clearWorkflowDisableEnv(t)
 	cwd := t.TempDir()
 	sessionDir := t.TempDir()
-	projectDir := filepath.Join(cwd, ".coding_agent", "workflows")
+	projectDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

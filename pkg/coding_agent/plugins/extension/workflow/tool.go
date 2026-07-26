@@ -549,7 +549,7 @@ func projectWorkflowDirs(cwd string) []string {
 	root := findWorkflowProjectRoot(start)
 	var dirs []string
 	for dir := start; ; dir = filepath.Dir(dir) {
-		dirs = append(dirs, projectdir.Search(dir, "workflows")...)
+		dirs = append(dirs, projectdir.Path(dir, "workflows"))
 		if dir == root {
 			break
 		}
@@ -567,6 +567,11 @@ func userWorkflowDirs(agentDir string) []string {
 		return nil
 	}
 	return []string{filepath.Join(filepath.Clean(agentDir), "workflows")}
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func findWorkflowProjectRoot(cwd string) string {
@@ -590,14 +595,11 @@ func projectWorkflowSaveDir(cwd string) (string, error) {
 	}
 	start := filepath.Clean(cwd)
 	root := findWorkflowProjectRoot(start)
-	// Reuse an existing workflows directory anywhere up to the project root
-	// — including a legacy one, so a repo mid-migration keeps its saved
-	// workflows together — and otherwise create the current layout at the root.
+	// Reuse the nearest existing workflows directory up to the project root,
+	// otherwise create one at the root.
 	for dir := start; ; dir = filepath.Dir(dir) {
-		for _, candidate := range projectdir.SearchPreferredFirst(dir, "workflows") {
-			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-				return candidate, nil
-			}
+		if candidate := projectdir.Path(dir, "workflows"); dirExists(candidate) {
+			return candidate, nil
 		}
 		if dir == root {
 			break

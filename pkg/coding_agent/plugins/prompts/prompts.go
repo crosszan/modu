@@ -126,16 +126,13 @@ type Manager struct {
 }
 
 // NewManager creates a prompt-template manager. User templates live under
-// {agentDir}/prompts and project templates under {cwd}/.modu/prompts (plus
-// the legacy project roots, which are still read). Project templates are
-// scanned after user ones so they win on name conflicts, and .modu comes
-// last for the same reason (the parser overwrites).
+// {agentDir}/prompts and project templates under {cwd}/.modu/prompts.
+// Project templates are scanned after user ones so they win on name conflicts
+// (the parser overwrites).
 func NewManager(agentDir, cwd string) *Manager {
 	roots := []mdloader.Ref{
 		{Path: filepath.Join(agentDir, "prompts"), Source: "user"},
-	}
-	for _, dir := range projectdir.Search(cwd, "prompts") {
-		roots = append(roots, mdloader.Ref{Path: dir, Source: "project"})
+		{Path: projectdir.Path(cwd, "prompts"), Source: "project"},
 	}
 	return &Manager{mdloader.New(roots, promptParser{})}
 }

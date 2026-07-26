@@ -233,8 +233,6 @@ func targetDirForCreate(ext *Extension, cfg map[string]any) (string, string, err
 		if ext.api == nil {
 			return "", "", fmt.Errorf("project scope requires the host API; extension not initialized")
 		}
-		// Writes always land in the current layout, even when a legacy
-		// project directory still exists and is being read.
 		return projectdir.Path(ext.api.Cwd(), "agents"), "project", nil
 	default:
 		return "", "", fmt.Errorf("scope must be 'user' or 'project', got %q", scope)

@@ -67,21 +67,13 @@ func (l *Loader) LoadResources() ResourceSnapshot {
 // the same name.
 func (l *Loader) LoadPackages() []PackageInfo {
 	byName := make(map[string]PackageInfo)
-	roots := []struct {
+	for _, root := range []struct {
 		path   string
 		source string
 	}{
 		{filepath.Join(l.agentDir, "packages"), "user"},
-	}
-	// Project packages are applied after user ones, and .modu after the
-	// legacy roots, so the current layout wins a name clash.
-	for _, dir := range projectdir.Search(l.cwd, "packages") {
-		roots = append(roots, struct {
-			path   string
-			source string
-		}{dir, "project"})
-	}
-	for _, root := range roots {
+		{projectdir.Path(l.cwd, "packages"), "project"},
+	} {
 		for _, pkg := range loadPackagesFromRoot(root.path, root.source) {
 			byName[pkg.Name] = pkg
 		}

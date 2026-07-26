@@ -19,7 +19,7 @@ func TestLoadPreservesCompactionUserAnchorBudgetWhenOmitted(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, ".coding_agent")
 	cwd := filepath.Join(dir, "repo")
-	settingsDir := filepath.Join(cwd, ".coding_agent")
+	settingsDir := filepath.Join(cwd, ".modu")
 	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -307,49 +307,36 @@ func TestSaveGlobalConfigTomlOmitsDefaultsAndEmptySections(t *testing.T) {
 	}
 }
 
-// An existing checkout still keeps its settings under the old project root;
-// dropping them on upgrade would silently change the session's config.
-func TestLoadProjectSettingsFromLegacyDir(t *testing.T) {
+// There is one project settings location. A file left in a retired root must
+// not be read: a second live location is what split project state across
+// directories in the first place.
+func TestProjectSettingsIgnoresRetiredRoots(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, ".modu")
 	cwd := filepath.Join(dir, "repo")
-	if err := os.MkdirAll(filepath.Join(cwd, ".coding_agent"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacy := filepath.Join(cwd, ".coding_agent", "settings.json")
-	if err := os.WriteFile(legacy, []byte(`{"mcpServers": {"legacy": {"command": "legacy-server"}}}`), 0o600); err != nil {
-		t.Fatal(err)
+	for _, retired := range []string{".coding_agent", ".modu_code"} {
+		if err := os.MkdirAll(filepath.Join(cwd, retired), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := `{"mcpServers": {"` + retired + `": {"command": "retired-server"}}}`
+		if err := os.WriteFile(filepath.Join(cwd, retired, "settings.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got := ProjectSettingsPath(cwd); got != legacy {
-		t.Fatalf("ProjectSettingsPath = %q, want the legacy file %q", got, legacy)
+	if got, want := ProjectSettingsPath(cwd), filepath.Join(cwd, ".modu", "settings.json"); got != want {
+		t.Fatalf("ProjectSettingsPath = %q, want %q", got, want)
 	}
 
 	cfg, err := Load(agentDir, cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := cfg.MCPServers["legacy"]; !ok {
-		t.Fatalf("legacy project settings were not loaded: %#v", cfg.MCPServers)
-	}
-}
-
-// Once the current layout exists it wins, so a half-migrated checkout does
-// not silently keep reading the stale file.
-func TestProjectSettingsPathPrefersCurrentLayout(t *testing.T) {
-	cwd := t.TempDir()
-	for _, root := range []string{".coding_agent", ".modu"} {
-		if err := os.MkdirAll(filepath.Join(cwd, root), 0o755); err != nil {
-			t.Fatal(err)
+	for _, retired := range []string{".coding_agent", ".modu_code"} {
+		if _, ok := cfg.MCPServers[retired]; ok {
+			t.Errorf("settings from the retired %s root were loaded", retired)
 		}
-		if err := os.WriteFile(filepath.Join(cwd, root, "settings.json"), []byte(`{}`), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want := filepath.Join(cwd, ".modu", "settings.json")
-	if got := ProjectSettingsPath(cwd); got != want {
-		t.Fatalf("ProjectSettingsPath = %q, want %q", got, want)
 	}
 }

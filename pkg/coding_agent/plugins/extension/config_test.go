@@ -272,41 +272,30 @@ func TestLoadEnabledMalformedYAMLErrors(t *testing.T) {
 	}
 }
 
-func TestDefaultConfigPathPrefersModuDir(t *testing.T) {
+func TestDefaultConfigPathAlwaysUsesModuDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
 	primary := filepath.Join(home, ".modu", "extensions.yaml")
-	legacy := filepath.Join(home, ".modu_code", "extensions.yaml")
 
-	// Neither file exists: default to the ~/.modu path.
+	// Nothing on disk: the ~/.modu path is still what callers get.
 	if got := DefaultConfigPath(); got != primary {
 		t.Fatalf("no files: got %q, want %q", got, primary)
 	}
 
-	// Only the legacy file exists: keep honoring it.
+	// A config left in the retired ~/.modu_code is not picked up. Honoring it
+	// would keep a second live config location alive indefinitely.
+	legacy := filepath.Join(home, ".modu_code", "extensions.yaml")
 	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(legacy, []byte("extensions: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := DefaultConfigPath(); got != legacy {
-		t.Fatalf("legacy only: got %q, want %q", got, legacy)
-	}
-
-	// Both exist: ~/.modu wins.
-	if err := os.MkdirAll(filepath.Dir(primary), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(primary, []byte("extensions: []\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if got := DefaultConfigPath(); got != primary {
-		t.Fatalf("both exist: got %q, want %q", got, primary)
+		t.Fatalf("retired config present: got %q, want %q", got, primary)
 	}
 }
-
 func TestLoadEnabledFileIsOverlayNotWhitelist(t *testing.T) {
 	seedRegistry(t, "alpha", "beta", "gamma")
 	t.Cleanup(resetRegistryForTest)

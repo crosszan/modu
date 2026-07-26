@@ -65,17 +65,14 @@ type Manager struct {
 }
 
 // NewManager creates a new skill manager. Global skills live under
-// {agentDir}/skills and project skills under {cwd}/.modu/skills (plus the
-// legacy project roots, which are still read). Project skills are scanned
-// first so they win over global ones of the same name, and .modu comes
-// before the legacy roots for the same reason (the parser keeps the first
-// registration).
+// {agentDir}/skills and project skills under {cwd}/.modu/skills.
+// Project skills are scanned first so they win over global ones of the same
+// name (the parser keeps the first registration).
 func NewManager(agentDir, cwd string) *Manager {
-	var roots []mdloader.Ref
-	for _, dir := range projectdir.SearchPreferredFirst(cwd, "skills") {
-		roots = append(roots, mdloader.Ref{Path: dir, Source: "project"})
+	roots := []mdloader.Ref{
+		{Path: projectdir.Path(cwd, "skills"), Source: "project"},
+		{Path: filepath.Join(agentDir, "skills"), Source: "user"},
 	}
-	roots = append(roots, mdloader.Ref{Path: filepath.Join(agentDir, "skills"), Source: "user"})
 	return &Manager{mdloader.New(roots, skillParser{})}
 }
 

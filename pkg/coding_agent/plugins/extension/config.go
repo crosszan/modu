@@ -1,7 +1,6 @@
 // Package extension's config.go resolves the active extension list for a
 // CodingSession by combining the builtin Registry with the on-disk YAML
-// config at ~/.modu/extensions.yaml (legacy ~/.modu_code/extensions.yaml is
-// still honored when only it exists).
+// config at ~/.modu/extensions.yaml.
 //
 // Resolution rules:
 //
@@ -56,28 +55,14 @@ type LoadOptions struct {
 }
 
 // DefaultConfigPath returns ~/.modu/extensions.yaml (the agent runtime
-// directory), falling back to the legacy ~/.modu_code/extensions.yaml when
-// only that file exists. Empty string if the home directory cannot be
-// determined — LoadEnabled treats that as "no config file" and falls back
-// to builtins.
+// directory). Empty string if the home directory cannot be determined —
+// LoadEnabled treats that as "no config file" and falls back to builtins.
 func DefaultConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""
 	}
-	primary := filepath.Join(home, ".modu", "extensions.yaml")
-	if fileExists(primary) {
-		return primary
-	}
-	if legacy := filepath.Join(home, ".modu_code", "extensions.yaml"); fileExists(legacy) {
-		return legacy
-	}
-	return primary
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	return filepath.Join(home, ".modu", "extensions.yaml")
 }
 
 // LoadEnabled resolves the active extension list. See the package-level

@@ -57,6 +57,6 @@ func (s *engine) RuntimePaths() HarnessRuntimePaths {
 		WorktreesDir:         filepath.Join(s.agentDir, "worktrees"),
 		ToolResultsDir:       toolResultsDir,
 		GlobalMemoryDir:      filepath.Join(s.agentDir, "memory"),
-		ProjectMemoryDir:     projectdir.Resolve(s.cwd, "memory"),
+		ProjectMemoryDir:     projectdir.Path(s.cwd, "memory"),
 	}
 }

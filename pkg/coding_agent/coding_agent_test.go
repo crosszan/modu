@@ -574,7 +574,7 @@ func TestNewCodingSessionHonorsFeatureGates(t *testing.T) {
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	memoryDir := filepath.Join(dir, ".modu_code", "memory")
+	memoryDir := filepath.Join(dir, ".modu", "memory")
 	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -2313,7 +2313,7 @@ func TestResumeByIDAcrossWorkingDirectories(t *testing.T) {
 		projectA: "project A memory",
 		projectB: "project B memory",
 	} {
-		memoryDir := filepath.Join(dir, ".modu_code", "memory")
+		memoryDir := filepath.Join(dir, ".modu", "memory")
 		if err := os.MkdirAll(memoryDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -2398,11 +2398,11 @@ func TestResumeByIDAcrossWorkingDirectories(t *testing.T) {
 		}
 		break
 	}
-	aMemory, err := os.ReadFile(filepath.Join(projectA, ".modu_code", "memory", "MEMORY.md"))
+	aMemory, err := os.ReadFile(filepath.Join(projectA, ".modu", "memory", "MEMORY.md"))
 	if err != nil || !strings.Contains(string(aMemory), "written after resume") {
 		t.Fatalf("session cwd memory was not updated: %q, err=%v", aMemory, err)
 	}
-	bMemory, err := os.ReadFile(filepath.Join(projectB, ".modu_code", "memory", "MEMORY.md"))
+	bMemory, err := os.ReadFile(filepath.Join(projectB, ".modu", "memory", "MEMORY.md"))
 	if err != nil || strings.Contains(string(bMemory), "written after resume") {
 		t.Fatalf("current cwd memory was unexpectedly updated: %q, err=%v", bMemory, err)
 	}
