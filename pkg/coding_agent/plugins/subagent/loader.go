@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/openmodu/modu/pkg/projectdir"
 )
 
 // Loader discovers and holds subagent definitions from global and project directories.
@@ -17,8 +19,11 @@ func NewLoader() *Loader {
 }
 
 // Discover loads subagent definitions from:
-//   - {agentDir}/agents/       (global, "user" source)
-//   - {cwd}/.coding_agent/agents/ (project, "project" source — overrides global)
+//   - {agentDir}/agents/    (global, "user" source)
+//   - {cwd}/.modu/agents/   (project, "project" source — overrides global)
+//
+// The legacy project roots are scanned first so an existing checkout keeps
+// working; .modu is loaded last and therefore wins a name clash.
 //
 // Only modu's own directories are scanned. Reading another tool's profile
 // directory would silently pull in agents the user never wrote for modu —
@@ -27,7 +32,9 @@ func NewLoader() *Loader {
 // Missing directories are silently skipped.
 func (l *Loader) Discover(agentDir, cwd string) {
 	l.loadFromDir(filepath.Join(agentDir, "agents"), "user")
-	l.loadFromDir(filepath.Join(cwd, ".coding_agent", "agents"), "project")
+	for _, dir := range projectdir.Search(cwd, "agents") {
+		l.loadFromDir(dir, "project")
+	}
 }
 
 // DiscoverExtra loads subagent definitions from explicit agent directories.

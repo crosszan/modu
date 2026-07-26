@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/openmodu/modu/pkg/projectdir"
 	"github.com/openmodu/modu/pkg/types"
 )
 
@@ -220,7 +221,7 @@ func LegacyGlobalSettingsPath(agentDir string) string {
 
 // ProjectSettingsPath returns the project-local settings override path.
 func ProjectSettingsPath(cwd string) string {
-	return filepath.Join(cwd, ".coding_agent", "settings.json")
+	return projectdir.Resolve(cwd, "settings.json")
 }
 
 // Load reads configuration from global config.toml [settings], legacy global

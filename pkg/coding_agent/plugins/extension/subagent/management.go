@@ -392,7 +392,7 @@ func formatDoctor(ext *Extension) string {
 		// Name the directories rather than making the user guess which one a
 		// profile came from. Written without angle brackets: hosts render this
 		// notice as Markdown, which swallows <cwd> as an HTML tag.
-		lines = append(lines, "- scanned (later wins): {agent_dir}/agents, {cwd}/.coding_agent/agents")
+		lines = append(lines, "- scanned (later wins): {agent_dir}/agents, {cwd}/.modu/agents")
 	}
 	if ext.api != nil {
 		runtimeDir := subagentRuntimeDir(ext)

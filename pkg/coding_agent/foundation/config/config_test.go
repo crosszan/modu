@@ -176,7 +176,7 @@ func TestLoadProjectMCPServersOverrideGlobalEntry(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, ".modu")
 	cwd := filepath.Join(dir, "repo")
-	if err := os.MkdirAll(filepath.Join(cwd, ".coding_agent"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cwd, ".modu"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
@@ -304,5 +304,52 @@ func TestSaveGlobalConfigTomlOmitsDefaultsAndEmptySections(t *testing.T) {
 		if strings.Contains(text, unwanted) {
 			t.Fatalf("saved config should omit %q:\n%s", unwanted, text)
 		}
+	}
+}
+
+// An existing checkout still keeps its settings under the old project root;
+// dropping them on upgrade would silently change the session's config.
+func TestLoadProjectSettingsFromLegacyDir(t *testing.T) {
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, ".modu")
+	cwd := filepath.Join(dir, "repo")
+	if err := os.MkdirAll(filepath.Join(cwd, ".coding_agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(cwd, ".coding_agent", "settings.json")
+	if err := os.WriteFile(legacy, []byte(`{"mcpServers": {"legacy": {"command": "legacy-server"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := ProjectSettingsPath(cwd); got != legacy {
+		t.Fatalf("ProjectSettingsPath = %q, want the legacy file %q", got, legacy)
+	}
+
+	cfg, err := Load(agentDir, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.MCPServers["legacy"]; !ok {
+		t.Fatalf("legacy project settings were not loaded: %#v", cfg.MCPServers)
+	}
+}
+
+// Once the current layout exists it wins, so a half-migrated checkout does
+// not silently keep reading the stale file.
+func TestProjectSettingsPathPrefersCurrentLayout(t *testing.T) {
+	cwd := t.TempDir()
+	for _, root := range []string{".coding_agent", ".modu"} {
+		if err := os.MkdirAll(filepath.Join(cwd, root), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cwd, root, "settings.json"), []byte(`{}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := filepath.Join(cwd, ".modu", "settings.json")
+	if got := ProjectSettingsPath(cwd); got != want {
+		t.Fatalf("ProjectSettingsPath = %q, want %q", got, want)
 	}
 }

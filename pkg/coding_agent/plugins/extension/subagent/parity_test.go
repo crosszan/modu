@@ -244,13 +244,16 @@ func TestDoctorScanPathsSurviveMarkdown(t *testing.T) {
 	if strings.ContainsAny(line, "<>") {
 		t.Errorf("scan-path line uses angle brackets, which Markdown eats: %q", line)
 	}
-	for _, want := range []string{"{agent_dir}/agents", "{cwd}/.coding_agent/agents"} {
+	for _, want := range []string{"{agent_dir}/agents", "{cwd}/.modu/agents"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("scan-path line missing %q: %q", want, line)
 		}
 	}
-	// Discovery is modu's own directories only.
-	if strings.Contains(line, ".claude") {
-		t.Errorf("scan-path line advertises another tool's directory: %q", line)
+	// Discovery is modu's own directories only, and the line advertises the
+	// current layout rather than the legacy roots it still reads.
+	for _, unwanted := range []string{".claude", ".coding_agent", ".modu_code"} {
+		if strings.Contains(line, unwanted) {
+			t.Errorf("scan-path line should not advertise %s: %q", unwanted, line)
+		}
 	}
 }

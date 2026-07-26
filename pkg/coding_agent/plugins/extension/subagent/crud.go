@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	csubagent "github.com/openmodu/modu/pkg/coding_agent/plugins/subagent"
+	"github.com/openmodu/modu/pkg/projectdir"
 	"github.com/openmodu/modu/pkg/utils"
 )
 
@@ -213,7 +214,7 @@ func sanitizeProfileName(raw string) string {
 // targetDirForCreate picks where to write a new profile:
 //   - cfg.AgentsDir set → always write there.
 //   - otherwise scope=user → {AgentDir}/agents; scope=project (default) →
-//     {Cwd}/.coding_agent/agents.
+//     {Cwd}/.modu/agents.
 func targetDirForCreate(ext *Extension, cfg map[string]any) (string, string, error) {
 	if ext.cfg.AgentsDir != "" {
 		return ext.cfg.AgentsDir, "extra", nil
@@ -232,7 +233,9 @@ func targetDirForCreate(ext *Extension, cfg map[string]any) (string, string, err
 		if ext.api == nil {
 			return "", "", fmt.Errorf("project scope requires the host API; extension not initialized")
 		}
-		return filepath.Join(ext.api.Cwd(), ".coding_agent", "agents"), "project", nil
+		// Writes always land in the current layout, even when a legacy
+		// project directory still exists and is being read.
+		return projectdir.Path(ext.api.Cwd(), "agents"), "project", nil
 	default:
 		return "", "", fmt.Errorf("scope must be 'user' or 'project', got %q", scope)
 	}

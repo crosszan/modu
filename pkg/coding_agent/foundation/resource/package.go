@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/openmodu/modu/pkg/projectdir"
 )
 
 // ResourceRef points to a file or directory discovered from a package.
@@ -65,13 +67,21 @@ func (l *Loader) LoadResources() ResourceSnapshot {
 // the same name.
 func (l *Loader) LoadPackages() []PackageInfo {
 	byName := make(map[string]PackageInfo)
-	for _, root := range []struct {
+	roots := []struct {
 		path   string
 		source string
 	}{
 		{filepath.Join(l.agentDir, "packages"), "user"},
-		{filepath.Join(l.cwd, ".coding_agent", "packages"), "project"},
-	} {
+	}
+	// Project packages are applied after user ones, and .modu after the
+	// legacy roots, so the current layout wins a name clash.
+	for _, dir := range projectdir.Search(l.cwd, "packages") {
+		roots = append(roots, struct {
+			path   string
+			source string
+		}{dir, "project"})
+	}
+	for _, root := range roots {
 		for _, pkg := range loadPackagesFromRoot(root.path, root.source) {
 			byName[pkg.Name] = pkg
 		}

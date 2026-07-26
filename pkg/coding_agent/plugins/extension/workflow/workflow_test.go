@@ -1386,15 +1386,15 @@ return await workflow("child", { suffix: "OK" });
 	}
 }
 
-func TestNestedWorkflowLoadsClaudeProjectWorkflowName(t *testing.T) {
+func TestNestedWorkflowLoadsProjectWorkflowName(t *testing.T) {
 	cwd := t.TempDir()
-	workflowDir := filepath.Join(cwd, ".claude", "workflows")
+	workflowDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workflowDir, "child.js"), []byte(`
-meta({ name: "claude_child", description: "claude child workflow" });
-const seen = await agent("claude child", { label: "claude-child" });
+meta({ name: "modu_child", description: "project child workflow" });
+const seen = await agent("project child", { label: "project-child" });
 return { seen: seen };
 `), 0o600); err != nil {
 		t.Fatal(err)
@@ -1408,11 +1408,36 @@ return await workflow("child");
 		t.Fatalf("run: %v", err)
 	}
 	got := result.Result.(map[string]any)
-	if got["seen"] != "result:claude-child" {
+	if got["seen"] != "result:project-child" {
 		t.Fatalf("nested result = %#v", got)
 	}
 }
 
+// Workflows belonging to another tool are not modu's to run.
+func TestNestedWorkflowIgnoresForeignWorkflowDir(t *testing.T) {
+	cwd := t.TempDir()
+	foreign := filepath.Join(cwd, ".claude", "workflows")
+	if err := os.MkdirAll(foreign, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(foreign, "child.js"), []byte(`
+meta({ name: "foreign_child", description: "foreign child workflow" });
+return { seen: "foreign" };
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	api := &fakeAPI{cwd: cwd}
+	_, err := newRunner(api, runOptions{Cwd: cwd}).run(context.Background(), `
+meta({ name: "parent", description: "parent workflow" });
+return await workflow("child");
+`)
+	if err == nil {
+		t.Fatal("a workflow under .claude/workflows must not be loadable")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 func TestNestedWorkflowSharesBudget(t *testing.T) {
 	cwd := t.TempDir()
 	workflowDir := filepath.Join(cwd, ".coding_agent", "workflows")
@@ -1732,7 +1757,7 @@ func TestToolExecuteRequiresExactlyOneScriptSource(t *testing.T) {
 	}
 }
 
-func TestWorkflowsSaveUsesClaudeWorkflowDirs(t *testing.T) {
+func TestWorkflowsSaveUsesProjectWorkflowDirs(t *testing.T) {
 	scriptDir := t.TempDir()
 	scriptPath := filepath.Join(scriptDir, "script.js")
 	script := `meta({ name: "save_dir", description: "save dir" })
@@ -1750,20 +1775,35 @@ return agent("x", { label: "x" })`
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacyWorkflowDir := filepath.Join(repo, "services", ".coding_agent", "workflows")
-	if err := os.MkdirAll(legacyWorkflowDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+
+	// Nothing exists yet: the save lands in the current layout at the repo root.
 	ext := &Extension{cfg: DefaultConfig(), api: &fakeAPI{cwd: cwd}}
 	path, err := ext.saveWorkflowRunScript(run, "project_saved", "project")
 	if err != nil {
 		t.Fatalf("save project: %v", err)
 	}
-	if want := filepath.Join(repo, ".claude", "workflows", "project_saved.js"); path != want {
+	if want := filepath.Join(repo, ".modu", "workflows", "project_saved.js"); path != want {
 		t.Fatalf("saved path = %q, want %q", path, want)
 	}
-	nearestClaudeWorkflowDir := filepath.Join(repo, "services", ".claude", "workflows")
-	if err := os.MkdirAll(nearestClaudeWorkflowDir, 0o755); err != nil {
+
+	// An existing legacy directory nearer the cwd is reused, so a half-migrated
+	// checkout keeps its saved workflows together instead of splitting them.
+	legacyWorkflowDir := filepath.Join(repo, "services", ".coding_agent", "workflows")
+	if err := os.MkdirAll(legacyWorkflowDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ext = &Extension{cfg: DefaultConfig(), api: &fakeAPI{cwd: cwd}}
+	path, err = ext.saveWorkflowRunScript(run, "legacy_nearest", "project")
+	if err != nil {
+		t.Fatalf("save legacy nearest: %v", err)
+	}
+	if want := filepath.Join(legacyWorkflowDir, "legacy_nearest.js"); path != want {
+		t.Fatalf("legacy nearest saved path = %q, want %q", path, want)
+	}
+
+	// The current layout wins over a legacy directory at the same level.
+	nearestWorkflowDir := filepath.Join(repo, "services", ".modu", "workflows")
+	if err := os.MkdirAll(nearestWorkflowDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	ext = &Extension{cfg: DefaultConfig(), api: &fakeAPI{cwd: cwd}}
@@ -1771,20 +1811,21 @@ return agent("x", { label: "x" })`
 	if err != nil {
 		t.Fatalf("save nearest project: %v", err)
 	}
-	if want := filepath.Join(nearestClaudeWorkflowDir, "nearest.js"); path != want {
+	if want := filepath.Join(nearestWorkflowDir, "nearest.js"); path != want {
 		t.Fatalf("nearest saved path = %q, want %q", path, want)
 	}
-	agentDir := filepath.Join(t.TempDir(), ".coding_agent")
+
+	// User scope saves inside the agent dir, not beside it.
+	agentDir := filepath.Join(t.TempDir(), ".modu")
 	ext = &Extension{cfg: DefaultConfig(), api: &fakeAPI{cwd: cwd, agentDir: agentDir}}
 	path, err = ext.saveWorkflowRunScript(run, "personal", "user")
 	if err != nil {
 		t.Fatalf("save user: %v", err)
 	}
-	if want := filepath.Join(filepath.Dir(agentDir), ".claude", "workflows", "personal.js"); path != want {
+	if want := filepath.Join(agentDir, "workflows", "personal.js"); path != want {
 		t.Fatalf("user saved path = %q, want %q", path, want)
 	}
 }
-
 func TestDiscoverSavedWorkflowCommandsUsesNearestProjectPrecedence(t *testing.T) {
 	repo := t.TempDir()
 	cwd := filepath.Join(repo, "apps", "web")
@@ -1794,24 +1835,22 @@ func TestDiscoverSavedWorkflowCommandsUsesNearestProjectPrecedence(t *testing.T)
 	}
 	for _, dir := range []string{
 		filepath.Join(cwd),
-		filepath.Join(repo, ".coding_agent", "workflows"),
-		filepath.Join(repo, "apps", ".claude", "workflows"),
+		filepath.Join(repo, ".modu", "workflows"),
+		filepath.Join(repo, "apps", ".modu", "workflows"),
 		filepath.Join(repo, "apps", ".coding_agent", "workflows"),
+		filepath.Join(repo, "apps", ".claude", "workflows"),
 		filepath.Join(agentDir, "workflows"),
-		filepath.Join(filepath.Dir(agentDir), ".claude", "workflows"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for path, body := range map[string]string{
-		filepath.Join(repo, ".coding_agent", "workflows", "review.js"):             `meta({ name: "root", description: "root" })`,
-		filepath.Join(repo, "apps", ".claude", "workflows", "review.js"):           `meta({ name: "claude_nearest", description: "claude nearest" })`,
-		filepath.Join(repo, "apps", ".claude", "workflows", "claude.js"):           `meta({ name: "claude", description: "claude" })`,
-		filepath.Join(repo, "apps", ".coding_agent", "workflows", "review.js"):     `meta({ name: "nearest", description: "nearest" })`,
-		filepath.Join(agentDir, "workflows", "review.js"):                          `meta({ name: "user", description: "user" })`,
-		filepath.Join(agentDir, "workflows", "personal.js"):                        `meta({ name: "personal", description: "personal" })`,
-		filepath.Join(filepath.Dir(agentDir), ".claude", "workflows", "global.js"): `meta({ name: "global", description: "global" })`,
+		filepath.Join(repo, ".modu", "workflows", "review.js"):                 `meta({ name: "root", description: "root" })`,
+		filepath.Join(repo, "apps", ".modu", "workflows", "review.js"):         `meta({ name: "nearest", description: "nearest" })`,
+		filepath.Join(repo, "apps", ".coding_agent", "workflows", "legacy.js"): `meta({ name: "legacy", description: "legacy" })`,
+		filepath.Join(repo, "apps", ".claude", "workflows", "foreign.js"):      `meta({ name: "foreign", description: "foreign" })`,
+		filepath.Join(agentDir, "workflows", "personal.js"):                    `meta({ name: "personal", description: "personal" })`,
 	} {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
@@ -1825,20 +1864,22 @@ func TestDiscoverSavedWorkflowCommandsUsesNearestProjectPrecedence(t *testing.T)
 	for _, cmd := range commands {
 		byName[cmd.Name] = cmd.Path
 	}
-	if got, want := byName["review"], filepath.Join(repo, "apps", ".claude", "workflows", "review.js"); got != want {
+	// The nearest project directory wins over the repo root.
+	if got, want := byName["review"], filepath.Join(repo, "apps", ".modu", "workflows", "review.js"); got != want {
 		t.Fatalf("review path = %q, want %q", got, want)
 	}
-	if got, want := byName["claude"], filepath.Join(repo, "apps", ".claude", "workflows", "claude.js"); got != want {
-		t.Fatalf("claude path = %q, want %q", got, want)
+	// A legacy project directory is still discovered.
+	if got, want := byName["legacy"], filepath.Join(repo, "apps", ".coding_agent", "workflows", "legacy.js"); got != want {
+		t.Fatalf("legacy path = %q, want %q", got, want)
 	}
 	if got, want := byName["personal"], filepath.Join(agentDir, "workflows", "personal.js"); got != want {
 		t.Fatalf("personal path = %q, want %q", got, want)
 	}
-	if got, want := byName["global"], filepath.Join(filepath.Dir(agentDir), ".claude", "workflows", "global.js"); got != want {
-		t.Fatalf("global path = %q, want %q", got, want)
+	// Another tool's workflow directory is not scanned.
+	if got, ok := byName["foreign"]; ok {
+		t.Fatalf("foreign workflow should not be discovered, got %q", got)
 	}
 }
-
 func TestWorkflowsCommandListsAndShowsPersistedRuns(t *testing.T) {
 	clearWorkflowDisableEnv(t)
 	sessionDir := t.TempDir()
@@ -1989,7 +2030,7 @@ func TestWorkflowsCommandListsAndShowsPersistedRuns(t *testing.T) {
 	if err := cmd("save latest reusable"); err != nil {
 		t.Fatalf("/workflows save: %v", err)
 	}
-	projectSaved := filepath.Join(cwd, ".claude", "workflows", "reusable.js")
+	projectSaved := filepath.Join(cwd, ".modu", "workflows", "reusable.js")
 	data, err = os.ReadFile(projectSaved)
 	if err != nil {
 		t.Fatalf("read project saved workflow: %v", err)
@@ -2003,7 +2044,7 @@ func TestWorkflowsCommandListsAndShowsPersistedRuns(t *testing.T) {
 	if err := cmd("save latest personal user"); err != nil {
 		t.Fatalf("/workflows save user: %v", err)
 	}
-	userSaved := filepath.Join(filepath.Dir(agentDir), ".claude", "workflows", "personal.js")
+	userSaved := filepath.Join(agentDir, "workflows", "personal.js")
 	if _, err := os.Stat(userSaved); err != nil {
 		t.Fatalf("stat user saved workflow: %v", err)
 	}

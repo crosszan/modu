@@ -9,7 +9,7 @@ import (
 type Config struct {
 	// AgentsDir is the directory scanned for *.md agent profile files.
 	// Empty means use the host's standard agent discovery paths:
-	// {AgentDir}/agents and {Cwd}/.coding_agent/agents.
+	// {AgentDir}/agents and {Cwd}/.modu/agents.
 	AgentsDir string
 	// DefaultModel is applied when the selected profile's Model field is
 	// empty. Empty here too means "inherit caller's current model".

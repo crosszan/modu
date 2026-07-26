@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/openmodu/modu/pkg/mdloader"
+	"github.com/openmodu/modu/pkg/projectdir"
 	"github.com/openmodu/modu/pkg/utils"
 )
 
@@ -64,14 +65,17 @@ type Manager struct {
 }
 
 // NewManager creates a new skill manager. Global skills live under
-// {agentDir}/skills and project skills under {cwd}/.coding_agent/skills.
-// Project skills are scanned first so they win over global ones of the same
-// name (the parser keeps the first registration).
+// {agentDir}/skills and project skills under {cwd}/.modu/skills (plus the
+// legacy project roots, which are still read). Project skills are scanned
+// first so they win over global ones of the same name, and .modu comes
+// before the legacy roots for the same reason (the parser keeps the first
+// registration).
 func NewManager(agentDir, cwd string) *Manager {
-	roots := []mdloader.Ref{
-		{Path: filepath.Join(cwd, ".coding_agent", "skills"), Source: "project"},
-		{Path: filepath.Join(agentDir, "skills"), Source: "user"},
+	var roots []mdloader.Ref
+	for _, dir := range projectdir.SearchPreferredFirst(cwd, "skills") {
+		roots = append(roots, mdloader.Ref{Path: dir, Source: "project"})
 	}
+	roots = append(roots, mdloader.Ref{Path: filepath.Join(agentDir, "skills"), Source: "user"})
 	return &Manager{mdloader.New(roots, skillParser{})}
 }
 

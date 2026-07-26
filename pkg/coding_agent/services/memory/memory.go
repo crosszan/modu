@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/openmodu/modu/pkg/projectdir"
 )
 
 // Store manages persistent memory for the coding agent at two scopes:
@@ -41,7 +43,7 @@ type SearchMatch struct {
 // cwd is the current project directory.
 func New(agentDir, cwd string) *Store {
 	globalDir := filepath.Join(agentDir, "memory")
-	projectDir := filepath.Join(cwd, ".modu_code", "memory")
+	projectDir := projectdir.Resolve(cwd, "memory")
 	os.MkdirAll(globalDir, 0o755)
 	os.MkdirAll(projectDir, 0o755)
 	return &Store{

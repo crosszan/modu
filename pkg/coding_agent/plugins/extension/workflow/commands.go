@@ -1007,7 +1007,7 @@ func (e *Extension) saveWorkflowRunScript(run workflowRunSummary, name, scope st
 		if e.api == nil || strings.TrimSpace(e.api.AgentDir()) == "" {
 			return "", fmt.Errorf("user workflow save requires an agent directory")
 		}
-		root = filepath.Join(filepath.Dir(filepath.Clean(e.api.AgentDir())), ".claude", "workflows")
+		root = filepath.Join(filepath.Clean(e.api.AgentDir()), "workflows")
 	default:
 		return "", fmt.Errorf("scope must be project or user")
 	}

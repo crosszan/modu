@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openmodu/modu/pkg/projectdir"
 	"github.com/openmodu/modu/pkg/types"
 )
 
@@ -60,7 +61,7 @@ func (t *workflowTool) Parameters() any {
 			},
 			"name": map[string]any{
 				"type":        "string",
-				"description": "Saved workflow name. Looks in project .coding_agent/.claude workflows, then user workflows.",
+				"description": "Saved workflow name. Looks in project .modu/workflows, then user workflows.",
 			},
 			"args": map[string]any{
 				"description": "Optional JSON value exposed to the script as the global args.",
@@ -548,8 +549,7 @@ func projectWorkflowDirs(cwd string) []string {
 	root := findWorkflowProjectRoot(start)
 	var dirs []string
 	for dir := start; ; dir = filepath.Dir(dir) {
-		dirs = append(dirs, filepath.Join(dir, ".claude", "workflows"))
-		dirs = append(dirs, filepath.Join(dir, ".coding_agent", "workflows"))
+		dirs = append(dirs, projectdir.Search(dir, "workflows")...)
 		if dir == root {
 			break
 		}
@@ -566,14 +566,7 @@ func userWorkflowDirs(agentDir string) []string {
 	if agentDir == "" {
 		return nil
 	}
-	clean := filepath.Clean(agentDir)
-	claudeDir := filepath.Join(filepath.Dir(clean), ".claude", "workflows")
-	dirs := []string{claudeDir}
-	agentWorkflowDir := filepath.Join(clean, "workflows")
-	if agentWorkflowDir != claudeDir {
-		dirs = append(dirs, agentWorkflowDir)
-	}
-	return dirs
+	return []string{filepath.Join(filepath.Clean(agentDir), "workflows")}
 }
 
 func findWorkflowProjectRoot(cwd string) string {
@@ -597,10 +590,14 @@ func projectWorkflowSaveDir(cwd string) (string, error) {
 	}
 	start := filepath.Clean(cwd)
 	root := findWorkflowProjectRoot(start)
+	// Reuse an existing workflows directory anywhere up to the project root
+	// — including a legacy one, so a repo mid-migration keeps its saved
+	// workflows together — and otherwise create the current layout at the root.
 	for dir := start; ; dir = filepath.Dir(dir) {
-		candidate := filepath.Join(dir, ".claude", "workflows")
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			return candidate, nil
+		for _, candidate := range projectdir.SearchPreferredFirst(dir, "workflows") {
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				return candidate, nil
+			}
 		}
 		if dir == root {
 			break
@@ -610,7 +607,7 @@ func projectWorkflowSaveDir(cwd string) (string, error) {
 			break
 		}
 	}
-	return filepath.Join(root, ".claude", "workflows"), nil
+	return projectdir.Path(root, "workflows"), nil
 }
 
 func persistWorkflowScript(sessionDir, script string) (string, string, error) {

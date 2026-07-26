@@ -2911,7 +2911,7 @@ func TestSetWorkflowsDisabledRemovesLiveWorkflowSurface(t *testing.T) {
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	savedDir := filepath.Join(cwd, ".claude", "workflows")
+	savedDir := filepath.Join(cwd, ".modu", "workflows")
 	if err := os.MkdirAll(savedDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

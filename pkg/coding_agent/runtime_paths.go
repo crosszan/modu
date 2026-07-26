@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 
 	"github.com/openmodu/modu/pkg/coding_agent/foundation/runtimepaths"
+	"github.com/openmodu/modu/pkg/projectdir"
 )
 
 // Runtime paths derive the on-disk layout for a session under the agent dir.
@@ -56,6 +57,6 @@ func (s *engine) RuntimePaths() HarnessRuntimePaths {
 		WorktreesDir:         filepath.Join(s.agentDir, "worktrees"),
 		ToolResultsDir:       toolResultsDir,
 		GlobalMemoryDir:      filepath.Join(s.agentDir, "memory"),
-		ProjectMemoryDir:     filepath.Join(s.cwd, ".modu_code", "memory"),
+		ProjectMemoryDir:     projectdir.Resolve(s.cwd, "memory"),
 	}
 }

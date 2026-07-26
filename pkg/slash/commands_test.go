@@ -159,6 +159,16 @@ func TestHandleContextShowsMemorySummaryMode(t *testing.T) {
 	cwd := t.TempDir()
 	agentDir := filepath.Join(cwd, ".coding_agent")
 	model := &types.Model{ID: "test", Name: "Test", ProviderID: "test"}
+	// The memory store resolves its project directory when the session is
+	// constructed, so an existing checkout's legacy directory has to be in
+	// place first — which is what a real upgrade looks like.
+	memoryDir := filepath.Join(cwd, ".modu_code", "memory")
+	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memoryDir, "memory_summary.md"), []byte("summary memory fact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	session, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
 		Cwd:       cwd,
 		AgentDir:  agentDir,
@@ -166,13 +176,6 @@ func TestHandleContextShowsMemorySummaryMode(t *testing.T) {
 		GetAPIKey: func(string) (string, error) { return "", nil },
 	})
 	if err != nil {
-		t.Fatal(err)
-	}
-	memoryDir := filepath.Join(cwd, ".modu_code", "memory")
-	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(memoryDir, "memory_summary.md"), []byte("summary memory fact"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -285,8 +288,8 @@ func TestHandlePromptsEmptyShowsConcreteExample(t *testing.T) {
 	output := printer.String()
 	for _, want := range []string{
 		"no prompt templates found",
-		"mkdir -p .coding_agent/prompts",
-		".coding_agent/prompts/review.md",
+		"mkdir -p .modu/prompts",
+		".modu/prompts/review.md",
 		"description: Review code changes",
 		"$ARGUMENTS",
 		"/reload",
