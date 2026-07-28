@@ -2,6 +2,7 @@ package goal
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -15,19 +16,20 @@ import (
 // Init wiring without spinning up a real CodingSession. Captures every
 // SendMessage call so tests can assert on the loop's behaviour.
 type fakeAPI struct {
-	mu       sync.Mutex
-	tools    []types.Tool
-	commands map[string]extension.CommandHandler
-	handlers map[string][]extension.EventHandler
-	sent     []string
-	sentOpts []extension.MessageOptions
-	notices  []string
-	confirms []string
-	confirm  *bool
-	selects  []string
-	selectQ  []string
-	dir      string
-	agentDir string
+	mu        sync.Mutex
+	tools     []types.Tool
+	commands  map[string]extension.CommandHandler
+	handlers  map[string][]extension.EventHandler
+	sent      []string
+	sentOpts  []extension.MessageOptions
+	notices   []string
+	confirms  []string
+	confirm   *bool
+	selects   []string
+	selectQ   []string
+	dir       string
+	agentDir  string
+	sessionID string
 	// fork, when set, backs ForkSession so verifier tests can script the
 	// child's reply. forkOpts records every call for assertions.
 	fork     func(context.Context, extension.ForkOptions) (string, error)
@@ -79,13 +81,18 @@ func (f *fakeAPI) SendFollowUpMessage(text string) error {
 func (f *fakeAPI) SetActiveTools([]string)          {}
 func (f *fakeAPI) SetModel(string, string) error    { return nil }
 func (f *fakeAPI) GetCommands() []extension.Command { return nil }
-func (f *fakeAPI) SessionID() string                { return "test-session" }
-func (f *fakeAPI) SessionDir() string               { return f.dir }
-func (f *fakeAPI) AgentDir() string                 { return f.agentDir }
-func (f *fakeAPI) Cwd() string                      { return "/tmp/project" }
-func (f *fakeAPI) IsIdle() bool                     { return true }
-func (f *fakeAPI) HasPendingMessages() bool         { return false }
-func (f *fakeAPI) PermissionMode() string           { return "" }
+func (f *fakeAPI) SessionID() string {
+	if f.sessionID != "" {
+		return f.sessionID
+	}
+	return "test-session"
+}
+func (f *fakeAPI) SessionDir() string       { return f.dir }
+func (f *fakeAPI) AgentDir() string         { return f.agentDir }
+func (f *fakeAPI) Cwd() string              { return "/tmp/project" }
+func (f *fakeAPI) IsIdle() bool             { return true }
+func (f *fakeAPI) HasPendingMessages() bool { return false }
+func (f *fakeAPI) PermissionMode() string   { return "" }
 func (f *fakeAPI) BackgroundTasks() []extension.TaskSnapshot {
 	return nil
 }
@@ -132,6 +139,47 @@ func (f *fakeAPI) Select(title string, options []string) string {
 		return ""
 	}
 	return options[0]
+}
+
+func TestInitUsesNativeGoalStatePath(t *testing.T) {
+	api := newFakeAPI()
+	api.dir = t.TempDir()
+	api.sessionID = "thread/one"
+
+	ext := New(Options{})
+	if err := ext.Init(api); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	ref := ext.store.refProvider()
+	want := filepath.Join(api.dir, "extensions", "goal", "thread%2Fone.json")
+	if got := GoalFilePath(ref); got != want {
+		t.Fatalf("GoalFilePath() = %q, want %q", got, want)
+	}
+}
+
+func TestInitUsesAgentNoSessionGoalStatePath(t *testing.T) {
+	api := newFakeAPI()
+	api.agentDir = t.TempDir()
+	api.sessionID = "thread/one"
+
+	ext := New(Options{})
+	if err := ext.Init(api); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	ref := ext.store.refProvider()
+	want := filepath.Join(
+		api.agentDir,
+		"extensions",
+		"goal",
+		"no-session",
+		cwdStoreKey(api.Cwd()),
+		"thread%2Fone.json",
+	)
+	if got := GoalFilePath(ref); got != want {
+		t.Fatalf("GoalFilePath() = %q, want %q", got, want)
+	}
 }
 
 func (f *fakeAPI) sentCount() int {

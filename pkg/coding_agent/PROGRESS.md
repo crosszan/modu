@@ -16,6 +16,13 @@ High-priority gaps identified before this round:
 
 ## Completed In This Round
 
+- 2026-07-28: renamed the Goal state root from `extensions/pi-goal` to
+  `extensions/goal`. Session-backed stores now use
+  `<session-dir>/extensions/goal/<escaped-thread-id>.json`; no-session stores
+  use `<agent-dir>/extensions/goal/no-session/<cwd-key>/<escaped-thread-id>.json`.
+  Application code does not retain a legacy-path fallback; existing state is
+  moved with a one-time shell directory rename. Path tests cover both branches
+  and URL path escaping of the thread id.
 - 2026-07-28: strengthened the JavaScript Workflow metadata contract using the
   portable parts of Deer Workflow without replacing Modu's goja/ForkSession
   runtime. `meta.name` is now kebab-case, descriptions and phase titles are

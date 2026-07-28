@@ -197,11 +197,13 @@ func (e *Extension) Init(api extension.ExtensionAPI) error {
 					return StoreRef{}
 				}
 			}
-			sessionDir = filepath.Join(agentDir, "extensions", "pi-goal", "no-session", cwdStoreKey(api.Cwd()))
-			return StoreRef{BaseDir: sessionDir, ThreadID: api.SessionID()}
+			return StoreRef{
+				BaseDir:  filepath.Join(agentDir, "extensions", "goal", "no-session", cwdStoreKey(api.Cwd())),
+				ThreadID: api.SessionID(),
+			}
 		}
 		return StoreRef{
-			BaseDir:  filepath.Join(sessionDir, "extensions", "pi-goal"),
+			BaseDir:  filepath.Join(sessionDir, "extensions", "goal"),
 			ThreadID: api.SessionID(),
 		}
 	})
