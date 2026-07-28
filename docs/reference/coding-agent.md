@@ -170,19 +170,37 @@ Goal 状态也会暴露到 `RuntimeState().Extensions["goal"]`，TUI 底部状�
 
 用户侧命令由同一个扩展注册：`/run <agent> <task>` 运行单个 profile，`/parallel <agent> <task> -> <agent> <task>` 并发运行多个 profile，`/chain <agent> <task> -> <agent> <task>` 串行运行并支持后续步骤中的 `{previous}`，`/subagents-doctor` 输出只读诊断。
 
-### Lua Workflow 编排
+### JavaScript Workflow 编排
 
-`modu_code` 默认注册 `extension/workflow`，提供 Lua 脚本驱动的 `workflow` tool，用来对齐 `pi-dynamic-workflows` 的动态多 agent 编排能力。当前实现支持 `meta` 声明、运行时 `phase`、`log`、`agent`、`workflow`、`parallel`、`pipeline`、`json.encode` / `json.decode`、`json.null`、预算视图、tool update 进度，以及基于 `ExtensionAPI.ForkSession` 的隔离子 agent 执行。
+`modu_code` 默认注册 `extension/workflow`，用 JavaScript 编排动态多 Agent 任务。脚本可调用 `meta`、`phase`、`log`、`agent`、`workflow`、`parallel`、`pipeline`，通过全局 `JSON` 处理结构化数据，并复用 `ExtensionAPI.ForkSession` 执行隔离子 Agent。
 
-workflow tool 的脚本来源必须在 `script`、`script_path`、`name` 中三选一；它只负责启动 workflow run，不接受 `action`、`status`、`id`、`run_id`、`agent_id` 这类管理参数，查看或控制已有 run 优先用 exact `/workflows` TUI cockpit，也可用 `/workflows feed <run-id>`、`/workflows guide <run-id>`、`/workflows map <run-id>`、`/workflows show <run-id>`、`/workflows agent <run-id> <agent-id>`、`/workflows stop <run-id>`。`script_path` 可重新运行已落盘脚本，`name` 会从当前 cwd 向上查找 Claude 兼容项目 `.claude/workflows/<name>.lua` 到 git root，最近目录优先，再查兼容旧路径 `.coding_agent/workflows/<name>.lua`，然后查 sibling `~/.claude/workflows/<name>.lua` 和 agent root `workflows/<name>.lua`。启动时会把已存在的 saved workflows 注册成 Claude 风格 `/<name> [json-args]` 命令并后台运行；若名称与内置/扩展命令冲突，则跳过直接命令但仍注册兼容 `/workflow:<name> [json-args]`。项目目录按最近优先覆盖父目录和用户目录同名 workflow；workflow tool 可传 `async:true` 后台启动并立即返回 run id；Lua 内的 `workflow(nameOrRef, args)` 可一层嵌套调用 saved workflow 名称或脚本路径，并共享父 workflow 的 budget、并发默认值、取消信号和 agent 总量上限。
+`meta` 在第一次 `phase`、`log` 或 `agent` 前调用一次。`name` 必须是 kebab-case；`description` 必须是无控制字符的单行文本；`phases` 中的 title 不得重复；`exampleArgs` 必须是 JSON-safe 对象。声明 `phases` 后，`phase(title)` 和 `agent(..., {phase})` 只能引用已声明的 title。条件分支可以跳过声明阶段，因此运行时不要求每次执行走完全部 phase。未声明 `phases` 的旧脚本仍可动态创建阶段。
 
-当前 session 目录可用时，inline Lua 脚本会保存到 `extensions/workflow/runs/<run-id>/script.lua`，完成态 `snapshot.json` 和后台 run `status.json` 会保存在同一目录，最终 snapshot/details 暴露 `scriptPath` 和 `runDir`，工具文本也会包含 `Script:` 路径；`/workflows` 可列出当前 session 的 live/persisted runs，展示 running/stopped/failed/completed 状态、workflow 名称、agent/error 计数和结果预览，用 `/workflows feed <run-id|latest>` 查看短动态执行流，用 `/workflows guide <run-id|latest>` 查看 feed/map/phase/agent/transcript/result/script 视图关系和当前 run 的导航入口，用 `/workflows show <run-id|latest>` 查看 metadata、artifact 路径和短预览，不直接展开完整 result/script，后台 workflow 完成通知也只展示 flow、result preview、script path 和后续导航，用 `/workflows map <run-id|latest>` 查看 phase/agent tree，用 `/workflows agent <run-id|latest> <agent-id>` 查看单个 agent，用 `/workflows agent-stop <run-id|latest> <agent-id>` 停止单个 running agent，用 `/workflows agent-restart <run-id|latest> <agent-id>` 重启单个 running agent，用 `/workflows pause <run-id>` 或 `/workflows stop <run-id>` 取消运行中的 workflow 到 stopped 状态，用 `/workflows resume <run-id|latest>` 恢复同 session 内 stopped run 并复用已完成 agent 结果，用 `/workflows restart <run-id|latest>` 将 run 脚本作为新的后台 run 重跑，并用 `/workflows save <run-id|latest> <name> [project|user]` 把 run 脚本保存到项目或用户 workflows 目录供后续 session 复用；project 保存会写入最近的既有项目 `.claude/workflows` 目录，没有既有目录时写入 git root 下的 `.claude/workflows`，user 保存会写入 sibling `~/.claude/workflows`。
+```js
+meta({
+  name: "repo-review",
+  description: "Review selected repository paths.",
+  phases: [{ title: "Review" }],
+  exampleArgs: { paths: ["pkg/coding_agent"] },
+});
 
-可在 `extensions.yaml` 的 workflow `config.disabled: true`、`~/.modu/config.toml` 的 `[settings] disableWorkflows = true` 或项目 `.coding_agent/settings.json` 的 `disableWorkflows: true`、环境变量 `MODU_CODE_DISABLE_WORKFLOWS=1` / `CLAUDE_CODE_DISABLE_WORKFLOWS=1` 下关闭 workflow tool 和 workflow slash commands；修改后需新建会话或重启，才能重新注册对应工具和命令。tool 参数可传 `budget`，Lua 中 `budget.total` 暴露该值，`budget.spent()` 优先按 `subagent_child_usage` 中捕获到的 child usage 计数，用不到时回退到子 agent 返回文本估算，并作为预算视图按 `budget.total` 封顶；真实 per-agent 观测 token 仍保留在 workflow snapshot 中。`budget.remaining()` 返回剩余值；未传 `budget` 时 `budget.total` 和 `budget.remaining()` 为 nil。预算耗尽后后续 `agent()` 不再 fork，单次 workflow 默认最多 fork 1000 个 child，运行时默认并发为 4、并发上限钳制为 16。`agent` / `parallel` task 可传 `label`、`phase`、`model`、`cwd`、`isolation:"worktree"`、`tools`、`disallowed_tools`、`permission_mode`、`max_turns`、`thinking`、`skills`、`memory_scope` 和 `schema`，这些字段会映射到 forked session；`schema` 使用 JSON Schema 子集约束 child final JSON，返回值会被解析和校验为 Lua table，失败时会带校验错误和上一轮输出重试 1 次，仍失败则返回 `json.null` 并记录 log；`memory_scope` 仅接受 `none`、`user` / `global`、`project` / `local`、`both` / `all`。未传 `tools` 时 child 继承当前主 agent 可见 tool allowlist；传入 `tools` 时会从父 session 工具目录中按名筛选，因此 session-connected/custom/MCP 风格工具可显式转发，且 `grep`、`find`、`ls`、`web_search`、`web_fetch` 这类 opt-in 发现/研究工具可被 child 明确请求后补齐；`web_search` 默认使用公开 HTML 搜索入口，也可用 `~/.modu/config.toml` 的 `[settings.webSearch]` 配置 `exa`、`tavily`、`brave`、`firecrawl` 或自定义 endpoint；`web_fetch` 可用 `[settings.webFetch] provider = "firecrawl"` 改走 Firecrawl Scrape。环境变量 `MODU_WEB_SEARCH_PROVIDER`、`MODU_WEB_SEARCH_ENDPOINT`、provider API key env 和 provider endpoint env 仍作为兼容兜底。`pipeline` 支持每个 item 顺序经过 stage，并按 `concurrency` 调度 item；由于同一个 Lua VM 不能并发执行字节码，stage 函数访问会串行保护，真正的多 agent fan-out 应优先用 `parallel`。
+phase("Review");
+const results = await pipeline(
+  args.paths,
+  (path) => agent("Review " + path, { label: "review:" + path, phase: "Review" }),
+);
+return results.filter(Boolean);
+```
 
-当 workflow tool 处于 active tools 中时，主 agent 的 system prompt 会注入动态工作流编写指南：用户明确说 `workflow`、`dynamic workflow`、`ultracode`，或任务明显需要大规模 fan-out/fan-in 时，模型可以自己写 Lua workflow 脚本并调用 `workflow` tool。`/effort ultracode` 会在支持 xhigh reasoning 的模型上开启当前 session 的 workflow-first 模式，并追加 Ultracode prompt block，让模型对每个实质性任务都优先考虑动态 workflow；`/effort high|medium|low|off` 会退出该模式。当前尚未实现 Claude Code 的输入关键词高亮、`Option/Alt+W` 取消触发和运行前 approval card。
+workflow tool 的脚本来源必须在 `script`、`script_path`、`name` 中三选一；它只负责启动 workflow run，不接受 `action`、`status`、`id`、`run_id`、`agent_id` 这类管理参数。`script_path` 可重新运行已落盘脚本；`name` 会从当前 cwd 向上查找 `.claude/workflows/<name>.js` 和兼容目录 `.coding_agent/workflows/<name>.js`，再查用户 workflows 目录。saved workflow 会注册为 `/<name> [json-args]`，冲突时仍保留 `/workflow:<name> [json-args]`。JavaScript 内的 `workflow(nameOrRef, args)` 最多嵌套一层，并与父 workflow 共享 budget、并发限制、取消信号和 Agent 总量上限。
 
-workflow tool、saved `/<name>` / `/workflow:<name>` 命令、`/deep-research` 和 `/workflows restart` 在启动前会通过 host `Select` 展示 workflow 名称、description、推断出的 phase、script path、资源上限和 Lua 脚本预览；用户可以选择 run once、always allow this workflow in this project、view raw script 或 cancel，拒绝时不会 fork 任何 child agent。always-allow 记录写入 agent dir 下的 `workflow_approvals.json`，按 project root、workflow 名称/source 和脚本 hash 匹配。`permissions.defaultMode: "auto"` 下 run once 会记住同项目同脚本，下次跳过启动审批；`permissions.defaultMode: "bypassPermissions"` 会直接跳过 workflow 启动审批。当前尚未实现 Claude Code 的 open-in-editor 动作、ultracode 模式直接跳过和 Desktop approval card 渲染。
+当前 session 目录可用时，inline JavaScript 会保存到 `extensions/workflow/runs/<run-id>/script.js`。完成态写入 `snapshot.json`，后台 run 状态写入 `status.json`。`/workflows` cockpit 负责查看和控制 run；常用入口包括 `/workflows feed`、`guide`、`map`、`show`、`agent`、`agent-stop`、`agent-restart`、`pause`、`stop`、`resume`、`restart` 和 `save`。
+
+可在 `extensions.yaml` 的 workflow `config.disabled: true`、`~/.modu/config.toml` 的 `[settings] disableWorkflows = true` 或项目 `.coding_agent/settings.json` 的 `disableWorkflows: true`、环境变量 `MODU_CODE_DISABLE_WORKFLOWS=1` / `CLAUDE_CODE_DISABLE_WORKFLOWS=1` 下关闭 workflow tool 和 workflow slash commands；修改后需新建会话或重启，才能重新注册对应工具和命令。tool 参数可传 `budget`，JavaScript 中 `budget.total` 暴露该值，`budget.spent()` 优先按 `subagent_child_usage` 中捕获到的 child usage 计数，用不到时回退到子 Agent 返回文本估算，并作为预算视图按 `budget.total` 封顶；真实 per-agent 观测 token 仍保留在 workflow snapshot 中。`budget.remaining()` 返回剩余值；未传 `budget` 时 `budget.total` 和 `budget.remaining()` 为 `null`。预算耗尽后后续 `agent()` 不再 fork，单次 workflow 默认最多 fork 1000 个 child，运行时默认并发为 4、并发上限钳制为 16。`agent` 可传 `label`、`phase`、`model`、`cwd`、`isolation:"worktree"`、`tools`、`disallowedTools`、`permissionMode`、`maxTurns`、`thinking`、`skills`、`memoryScope` 和 `schema`，这些字段会映射到 forked session；`schema` 使用 JSON Schema 子集约束 child final JSON，返回值会解析为 JavaScript 对象，校验失败最多重试 2 次，仍失败则返回 `null` 并记录 log。
+
+当 workflow tool 处于 active tools 中时，主 Agent 的 system prompt 会注入 JavaScript Workflow 编写指南。用户明确说 `workflow`、`dynamic workflow`、`ultracode`，或任务需要大规模 fan-out/fan-in 时，模型可以生成脚本并调用 `workflow` tool。`/effort ultracode` 会在支持 xhigh reasoning 的模型上开启当前 session 的 workflow-first 模式；`/effort high|medium|low|off` 会退出该模式。
+
+workflow tool、saved `/<name>` / `/workflow:<name>` 命令、`/deep-research` 和 `/workflows restart` 在启动前会通过 host `Select` 展示 workflow 名称、description、phase、script path、资源上限和 JavaScript 预览；用户可以选择 run once、always allow this workflow in this project、view raw script 或 cancel，拒绝时不会 fork child Agent。always-allow 记录写入 agent dir 下的 `workflow_approvals.json`，按 project root、workflow 名称/source 和脚本 hash 匹配。
 
 workflow snapshot 会记录每个 agent 的 `startedAt`、`endedAt`、`durationMs`、计入预算的 `estimatedTokens`、子事件观测到的 `turnTokens`、provider 已上报的 `cost`、失败 tool-call 数和最近 child tool 名称/参数/结果/错误，并通过 `phaseSummaries` 聚合每个 phase 的 agent 数、token、observed cost 和耗时；`/workflows show` 会展示 phase 聚合与单个 agent 的 token、cost 和耗时。child usage 可用时会进入 workflow runner 的 token 视图和预算检查；`Usage.Cost.Total` 可用时会聚合到 workflow/phase/agent cost 视图，但不会按模型 pricing 自行推导 cost。
 
@@ -195,7 +213,7 @@ Workflow runtime state also includes capped recent workflow `log(...)` messages 
 
 `/workflows pause <run-id>` 和 `/workflows stop <run-id>` 都会取消当前运行并进入 stopped 状态；`/workflows resume <run-id|latest>` 可恢复同一进程/session 内被 pause/stop 的后台 workflow：已完成 agent 结果从内存缓存返回，不会再次 `ForkSession`，未完成分支继续 live 执行；退出进程后只能使用 `/workflows restart <run-id|latest>` fresh run。
 
-完整对齐方案、Lua DSL、ForkOptions 映射、安全沙箱要求和真实验收 case 记录在 [Lua Workflow 编排方案](../plans/lua-workflow-orchestration.md)。后续工作继续按该文档的 M4-M6 验收规则推进。
+历史 Lua 方案、ForkOptions 映射和迁移验收记录保留在 [Lua Workflow 编排方案](../plans/lua-workflow-orchestration.md)；当前 JavaScript 契约以本节和 `workflow` tool description 为准。
 
 ### 5. 自动上下文压缩（Auto Compaction）
 

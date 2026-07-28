@@ -78,18 +78,18 @@ type runResult struct {
 }
 
 type runner struct {
-	api        extension.ExtensionAPI
-	opts       runOptions
-	state      *workflowRunState
-	tracker    *snapshotTracker
-	meta       *metaInfo
-	current    string
-	usedAgent  atomic.Bool
-	mu         sync.Mutex
-	ctx        context.Context
-	loop       *eventloop.EventLoop
-	vm         *goja.Runtime
-	jsonParse  goja.Callable
+	api       extension.ExtensionAPI
+	opts      runOptions
+	state     *workflowRunState
+	tracker   *snapshotTracker
+	meta      *metaInfo
+	current   string
+	usedAgent atomic.Bool
+	mu        sync.Mutex
+	ctx       context.Context
+	loop      *eventloop.EventLoop
+	vm        *goja.Runtime
+	jsonParse goja.Callable
 }
 
 type workflowRunState struct {
@@ -231,12 +231,12 @@ func (r *runner) run(ctx context.Context, script string) (runResult, error) {
 	r.loop = loop
 
 	var (
-		result  any
-		runErr  string
-		hadErr  bool
+		result   any
+		runErr   string
+		hadErr   bool
 		setupErr error
-		done    = make(chan struct{})
-		once    sync.Once
+		done     = make(chan struct{})
+		once     sync.Once
 	)
 	finish := func() { once.Do(func() { close(done) }) }
 
@@ -398,11 +398,23 @@ func (r *runner) jsPhase(call goja.FunctionCall) goja.Value {
 	if title == "" {
 		panic(vm.ToValue("phase title must be a non-empty string"))
 	}
+	if len(r.meta.Phases) > 0 && !workflowPhaseDeclared(r.meta.Phases, title) {
+		panic(vm.ToValue(fmt.Sprintf("phase %q is not declared in meta.phases", title)))
+	}
 	r.mu.Lock()
 	r.current = title
 	r.mu.Unlock()
 	r.tracker.addPhase(title)
 	return goja.Undefined()
+}
+
+func workflowPhaseDeclared(phases []phaseInfo, title string) bool {
+	for _, phase := range phases {
+		if phase.Title == title {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *runner) jsLog(call goja.FunctionCall) goja.Value {
@@ -427,6 +439,9 @@ func (r *runner) jsAgent(call goja.FunctionCall) goja.Value {
 		opts.Phase = r.current
 	}
 	r.mu.Unlock()
+	if len(r.meta.Phases) > 0 && opts.Phase != "" && !workflowPhaseDeclared(r.meta.Phases, opts.Phase) {
+		panic(vm.ToValue(fmt.Sprintf("agent phase %q is not declared in meta.phases", opts.Phase)))
+	}
 	r.usedAgent.Store(true)
 
 	p, resolve, reject := vm.NewPromise()

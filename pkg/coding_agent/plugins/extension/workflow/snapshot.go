@@ -11,10 +11,11 @@ import (
 )
 
 type metaInfo struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	WhenToUse   string      `json:"whenToUse,omitempty"`
-	Phases      []phaseInfo `json:"phases,omitempty"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	WhenToUse   string          `json:"whenToUse,omitempty"`
+	Phases      []phaseInfo     `json:"phases,omitempty"`
+	ExampleArgs *map[string]any `json:"exampleArgs,omitempty"`
 }
 
 type phaseInfo struct {
@@ -114,9 +115,25 @@ func (s workflowSnapshot) clone() workflowSnapshot {
 		if s.Meta.Phases != nil {
 			m.Phases = append([]phaseInfo(nil), s.Meta.Phases...)
 		}
+		if s.Meta.ExampleArgs != nil {
+			exampleArgs := cloneWorkflowExampleArgs(*s.Meta.ExampleArgs)
+			m.ExampleArgs = &exampleArgs
+		}
 		out.Meta = &m
 	}
 	return out
+}
+
+func cloneWorkflowExampleArgs(exampleArgs map[string]any) map[string]any {
+	data, err := json.Marshal(exampleArgs)
+	if err != nil {
+		return nil
+	}
+	var cloned map[string]any
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return nil
+	}
+	return cloned
 }
 
 func cloneStringSlice(in []string) []string {

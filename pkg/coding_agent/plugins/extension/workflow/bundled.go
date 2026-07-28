@@ -7,7 +7,7 @@ import (
 
 const deepResearchWorkflowScript = `
 meta({
-  name: "deep_research",
+  name: "deep-research",
   description: "Bundled workflow for multi-angle research and cross-checking",
   phases: [
     { title: "Scope", detail: "Break the question into research angles" },
@@ -15,6 +15,9 @@ meta({
     { title: "Cross-check", detail: "Challenge and filter claims" },
     { title: "Synthesis", detail: "Produce the final report" },
   ],
+  exampleArgs: {
+    question: "How are Agent Skills and Dynamic Workflows evolving?",
+  },
 });
 
 const question = String((args && args.question) || "");

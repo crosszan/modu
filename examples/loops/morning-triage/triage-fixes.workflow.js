@@ -17,6 +17,7 @@ meta({
     { title: 'Review', detail: 'adversarial reviewer judges each draft' },
     { title: 'Deliver', detail: 'draft PR per PASS; REJECTs go to inbox' },
   ],
+  exampleArgs: {},
 })
 
 const FINDINGS_SCHEMA = {

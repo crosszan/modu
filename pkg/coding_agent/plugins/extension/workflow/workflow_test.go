@@ -360,7 +360,7 @@ func TestDeepResearchCommandStartsBundledWorkflow(t *testing.T) {
 	if !strings.Contains(started, "Run: ") || !strings.Contains(started, "Script: ") || !strings.Contains(started, "Open /workflows for the cockpit") {
 		t.Fatalf("started notify = %q", started)
 	}
-	done := api.waitNotifyContaining(t, "Workflow deep_research completed")
+	done := api.waitNotifyContaining(t, "Workflow deep-research completed")
 	if !strings.Contains(done, "## Execution flow") || !strings.Contains(done, "ResultPreview:") || !strings.Contains(done, "result:report") || !strings.Contains(done, "Next:") || !strings.Contains(done, "/workflows guide ") {
 		t.Fatalf("completion notify = %q", done)
 	}
@@ -371,7 +371,7 @@ func TestDeepResearchCommandStartsBundledWorkflow(t *testing.T) {
 		t.Fatalf("deep research call count = %d, want 6", api.callCount())
 	}
 	selectCall := api.lastSelect()
-	if !strings.Contains(selectCall.Title, "Allow workflow run?") || !strings.Contains(selectCall.Title, "Workflow: deep_research") || !strings.Contains(selectCall.Title, "- Scope") || !strings.Contains(selectCall.Title, "Script preview:") {
+	if !strings.Contains(selectCall.Title, "Allow workflow run?") || !strings.Contains(selectCall.Title, "Workflow: deep-research") || !strings.Contains(selectCall.Title, "- Scope") || !strings.Contains(selectCall.Title, "Script preview:") {
 		t.Fatalf("approval select = %+v", selectCall)
 	}
 	if len(selectCall.Options) != 4 || selectCall.Options[0] != workflowApprovalRunOnce || selectCall.Options[1] != workflowApprovalAlways || selectCall.Options[2] != workflowApprovalViewRaw || selectCall.Options[3] != workflowApprovalCancel {
@@ -394,7 +394,7 @@ func TestWorkflowApprovalDenialSkipsToolExecution(t *testing.T) {
 	tool := newTool(ext)
 	res, err := tool.Execute(context.Background(), "wf-1", map[string]any{
 		"script": `
-meta({ name: "approval_case", description: "approval check" })
+meta({ name: "approval-case", description: "approval check" })
 phase("Review")
 return agent("inspect", { label: "inspect" })
 `,
@@ -409,7 +409,7 @@ return agent("inspect", { label: "inspect" })
 		t.Fatalf("fork count = %d, want 0", api.callCount())
 	}
 	selectCall := api.lastSelect()
-	if !strings.Contains(selectCall.Title, "Allow workflow run?") || !strings.Contains(selectCall.Title, "Workflow: approval_case") || !strings.Contains(selectCall.Title, "Description: approval check") || !strings.Contains(selectCall.Title, "- Review") || !strings.Contains(selectCall.Title, "return agent") {
+	if !strings.Contains(selectCall.Title, "Allow workflow run?") || !strings.Contains(selectCall.Title, "Workflow: approval-case") || !strings.Contains(selectCall.Title, "Description: approval check") || !strings.Contains(selectCall.Title, "- Review") || !strings.Contains(selectCall.Title, "return agent") {
 		t.Fatalf("approval select = %+v", selectCall)
 	}
 }
@@ -417,7 +417,7 @@ return agent("inspect", { label: "inspect" })
 func TestWorkflowApprovalAlwaysSkipsFuturePromptForSameProjectAndScript(t *testing.T) {
 	clearWorkflowDisableEnv(t)
 	script := `
-meta({ name: "always_case", description: "remember approval" })
+meta({ name: "always-case", description: "remember approval" })
 phase("Remember")
 return agent("inspect", { label: "inspect" })
 `
@@ -454,7 +454,7 @@ return agent("inspect", { label: "inspect" })
 	if err != nil {
 		t.Fatalf("read approval store: %v", err)
 	}
-	if !strings.Contains(string(data), "always_case") || !strings.Contains(string(data), "scriptHash") {
+	if !strings.Contains(string(data), "always-case") || !strings.Contains(string(data), "scriptHash") {
 		t.Fatalf("approval store = %s", string(data))
 	}
 }
@@ -475,7 +475,7 @@ func TestWorkflowApprovalBypassPermissionModeSkipsPrompt(t *testing.T) {
 	tool := newTool(ext)
 	res, err := tool.Execute(context.Background(), "wf-bypass", map[string]any{
 		"script": `
-meta({ name: "bypass_case", description: "bypass approval" })
+meta({ name: "bypass-case", description: "bypass approval" })
 phase("Run")
 return agent("inspect", { label: "inspect" })
 `,
@@ -497,7 +497,7 @@ return agent("inspect", { label: "inspect" })
 func TestWorkflowApprovalAutoPermissionModeRemembersRunOnce(t *testing.T) {
 	clearWorkflowDisableEnv(t)
 	script := `
-meta({ name: "auto_case", description: "auto remember" })
+meta({ name: "auto-case", description: "auto remember" })
 phase("Auto")
 return agent("inspect", { label: "inspect" })
 `
@@ -534,7 +534,7 @@ return agent("inspect", { label: "inspect" })
 	if err != nil {
 		t.Fatalf("read approval store: %v", err)
 	}
-	if !strings.Contains(string(data), "auto_case") || !strings.Contains(string(data), "scriptHash") {
+	if !strings.Contains(string(data), "auto-case") || !strings.Contains(string(data), "scriptHash") {
 		t.Fatalf("approval store = %s", string(data))
 	}
 }
@@ -542,7 +542,7 @@ return agent("inspect", { label: "inspect" })
 func TestWorkflowApprovalViewRawThenRunOnce(t *testing.T) {
 	clearWorkflowDisableEnv(t)
 	script := `
-meta({ name: "raw_case", description: "raw script view" })
+meta({ name: "raw-case", description: "raw script view" })
 phase("Raw")
 return agent("inspect raw", { label: "inspect raw" })
 `
@@ -575,7 +575,7 @@ return agent("inspect raw", { label: "inspect raw" })
 	if api.callCount() != 1 {
 		t.Fatalf("fork count = %d, want 1", api.callCount())
 	}
-	raw := api.waitNotifyContaining(t, "Workflow raw script: raw_case")
+	raw := api.waitNotifyContaining(t, "Workflow raw script: raw-case")
 	if !strings.Contains(raw, "```js") || !strings.Contains(raw, "inspect raw") {
 		t.Fatalf("raw notify = %q", raw)
 	}
@@ -590,7 +590,7 @@ func TestSavedWorkflowApprovalDenialSkipsBackgroundRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(projectDir, "review.js"), []byte(`
-meta({ name: "saved_review", description: "saved approval" })
+meta({ name: "saved-review", description: "saved approval" })
 phase("Saved")
 return agent("review", { label: "review" })
 `), 0o600); err != nil {
@@ -621,7 +621,7 @@ return agent("review", { label: "review" })
 		t.Fatalf("notify = %q", got)
 	}
 	selectCall := api.lastSelect()
-	if !strings.Contains(selectCall.Title, "Workflow: saved_review") || !strings.Contains(selectCall.Title, "Source: /review") || !strings.Contains(selectCall.Title, "- Saved") {
+	if !strings.Contains(selectCall.Title, "Workflow: saved-review") || !strings.Contains(selectCall.Title, "Source: /review") || !strings.Contains(selectCall.Title, "- Saved") {
 		t.Fatalf("approval select = %+v", selectCall)
 	}
 }
@@ -712,7 +712,11 @@ func TestRunWorkflowRecordsMetaPhaseLogAndResult(t *testing.T) {
 		},
 	})
 	result, err := r.run(context.Background(), `
-meta({ name: "demo", description: "dynamic phases" });
+meta({
+  name: "demo",
+  description: "dynamic phases",
+  exampleArgs: { area: "pkg/coding_agent" },
+});
 phase("Scan " + args.area);
 log("started");
 const out = await agent("inspect " + args.area, { label: "scan" });
@@ -723,6 +727,9 @@ return { ok: true, out: out, cwd: process.cwd() };
 	}
 	if result.Meta.Name != "demo" || result.Snapshot.Name != "demo" {
 		t.Fatalf("bad meta/snapshot: %+v", result)
+	}
+	if result.Snapshot.Meta == nil || result.Snapshot.Meta.ExampleArgs == nil || (*result.Snapshot.Meta.ExampleArgs)["area"] != "pkg/coding_agent" {
+		t.Fatalf("snapshot meta = %+v", result.Snapshot.Meta)
 	}
 	if len(result.Snapshot.Phases) != 1 || result.Snapshot.Phases[0] != "Scan pkg" {
 		t.Fatalf("phases = %#v", result.Snapshot.Phases)
@@ -735,6 +742,158 @@ return { ok: true, out: out, cwd: process.cwd() };
 	}
 	if got := result.Result.(map[string]any)["out"]; got != "result:scan" {
 		t.Fatalf("result out = %#v", got)
+	}
+}
+
+func TestDecodeMetaEnforcesWorkflowContract(t *testing.T) {
+	meta, err := decodeMeta(map[string]any{
+		"name":        "repo-review",
+		"description": "Review a repository and return findings.",
+		"phases": []any{
+			map[string]any{"title": "Plan"},
+			map[string]any{"title": "Review"},
+		},
+		"exampleArgs": map[string]any{
+			"target": "pkg/coding_agent",
+			"strict": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("decodeMeta valid contract: %v", err)
+	}
+	if meta.Name != "repo-review" || len(meta.Phases) != 2 {
+		t.Fatalf("meta = %+v", meta)
+	}
+	if meta.ExampleArgs == nil {
+		t.Fatal("exampleArgs is nil")
+	}
+	if got := (*meta.ExampleArgs)["target"]; got != "pkg/coding_agent" {
+		t.Fatalf("exampleArgs.target = %#v", got)
+	}
+	emptyExample, err := decodeMeta(map[string]any{
+		"name":        "no-input-workflow",
+		"description": "Run without caller input.",
+		"exampleArgs": map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("decodeMeta empty example args: %v", err)
+	}
+	encoded, err := json.Marshal(emptyExample)
+	if err != nil {
+		t.Fatalf("marshal empty example args: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"exampleArgs":{}`) {
+		t.Fatalf("encoded meta = %s", encoded)
+	}
+
+	tests := []struct {
+		name string
+		meta map[string]any
+		want string
+	}{
+		{
+			name: "name must be kebab case",
+			meta: map[string]any{"name": "repo_review", "description": "Review a repository."},
+			want: "kebab-case",
+		},
+		{
+			name: "description must stay on one line",
+			meta: map[string]any{"name": "repo-review", "description": "Review\nrepository."},
+			want: "one-line",
+		},
+		{
+			name: "description cannot hide line breaks in surrounding whitespace",
+			meta: map[string]any{"name": "repo-review", "description": "\nReview a repository."},
+			want: "one-line",
+		},
+		{
+			name: "phase titles must be unique",
+			meta: map[string]any{
+				"name":        "repo-review",
+				"description": "Review a repository.",
+				"phases": []any{
+					map[string]any{"title": "Review"},
+					map[string]any{"title": "Review"},
+				},
+			},
+			want: "unique",
+		},
+		{
+			name: "example args must be an object",
+			meta: map[string]any{
+				"name":        "repo-review",
+				"description": "Review a repository.",
+				"exampleArgs": []any{"pkg/coding_agent"},
+			},
+			want: "JSON-safe object",
+		},
+		{
+			name: "example args must be json safe",
+			meta: map[string]any{
+				"name":        "repo-review",
+				"description": "Review a repository.",
+				"exampleArgs": map[string]any{"callback": func() {}},
+			},
+			want: "JSON-safe object",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := decodeMeta(tt.meta)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("decodeMeta error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRunWorkflowRejectsUndeclaredPhase(t *testing.T) {
+	api := &fakeAPI{}
+	_, err := newRunner(api, runOptions{}).run(context.Background(), `
+meta({
+  name: "phase-contract",
+  description: "Reject phases missing from the declared plan.",
+  phases: [{ title: "Plan" }],
+});
+phase("Execute");
+return await agent("run", { label: "run" });
+`)
+	if err == nil || !strings.Contains(err.Error(), `phase "Execute" is not declared in meta.phases`) {
+		t.Fatalf("run error = %v", err)
+	}
+}
+
+func TestRunWorkflowRejectsUndeclaredAgentPhase(t *testing.T) {
+	api := &fakeAPI{}
+	_, err := newRunner(api, runOptions{}).run(context.Background(), `
+meta({
+  name: "agent-phase-contract",
+  description: "Reject agent phase overrides missing from the declared plan.",
+  phases: [{ title: "Plan" }],
+});
+return await agent("run", { label: "run", phase: "Execute" });
+`)
+	if err == nil || !strings.Contains(err.Error(), `agent phase "Execute" is not declared in meta.phases`) {
+		t.Fatalf("run error = %v", err)
+	}
+}
+
+func TestRunWorkflowAllowsUnreachedDeclaredPhase(t *testing.T) {
+	api := &fakeAPI{}
+	result, err := newRunner(api, runOptions{}).run(context.Background(), `
+meta({
+  name: "conditional-phases",
+  description: "Allow conditionally skipped phases.",
+  phases: [{ title: "Plan" }, { title: "Optional" }],
+});
+phase("Plan");
+return await agent("plan", { label: "plan" });
+`)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(result.Snapshot.Phases) != 1 || result.Snapshot.Phases[0] != "Plan" {
+		t.Fatalf("phases = %#v", result.Snapshot.Phases)
 	}
 }
 
@@ -882,7 +1041,7 @@ func TestParallelSchemaFailureReturnsJSONNull(t *testing.T) {
 		return `{"ok":true}`, nil
 	}
 	result, err := newRunner(api, runOptions{Concurrency: 2}).run(context.Background(), `
-meta({ name: "schema_parallel", description: "structured output failures" });
+meta({ name: "schema-parallel", description: "structured output failures" });
 const schema = {
   type: "object",
   required: ["ok"],
@@ -927,7 +1086,7 @@ func TestAgentSchemaRetriesOnceBeforeReturningTable(t *testing.T) {
 		return "", nil
 	}
 	result, err := newRunner(api, runOptions{}).run(context.Background(), `
-meta({ name: "schema_retry", description: "retry structured output" });
+meta({ name: "schema-retry", description: "retry structured output" });
 const out = await agent("return status", {
   label: "structured",
   schema: {
@@ -961,7 +1120,7 @@ return { ok: out.ok };
 func TestAgentRejectsInvalidSchemaDefinition(t *testing.T) {
 	api := &fakeAPI{}
 	_, err := newRunner(api, runOptions{}).run(context.Background(), `
-meta({ name: "bad_schema", description: "bad schema definition" });
+meta({ name: "bad-schema", description: "bad schema definition" });
 return await agent("x", { label: "bad", schema: { type: "weird" } });
 `)
 	if err == nil || !strings.Contains(err.Error(), "unsupported type") {
@@ -1011,7 +1170,7 @@ return { total: budget.total, before: before, spent: budget.spent(), after: budg
 	}
 
 	result, err = newRunner(api, runOptions{}).run(context.Background(), `
-meta({ name: "budget_unset", description: "unset budget" });
+meta({ name: "budget-unset", description: "unset budget" });
 await agent("spend", { label: "spend" });
 return { unset: budget.total === null && budget.remaining() === null };
 `)
@@ -1040,7 +1199,7 @@ func TestBudgetUsesChildUsageWhenAvailable(t *testing.T) {
 		Activities:  ext.activities,
 		Registry:    ext.registry,
 	}).run(context.Background(), `
-meta({ name: "usage_budget", description: "track real usage" });
+meta({ name: "usage-budget", description: "track real usage" });
 const before = budget.remaining();
 await agent("spend", { label: "spend" });
 return { before: before, spent: budget.spent(), after: budget.remaining() };
@@ -1063,7 +1222,7 @@ func TestBudgetStopsFurtherAgents(t *testing.T) {
 		return "12345678", nil
 	}
 	result, err := newRunner(api, runOptions{BudgetTotal: 1}).run(context.Background(), `
-meta({ name: "budget_stop", description: "stop after budget" });
+meta({ name: "budget-stop", description: "stop after budget" });
 const first = await agent("first", { label: "first" });
 const second = await agent("second", { label: "second" });
 return { first: first, second: second, spent: budget.spent(), remaining: budget.remaining() };
@@ -1099,7 +1258,7 @@ func TestBudgetStopsFurtherAgentsUsingChildUsage(t *testing.T) {
 		Activities:  ext.activities,
 		Registry:    ext.registry,
 	}).run(context.Background(), `
-meta({ name: "usage_budget_stop", description: "stop after real usage" });
+meta({ name: "usage-budget-stop", description: "stop after real usage" });
 const first = await agent("first", { label: "first" });
 const second = await agent("second", { label: "second" });
 return { first: first, second: second, spent: budget.spent(), remaining: budget.remaining() };
@@ -1142,7 +1301,7 @@ func TestParallelBudgetReservationsLimitConcurrentForks(t *testing.T) {
 		Activities:  ext.activities,
 		Registry:    ext.registry,
 	}).run(context.Background(), `
-meta({ name: "parallel_budget_reserve", description: "reserve budget before concurrent forks" });
+meta({ name: "parallel-budget-reserve", description: "reserve budget before concurrent forks" });
 const out = await parallel([
   () => agent("one", { label: "one" }),
   () => agent("two", { label: "two" }),
@@ -1192,7 +1351,7 @@ return { out: out, spent: budget.spent(), remaining: budget.remaining() };
 func TestAgentLimitStopsFurtherAgents(t *testing.T) {
 	api := &fakeAPI{}
 	result, err := newRunner(api, runOptions{MaxAgents: 2}).run(context.Background(), `
-meta({ name: "agent_limit", description: "stop runaway scripts" });
+meta({ name: "agent-limit", description: "stop runaway scripts" });
 const one = await agent("one", { label: "one" });
 const two = await agent("two", { label: "two" });
 const three = await agent("three", { label: "three" });
@@ -1259,7 +1418,7 @@ func TestParallelFailureComparesEqualToJSONNull(t *testing.T) {
 		return "ok", nil
 	}
 	result, err := newRunner(api, runOptions{Concurrency: 2}).run(context.Background(), `
-meta({ name: "json_null", description: "stable null" });
+meta({ name: "json-null", description: "stable null" });
 const out = await parallel([
   () => agent("ok", { label: "good" }),
   () => agent("fail", { label: "bad" }),
@@ -1301,7 +1460,7 @@ return await pipeline(["a", "b"],
 func TestPipelinePreservesOrderAndIsolatesStageFailures(t *testing.T) {
 	api := &fakeAPI{}
 	result, err := newRunner(api, runOptions{Concurrency: 2}).run(context.Background(), `
-meta({ name: "pipe_fail", description: "pipeline failures" });
+meta({ name: "pipe-fail", description: "pipeline failures" });
 await agent("anchor", { label: "anchor" });
 return await pipeline(["a", "bad", "c"],
   (item, original, index) => {
@@ -1325,10 +1484,10 @@ return await pipeline(["a", "bad", "c"],
 
 func TestPipelineSupportsNesting(t *testing.T) {
 	// Under the JS engine pipeline() is plain async control flow, so nesting it
-	// works (the single-LState restriction of the Lua engine is gone).
+	// works because each pipeline item is ordinary JavaScript async work.
 	api := &fakeAPI{}
 	result, err := newRunner(api, runOptions{}).run(context.Background(), `
-meta({ name: "nested_pipe", description: "nested pipeline" });
+meta({ name: "nested-pipe", description: "nested pipeline" });
 await agent("anchor", { label: "anchor" });
 return await pipeline(["a"],
   (item) => pipeline([item], (x) => x + "!"),
@@ -1393,7 +1552,7 @@ func TestNestedWorkflowLoadsClaudeProjectWorkflowName(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workflowDir, "child.js"), []byte(`
-meta({ name: "claude_child", description: "claude child workflow" });
+meta({ name: "claude-child", description: "claude child workflow" });
 const seen = await agent("claude child", { label: "claude-child" });
 return { seen: seen };
 `), 0o600); err != nil {
@@ -1420,7 +1579,7 @@ func TestNestedWorkflowSharesBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workflowDir, "child.js"), []byte(`
-meta({ name: "child_budget", description: "child spends budget" });
+meta({ name: "child-budget", description: "child spends budget" });
 return { first: await agent("first", { label: "first" }) };
 `), 0o600); err != nil {
 		t.Fatal(err)
@@ -1430,7 +1589,7 @@ return { first: await agent("first", { label: "first" }) };
 		return "12345678", nil
 	}
 	result, err := newRunner(api, runOptions{Cwd: cwd, BudgetTotal: 1}).run(context.Background(), `
-meta({ name: "parent_budget", description: "shared budget" });
+meta({ name: "parent-budget", description: "shared budget" });
 const child = await workflow("child");
 const second = await agent("second", { label: "second" });
 return { first: child.first, second: second, spent: budget.spent(), remaining: budget.remaining() };
@@ -1454,14 +1613,14 @@ func TestNestedWorkflowSharesAgentLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workflowDir, "child.js"), []byte(`
-meta({ name: "child_limit", description: "child uses one agent slot" });
+meta({ name: "child-limit", description: "child uses one agent slot" });
 return { first: await agent("first", { label: "first" }) };
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	api := &fakeAPI{cwd: cwd}
 	result, err := newRunner(api, runOptions{Cwd: cwd, MaxAgents: 1}).run(context.Background(), `
-meta({ name: "parent_limit", description: "shared agent limit" });
+meta({ name: "parent-limit", description: "shared agent limit" });
 const child = await workflow("child");
 const second = await agent("second", { label: "second" });
 return { first: child.first, second: second };
@@ -1485,14 +1644,14 @@ func TestNestedWorkflowRejectsSecondLevelNesting(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workflowDir, "child.js"), []byte(`
-meta({ name: "child_nested", description: "child tries nested workflow" });
+meta({ name: "child-nested", description: "child tries nested workflow" });
 return await workflow("grandchild");
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	api := &fakeAPI{cwd: cwd}
 	_, err := newRunner(api, runOptions{Cwd: cwd}).run(context.Background(), `
-meta({ name: "parent_nested", description: "parent workflow" });
+meta({ name: "parent-nested", description: "parent workflow" });
 return await workflow("child");
 `)
 	if err == nil || !strings.Contains(err.Error(), "limited to one level") {
@@ -1588,7 +1747,7 @@ func TestToolExecuteAsyncStartGuidanceUsesCockpitFirst(t *testing.T) {
 	ext := &Extension{cfg: DefaultConfig(), api: api}
 	tool := newTool(ext)
 	res, err := tool.Execute(context.Background(), "wf-async", map[string]any{
-		"script": `meta({ name: "async_guidance" }); return "ok";`,
+		"script": `meta({ name: "async-guidance" }); return "ok";`,
 		"async":  true,
 	}, nil)
 	if err != nil {
@@ -1621,7 +1780,7 @@ func TestToolExecuteLoadsScriptPath(t *testing.T) {
 	sessionDir := t.TempDir()
 	scriptPath := filepath.Join(cwd, "saved.js")
 	script := `
-meta({ name: "from_path", description: "load from path" });
+meta({ name: "from-path", description: "load from path" });
 return await agent("x", { label: "from path" });
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
@@ -1677,19 +1836,19 @@ func TestToolExecuteLoadsSavedWorkflowNameWithProjectPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(userDir, "review.js"), []byte(`
-meta({ name: "user_review", description: "user workflow" });
+meta({ name: "user-review", description: "user workflow" });
 return await agent("x", { label: "user" });
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(rootProjectDir, "review.js"), []byte(`
-meta({ name: "root_review", description: "root workflow" });
+meta({ name: "root-review", description: "root workflow" });
 return await agent("x", { label: "root" });
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(nearestProjectDir, "review.js"), []byte(`
-meta({ name: "nearest_review", description: "nearest workflow" });
+meta({ name: "nearest-review", description: "nearest workflow" });
 return await agent("x", { label: "nearest" });
 `), 0o600); err != nil {
 		t.Fatal(err)
@@ -1708,7 +1867,7 @@ return await agent("x", { label: "nearest" });
 	if api.callCount() != 1 || api.call(0).Name != "nearest" {
 		t.Fatalf("expected nearest project workflow call, got %#v", api.calls)
 	}
-	if snapshot := res.Details.(workflowSnapshot); snapshot.Name != "nearest_review" {
+	if snapshot := res.Details.(workflowSnapshot); snapshot.Name != "nearest-review" {
 		t.Fatalf("snapshot name = %q", snapshot.Name)
 	}
 }
@@ -1735,7 +1894,7 @@ func TestToolExecuteRequiresExactlyOneScriptSource(t *testing.T) {
 func TestWorkflowsSaveUsesClaudeWorkflowDirs(t *testing.T) {
 	scriptDir := t.TempDir()
 	scriptPath := filepath.Join(scriptDir, "script.js")
-	script := `meta({ name: "save_dir", description: "save dir" })
+	script := `meta({ name: "save-dir", description: "save dir" })
 return agent("x", { label: "x" })`
 	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
 		t.Fatal(err)
@@ -1806,7 +1965,7 @@ func TestDiscoverSavedWorkflowCommandsUsesNearestProjectPrecedence(t *testing.T)
 	}
 	for path, body := range map[string]string{
 		filepath.Join(repo, ".coding_agent", "workflows", "review.js"):             `meta({ name: "root", description: "root" })`,
-		filepath.Join(repo, "apps", ".claude", "workflows", "review.js"):           `meta({ name: "claude_nearest", description: "claude nearest" })`,
+		filepath.Join(repo, "apps", ".claude", "workflows", "review.js"):           `meta({ name: "claude-nearest", description: "claude nearest" })`,
 		filepath.Join(repo, "apps", ".claude", "workflows", "claude.js"):           `meta({ name: "claude", description: "claude" })`,
 		filepath.Join(repo, "apps", ".coding_agent", "workflows", "review.js"):     `meta({ name: "nearest", description: "nearest" })`,
 		filepath.Join(agentDir, "workflows", "review.js"):                          `meta({ name: "user", description: "user" })`,
@@ -2489,7 +2648,7 @@ func TestToolExecuteAsyncRegistersRunningWorkflowAndStopCancelsIt(t *testing.T) 
 	res, err := tool.Execute(context.Background(), "wf-1", map[string]any{
 		"async": true,
 		"script": `
-meta({ name: "async_stop", description: "async stop" })
+meta({ name: "async-stop", description: "async stop" })
 return agent("wait", { label: "wait" })
 `,
 	}, nil)
@@ -2512,7 +2671,7 @@ return agent("wait", { label: "wait" })
 	if err := cmd(""); err != nil {
 		t.Fatalf("/workflows: %v", err)
 	}
-	if got := api.lastNotify(); !strings.Contains(got, runID) || !strings.Contains(got, "running") || !strings.Contains(got, "async_stop") {
+	if got := api.lastNotify(); !strings.Contains(got, runID) || !strings.Contains(got, "running") || !strings.Contains(got, "async-stop") {
 		t.Fatalf("list notify = %q", got)
 	}
 	if err := cmd("stop " + runID); err != nil {
@@ -2525,7 +2684,7 @@ return agent("wait", { label: "wait" })
 	if err := cmd("show " + runID); err != nil {
 		t.Fatalf("/workflows show: %v", err)
 	}
-	if got := api.lastNotify(); !strings.Contains(got, "Status: stopped") || !strings.Contains(got, "Workflow: async_stop") {
+	if got := api.lastNotify(); !strings.Contains(got, "Status: stopped") || !strings.Contains(got, "Workflow: async-stop") {
 		t.Fatalf("show stopped notify = %q", got)
 	}
 	statusPath := filepath.Join(sessionDir, "extensions", "workflow", "runs", runID, "status.json")
@@ -2591,7 +2750,7 @@ func TestWorkflowsResumeUsesCompletedAgentCache(t *testing.T) {
 	res, err := tool.Execute(context.Background(), "wf-1", map[string]any{
 		"async": true,
 		"script": `
-meta({ name: "resume_cache", description: "resume cache" })
+meta({ name: "resume-cache", description: "resume cache" })
 const first = await agent("first prompt", { label: "first" });
 const second = await agent("second prompt", { label: "second" });
 return { first: first, second: second };
@@ -2626,7 +2785,7 @@ return { first: first, second: second };
 	if got := api.waitNotifyContaining(t, "resumed in background"); !strings.Contains(got, runID) {
 		t.Fatalf("resume notify = %q", got)
 	}
-	done := api.waitNotifyContaining(t, "Workflow resume_cache completed")
+	done := api.waitNotifyContaining(t, "Workflow resume-cache completed")
 	if !strings.Contains(done, "FIRST_OK") || !strings.Contains(done, "SECOND_OK") {
 		t.Fatalf("completion notify = %q", done)
 	}
@@ -2688,7 +2847,7 @@ func TestWorkflowsPauseCanResumeStoppedRun(t *testing.T) {
 	res, err := tool.Execute(context.Background(), "wf-pause", map[string]any{
 		"async": true,
 		"script": `
-meta({ name: "pause_resume", description: "pause and resume" })
+meta({ name: "pause-resume", description: "pause and resume" })
 const first = await agent("first prompt", { label: "first" });
 const second = await agent("second prompt", { label: "second" });
 return { first: first, second: second };
@@ -2732,7 +2891,7 @@ return { first: first, second: second };
 		t.Fatalf("/workflows resume: %v", err)
 	}
 	api.waitNotifyContaining(t, "resumed in background")
-	done := api.waitNotifyContaining(t, "Workflow pause_resume completed")
+	done := api.waitNotifyContaining(t, "Workflow pause-resume completed")
 	if !strings.Contains(done, "FIRST_OK") || !strings.Contains(done, "SECOND_OK") {
 		t.Fatalf("completion notify = %q", done)
 	}
@@ -2765,7 +2924,7 @@ func TestWorkflowsAgentStopSkipsOneRunningAgent(t *testing.T) {
 	res, err := tool.Execute(context.Background(), "wf-agent-stop", map[string]any{
 		"async": true,
 		"script": `
-meta({ name: "agent_stop", description: "stop one agent" })
+meta({ name: "agent-stop", description: "stop one agent" })
 const first = await agent("first prompt", { label: "first" });
 const second = await agent("second prompt", { label: "second" });
 return { firstStopped: first === null, second: second };
@@ -2793,7 +2952,7 @@ return { firstStopped: first === null, second: second };
 	if got := api.lastNotify(); !strings.Contains(got, "Stop requested for workflow agent 1") {
 		t.Fatalf("agent-stop notify = %q", got)
 	}
-	done := api.waitNotifyContaining(t, "Workflow agent_stop completed")
+	done := api.waitNotifyContaining(t, "Workflow agent-stop completed")
 	if !strings.Contains(done, "firstStopped") || !strings.Contains(done, "SECOND_OK") {
 		t.Fatalf("completion notify = %q", done)
 	}
@@ -2837,7 +2996,7 @@ func TestWorkflowsAgentRestartRerunsOneRunningAgent(t *testing.T) {
 	res, err := tool.Execute(context.Background(), "wf-agent-restart", map[string]any{
 		"async": true,
 		"script": `
-meta({ name: "agent_restart", description: "restart one agent" })
+meta({ name: "agent-restart", description: "restart one agent" })
 const first = await agent("first prompt", { label: "first" });
 return { first: first };
 `,
@@ -2864,7 +3023,7 @@ return { first: first };
 	if got := api.lastNotify(); !strings.Contains(got, "Restart requested for workflow agent 1") {
 		t.Fatalf("agent-restart notify = %q", got)
 	}
-	done := api.waitNotifyContaining(t, "Workflow agent_restart completed")
+	done := api.waitNotifyContaining(t, "Workflow agent-restart completed")
 	if !strings.Contains(done, "FIRST_RESTARTED") {
 		t.Fatalf("completion notify = %q", done)
 	}
@@ -2899,13 +3058,13 @@ func TestSavedWorkflowCommandRegistersProjectPrecedenceAndRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(userDir, "review.js"), []byte(`
-meta({ name: "user_cmd", description: "user command" })
+meta({ name: "user-cmd", description: "user command" })
 return agent("user " + args.suffix, { label: "user" })
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(projectDir, "review.js"), []byte(`
-meta({ name: "project_cmd", description: "project command" })
+meta({ name: "project-cmd", description: "project command" })
 return agent("project " + args.suffix, { label: "project" })
 `), 0o600); err != nil {
 		t.Fatal(err)
@@ -2945,19 +3104,19 @@ return agent("project " + args.suffix, { label: "project" })
 	if !strings.Contains(started, "Workflow review started in background") || !strings.Contains(started, "Run: ") || !strings.Contains(started, "Open /workflows for the cockpit") {
 		t.Fatalf("started notify = %q", started)
 	}
-	api.waitNotifyContaining(t, "Workflow project_cmd completed")
+	api.waitNotifyContaining(t, "Workflow project-cmd completed")
 	if api.callCount() != 1 {
 		t.Fatalf("call count = %d", api.callCount())
 	}
 	got := api.lastNotify()
-	if !strings.Contains(got, "Workflow project_cmd completed") || !strings.Contains(got, "COMMAND_OK") || !strings.Contains(got, "Script: ") {
+	if !strings.Contains(got, "Workflow project-cmd completed") || !strings.Contains(got, "COMMAND_OK") || !strings.Contains(got, "Script: ") {
 		t.Fatalf("notify = %q", got)
 	}
 	runs, _, err := ext.workflowRuns()
 	if err != nil {
 		t.Fatalf("workflowRuns: %v", err)
 	}
-	if len(runs) != 1 || runs[0].Snapshot == nil || runs[0].Snapshot.Name != "project_cmd" {
+	if len(runs) != 1 || runs[0].Snapshot == nil || runs[0].Snapshot.Name != "project-cmd" {
 		t.Fatalf("runs = %+v", runs)
 	}
 }
@@ -3037,7 +3196,7 @@ func TestSavedWorkflowCompletesInPrintMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(projectDir, "triage-fixes.js"), []byte(`
-meta({ name: "triage_fixes", description: "triage fixes workflow" })
+meta({ name: "triage-fixes", description: "triage fixes workflow" })
 phase("Fix")
 return agent("fix:print-mode-workflow-exits-early", { label: "fix" })
 `), 0o600); err != nil {
@@ -3108,7 +3267,7 @@ return agent("fix:print-mode-workflow-exits-early", { label: "fix" })
 		t.Fatal("snapshot.json result is nil")
 	}
 	// Confirm the completion notification was also sent.
-	if got := api.lastNotify(); !strings.Contains(got, "Workflow triage_fixes completed") {
+	if got := api.lastNotify(); !strings.Contains(got, "Workflow triage-fixes completed") {
 		t.Fatalf("completion notify = %q", got)
 	}
 }

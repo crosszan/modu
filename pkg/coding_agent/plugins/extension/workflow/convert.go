@@ -1,10 +1,15 @@
 package workflow
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
+	"unicode"
 )
+
+var workflowMetaNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 type agentOptions struct {
 	Label           string
@@ -47,16 +52,20 @@ func decodeMeta(raw any) (metaInfo, error) {
 	if !ok {
 		return metaInfo{}, fmt.Errorf("meta() requires an object argument")
 	}
+	rawDescription := stringField(m, "description")
 	meta := metaInfo{
 		Name:        strings.TrimSpace(stringField(m, "name")),
-		Description: strings.TrimSpace(stringField(m, "description")),
+		Description: strings.TrimSpace(rawDescription),
 		WhenToUse:   strings.TrimSpace(stringFieldAny(m, "whenToUse", "when_to_use")),
 	}
-	if meta.Name == "" {
-		return meta, fmt.Errorf("meta.name must be a non-empty string")
+	if !workflowMetaNamePattern.MatchString(meta.Name) {
+		return meta, fmt.Errorf("meta.name must be a kebab-case string")
 	}
 	if meta.Description == "" {
 		return meta, fmt.Errorf("meta.description must be a non-empty string")
+	}
+	if !workflowMetaTextIsOneLine(rawDescription) {
+		return meta, fmt.Errorf("meta.description must be a one-line string without control characters")
 	}
 	if rawPhases := firstKey(m, "phases"); rawPhases != nil {
 		list, ok := rawPhases.([]any)
@@ -69,27 +78,71 @@ func decodeMeta(raw any) (metaInfo, error) {
 		}
 		meta.Phases = decoded
 	}
+	if rawExampleArgs := firstKey(m, "exampleArgs", "example_args"); rawExampleArgs != nil {
+		exampleArgs, err := decodeExampleArgs(rawExampleArgs)
+		if err != nil {
+			return meta, err
+		}
+		meta.ExampleArgs = &exampleArgs
+	}
 	return meta, nil
 }
 
 func decodePhases(list []any) ([]phaseInfo, error) {
 	var out []phaseInfo
-	for _, item := range list {
+	seen := map[string]struct{}{}
+	for index, item := range list {
 		obj, ok := objectField(item)
 		if !ok {
-			return nil, fmt.Errorf("each meta phase must be an object")
+			return nil, fmt.Errorf("meta.phases[%d] must be an object", index)
 		}
+		rawTitle := stringField(obj, "title")
 		p := phaseInfo{
-			Title:  strings.TrimSpace(stringField(obj, "title")),
+			Title:  strings.TrimSpace(rawTitle),
 			Detail: strings.TrimSpace(stringField(obj, "detail")),
 			Model:  strings.TrimSpace(stringField(obj, "model")),
 		}
 		if p.Title == "" {
-			return nil, fmt.Errorf("each meta phase must have a title string")
+			return nil, fmt.Errorf("meta.phases[%d].title must be a non-empty string", index)
 		}
+		if !workflowMetaTextIsOneLine(rawTitle) {
+			return nil, fmt.Errorf("meta.phases[%d].title must be a one-line string without control characters", index)
+		}
+		if _, exists := seen[p.Title]; exists {
+			return nil, fmt.Errorf("meta.phases titles must be unique")
+		}
+		seen[p.Title] = struct{}{}
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+func decodeExampleArgs(raw any) (map[string]any, error) {
+	exampleArgs, ok := objectField(raw)
+	if !ok {
+		return nil, fmt.Errorf("meta.exampleArgs must be a JSON-safe object")
+	}
+	data, err := json.Marshal(exampleArgs)
+	if err != nil {
+		return nil, fmt.Errorf("meta.exampleArgs must be a JSON-safe object: %w", err)
+	}
+	var cloned map[string]any
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return nil, fmt.Errorf("meta.exampleArgs must be a JSON-safe object: %w", err)
+	}
+	return cloned, nil
+}
+
+func workflowMetaTextIsOneLine(value string) bool {
+	if strings.ContainsAny(value, "\r\n") {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func decodeAgentOptions(raw any) (agentOptions, error) {

@@ -2766,7 +2766,7 @@ func TestWorkflowToolCapturesRealForkTranscript(t *testing.T) {
 	}
 	res, err := workflowTool.Execute(context.Background(), "wf-transcript", map[string]any{
 		"script": `
-meta({ name: "real_transcript", description: "capture transcript" });
+meta({ name: "real-transcript", description: "capture transcript" });
 return await agent("capture transcript", { label: "child" });
 `,
 	}, nil)

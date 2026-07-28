@@ -1,5 +1,5 @@
 meta({
-  name: "A股每日分析报告",
+  name: "a-stock-daily-report",
   description: "分析今日A股市场总览、板块题材、资金成交、风险与明日关注，生成结构化报告",
   phases: [
     { title: "状态读取", detail: "读取上一轮 watchlist 并作为今日复盘输入" },
@@ -7,6 +7,7 @@ meta({
     { title: "报告合成", detail: "汇总四路分析结果，合成最终报告" },
     { title: "状态更新", detail: "写回 state/watchlist.md，供下一轮对比复盘" },
   ],
+  exampleArgs: {},
 });
 
 const today = new Intl.DateTimeFormat("sv-SE", {

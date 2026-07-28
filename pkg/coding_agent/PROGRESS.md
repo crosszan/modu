@@ -16,6 +16,19 @@ High-priority gaps identified before this round:
 
 ## Completed In This Round
 
+- 2026-07-28: strengthened the JavaScript Workflow metadata contract using the
+  portable parts of Deer Workflow without replacing Modu's goja/ForkSession
+  runtime. `meta.name` is now kebab-case, descriptions and phase titles are
+  single-line text, phase titles are unique, and optional `exampleArgs` must
+  be a JSON-safe object persisted in the workflow snapshot. Runs with a
+  declared phase plan now reject undeclared `phase(title)` calls and
+  `agent(..., {phase})` overrides, while conditional runs may skip declared
+  phases and legacy scripts without a phase plan remain dynamic. The bundled
+  deep-research Workflow, repository examples, authoring prompt, tests, and
+  reference documentation now use the contract. Focused Workflow tests,
+  Workflow race tests, all `pkg/coding_agent/...` tests, repository-wide
+  `go test ./...`, the `modu_code --help` `go run` startup check, and
+  `git diff --check` pass.
 - 2026-07-15: extended the MCP client with the current Streamable HTTP
   transport, distinct from the deprecated legacy HTTP+SSE transport. A server
   now selects exactly one transport with `command` (stdio) or `url`
