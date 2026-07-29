@@ -23,6 +23,16 @@ High-priority gaps identified before this round:
   Application code does not retain a legacy-path fallback; existing state is
   moved with a one-time shell directory rename. Path tests cover both branches
   and URL path escaping of the thread id.
+- 2026-07-28: addressed all 15 open Dependabot alerts reported for the root Go
+  module. The security floor is now `golang.org/x/crypto v0.52.0`,
+  `golang.org/x/net v0.55.0`, and `google.golang.org/grpc v1.82.1`. A current
+  `govulncheck` scan also found reachable issues outside that alert set, so the
+  patch baseline now uses Go 1.26.5, `golang.org/x/text v0.39.0`, and
+  `github.com/yuin/goldmark v1.7.17`. `govulncheck ./...` reports zero reachable
+  vulnerabilities with Go 1.26.5. Repository-wide tests pass serially, the
+  timeout-sensitive `cmd/modu_eval` case passes five consecutive focused runs,
+  focused race tests for Markdown and network paths pass, and `go vet ./...`,
+  `go mod verify`, `go mod tidy -diff`, and `git diff --check` pass.
 - 2026-07-28: strengthened the JavaScript Workflow metadata contract using the
   portable parts of Deer Workflow without replacing Modu's goja/ForkSession
   runtime. `meta.name` is now kebab-case, descriptions and phase titles are
