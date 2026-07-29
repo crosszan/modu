@@ -142,3 +142,10 @@ payloads. `Command` remains available during migration.
 | `Entry` / `Node` / `Update` | Data-only host presentation and incremental state protocol |
 
 `Model` owns spacing between transcript blocks. Individual blocks should not add trailing blank lines; the default gap is one blank row.
+
+Full-screen rendering requires Bubble Tea v2.0.8 or newer. Its Ultraviolet
+renderer keeps the terminal cursor synchronized when CJK text or emoji widths
+differ between the server and terminal. Hosts can set
+`Options.DisableAltScreen` for clients that do not correctly implement
+full-screen scroll-region commands; the `modu_code` host uses this inline mode
+for every SSH session by default.

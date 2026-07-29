@@ -1026,6 +1026,48 @@ func TestPOC2SubmitHookReceivesEnteredText(t *testing.T) {
 	}
 }
 
+func TestPOC2SubmitThenWideTranscriptKeepsComposerCleared(t *testing.T) {
+	var tm tea.Model = NewModel(Options{
+		Width:  52,
+		Height: 18,
+		IntentHandler: testIntentHandler(testIntentCallbacks{submit: func(SubmitEvent) {
+		}}),
+	})
+	tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Text: "why"}))
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	tm, _ = tm.Update(UpdateMsg{Update: AppendEntryUpdate{Entry: Entry{
+		Role: RoleAssistant,
+		Nodes: []Node{MarkdownNode{Text: strings.Repeat(
+			"● 中文回答会触发整屏滚动 👋\n\n", 8,
+		)}},
+	}}})
+	tm, _ = tm.Update(UpdateMsg{Update: AppendEntryUpdate{Entry: Entry{
+		Role:  RoleAssistant,
+		Nodes: []Node{TextNode{Text: "✓ Completed (3s)"}},
+		Plain: true,
+	}}})
+
+	m := tm.(Model)
+	if got := m.input.Value; got != "" {
+		t.Fatalf("input state should stay cleared after transcript scroll, got %q", got)
+	}
+	view := m.View()
+	lines := strings.Split(ansi.Strip(view.Content), "\n")
+	if view.Cursor == nil || view.Cursor.Y < 0 || view.Cursor.Y >= len(lines) {
+		t.Fatalf("cursor should remain on the composer, cursor=%#v lines=%d", view.Cursor, len(lines))
+	}
+	inputLine := lines[view.Cursor.Y]
+	if strings.Contains(inputLine, "why") {
+		t.Fatalf("submitted input should not remain in the composer row: %q", inputLine)
+	}
+	if got, want := strings.TrimSpace(inputLine), "❯"; got != want {
+		t.Fatalf("cleared composer row = %q, want %q", got, want)
+	}
+	if got, want := view.Cursor.X, lipgloss.Width(youStyle.Render("❯ ")); got != want {
+		t.Fatalf("cleared composer cursor x = %d, want %d", got, want)
+	}
+}
+
 func TestPOC2CtrlVPastesClipboardImageAndSubmitsAttachment(t *testing.T) {
 	var submitted SubmitEvent
 	var tm tea.Model = NewModel(Options{
@@ -1424,6 +1466,18 @@ func TestPOC2ViewCanDisableMouseReporting(t *testing.T) {
 	disabled := NewModel(Options{Width: 24, Height: 8, DisableMouse: true}).View()
 	if got, want := disabled.MouseMode, tea.MouseModeNone; got != want {
 		t.Fatalf("disabled mouse mode = %v, want %v", got, want)
+	}
+}
+
+func TestPOC2ViewCanDisableAlternateScreen(t *testing.T) {
+	fullScreen := NewModel(Options{Width: 24, Height: 8}).View()
+	if !fullScreen.AltScreen {
+		t.Fatal("alternate screen should stay enabled by default")
+	}
+
+	inline := NewModel(Options{Width: 24, Height: 8, DisableAltScreen: true}).View()
+	if inline.AltScreen {
+		t.Fatal("DisableAltScreen should select inline rendering")
 	}
 }
 

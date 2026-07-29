@@ -1,6 +1,6 @@
-// Package modutui provides a Bubble Tea v2 full-screen transcript viewport with
-// a fixed bottom input line, mouse selection, OSC52 clipboard copy, collapsible
-// tool blocks, and optional simulated streaming.
+// Package modutui provides a Bubble Tea v2 transcript viewport with a fixed
+// bottom input line, mouse selection, OSC52 clipboard copy, collapsible tool
+// blocks, and optional simulated streaming.
 package modutui
 
 const DefaultStatusHint = "Ctrl+V/拖入图片 · 拖拽选择→复制 · Enter 发送 · 滚轮滚动 · ctrl+End 到底 · Ctrl+C 退出"
@@ -172,22 +172,23 @@ type PanelAction struct {
 }
 
 type Options struct {
-	Width           int
-	Height          int
-	InitialEntries  []Entry
-	InputHistory    []string
-	Todos           []TodoItem
-	StreamReply     string
-	StatusHint      string
-	Footer          string
-	InfoCardLines   []string
-	DisableMouse    bool
-	ArrowKeysScroll bool
-	Services        Services
-	IntentHandler   func(Intent)
-	BlockFactories  []EntryBlockFactory
-	BlockGap        int
-	SlashCommands   []SlashCommand
+	Width            int
+	Height           int
+	InitialEntries   []Entry
+	InputHistory     []string
+	Todos            []TodoItem
+	StreamReply      string
+	StatusHint       string
+	Footer           string
+	InfoCardLines    []string
+	DisableMouse     bool
+	DisableAltScreen bool
+	ArrowKeysScroll  bool
+	Services         Services
+	IntentHandler    func(Intent)
+	BlockFactories   []EntryBlockFactory
+	BlockGap         int
+	SlashCommands    []SlashCommand
 }
 
 type RequestToolApprovalMsg struct {

@@ -30,6 +30,23 @@ func moduTUIMouseDisabledFromEnv(env []string) bool {
 	return false
 }
 
+func moduTUIAltScreenDisabledFromEnv(env []string) bool {
+	if mode, ok := envValue(env, "MODU_TUI_ALT_SCREEN"); ok {
+		switch strings.ToLower(strings.TrimSpace(mode)) {
+		case "1", "true", "yes", "on", "enabled", "enable":
+			return false
+		case "0", "false", "no", "off", "none", "disabled", "disable":
+			return true
+		}
+	}
+	// Bubble Tea's full-screen renderer optimizes transcript movement with
+	// terminal scroll-region commands. Some SSH clients only partially
+	// implement those commands and leave old status/composer cells behind.
+	// Inline mode avoids that optimization. Apply the same default to every
+	// SSH client because the server cannot distinguish phones from desktops.
+	return moduTUISSHSessionFromEnv(env)
+}
+
 func moduTUIArrowKeysScrollFromEnv(env []string) bool {
 	return moduTUIMouseDisabledFromEnv(env) || moduTUISSHSessionFromEnv(env)
 }

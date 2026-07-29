@@ -5,6 +5,29 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-07-29: mobile and desktop SSH sessions now share an inline-rendering
+  default. Disabling Bubble Tea's alternate screen avoids its full-screen
+  scroll-region optimization on clients that leave stale prompt and status
+  cells after transcript movement. Local terminals keep alternate screen by
+  default; `MODU_TUI_ALT_SCREEN=on|off` provides an explicit override. Focused
+  tests cover every SSH environment marker, overrides, and the final Bubble
+  Tea `View.AltScreen` value.
+
+- 2026-07-29: upgraded Bubble Tea to v2.0.8 and its Ultraviolet renderer to
+  fix full-screen cursor drift around CJK text and emoji. This remains the
+  minimum safe version for terminals that opt into alternate screen; a
+  focused regression test covers submit, wide-character transcript growth,
+  completion, and final cursor placement in the model.
+
+- 2026-07-29: local, mobile SSH, and desktop SSH sessions now share one mouse
+  default: terminal mouse reporting stays enabled so click, wheel, and drag
+  work everywhere. The server cannot reliably distinguish a mobile SSH client
+  from a desktop one, so `MODU_TUI_MOUSE=off` is the explicit fallback for
+  clients that translate touch gestures into excessive motion events; `on`
+  and `auto` keep the common enabled behavior. Focused tests cover all three
+  SSH environment markers, explicit overrides, the final terminal
+  `MouseMode`, and the existing keyboard-scroll fallback.
+
 - 2026-07-24: completed the TUI business split. `runModuTUI` now contains
   226 lines of startup wiring; workflow lifecycle, event subscriptions,
   channel startup, prompter, duration, history/footer, tool-output, and content
@@ -280,9 +303,9 @@ enough to implement, verify, and commit independently.
   `modu_code --resume <session-id>` command, making the saved history path
   explicit after Ctrl+C or `/quit`; empty sessions are flushed so printed ids
   can be resumed immediately.
-- SSH sessions keep `pkg/modu-tui` mouse reporting on by default again, with
-  `MODU_TUI_MOUSE=off` as an opt-out for JuiceSSH/mobile clients that flood
-  touch-motion events and make the interface appear frozen.
+- Local and SSH sessions keep `pkg/modu-tui` mouse reporting enabled by
+  default; `MODU_TUI_MOUSE=off` is the explicit opt-out for mobile clients
+  that flood the application with touch-motion events.
 - SSH sessions and explicit mouse-disabled sessions route empty-input Up/Down
   keys to transcript scrolling only when no input history is available, so
   prompt history remains usable while mobile swipe gestures translated into

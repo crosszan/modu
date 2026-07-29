@@ -146,6 +146,7 @@ func runModuTUI(ctx context.Context, session *coding_agent.CodingSession, model 
 	width, height := initialTerminalSize(int(os.Stdout.Fd()), 120, 35)
 	env := os.Environ()
 	mouseDisabled := moduTUIMouseDisabledFromEnv(env)
+	altScreenDisabled := moduTUIAltScreenDisabledFromEnv(env)
 	arrowKeysScroll := moduTUIArrowKeysScrollFromEnv(env)
 	ui := modutui.NewModel(modutui.Options{
 		Width:          width,
@@ -169,8 +170,9 @@ func runModuTUI(ctx context.Context, session *coding_agent.CodingSession, model 
 				return string(data), err
 			},
 		},
-		DisableMouse:    mouseDisabled,
-		ArrowKeysScroll: arrowKeysScroll,
+		DisableMouse:     mouseDisabled,
+		DisableAltScreen: altScreenDisabled,
+		ArrowKeysScroll:  arrowKeysScroll,
 		IntentHandler: codetui.IntentRouter{
 			InputHistoryChanged: func(history []string) {
 				_ = saveModuTUIInputHistory(historyFile, history)

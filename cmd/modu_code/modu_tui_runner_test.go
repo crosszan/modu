@@ -1121,21 +1121,101 @@ func TestModuTUITodosConvertsSessionTodos(t *testing.T) {
 	}
 }
 
-func TestModuTUIMouseEnabledForSSHUnlessDisabled(t *testing.T) {
-	if moduTUIMouseDisabledFromEnv([]string{"SSH_TTY=/dev/pts/1"}) {
-		t.Fatal("SSH_TTY should keep mouse reporting by default")
+func TestModuTUIMouseDefaultsToOnAcrossLocalAndSSH(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      []string
+		disabled bool
+	}{
+		{name: "local default", env: []string{"TERM=xterm-256color"}},
+		{name: "SSH_TTY", env: []string{"SSH_TTY=/dev/pts/1"}},
+		{name: "SSH_CONNECTION", env: []string{"SSH_CONNECTION=1.1.1.1 22 2.2.2.2 33333"}},
+		{name: "SSH_CLIENT", env: []string{"SSH_CLIENT=1.1.1.1 33333 22"}},
+		{name: "local auto", env: []string{"TERM=xterm-256color", "MODU_TUI_MOUSE=auto"}},
+		{name: "SSH auto", env: []string{"SSH_TTY=/dev/pts/1", "MODU_TUI_MOUSE=auto"}},
+		{name: "SSH forced on", env: []string{"SSH_TTY=/dev/pts/1", "MODU_TUI_MOUSE=on"}},
+		{name: "local forced off", env: []string{"TERM=xterm-256color", "MODU_TUI_MOUSE=off"}, disabled: true},
+		{name: "SSH forced off", env: []string{"SSH_TTY=/dev/pts/1", "MODU_TUI_MOUSE=off"}, disabled: true},
 	}
-	if moduTUIMouseDisabledFromEnv([]string{"SSH_CONNECTION=1.1.1.1 22 2.2.2.2 33333"}) {
-		t.Fatal("SSH_CONNECTION should keep mouse reporting by default")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := moduTUIMouseDisabledFromEnv(tt.env); got != tt.disabled {
+				t.Fatalf("mouse disabled = %v, want %v for env %v", got, tt.disabled, tt.env)
+			}
+		})
 	}
-	if moduTUIMouseDisabledFromEnv([]string{"SSH_TTY=/dev/pts/1", "MODU_TUI_MOUSE=on"}) {
-		t.Fatal("MODU_TUI_MOUSE=on should force mouse reporting on")
+}
+
+func TestModuTUIMouseEnvironmentConfiguresTerminalView(t *testing.T) {
+	tests := []struct {
+		name string
+		env  []string
+		want tea.MouseMode
+	}{
+		{name: "local", env: []string{"TERM=xterm-256color"}, want: tea.MouseModeCellMotion},
+		{name: "SSH default", env: []string{"SSH_TTY=/dev/pts/1"}, want: tea.MouseModeCellMotion},
+		{name: "SSH forced on", env: []string{"SSH_TTY=/dev/pts/1", "MODU_TUI_MOUSE=on"}, want: tea.MouseModeCellMotion},
+		{name: "SSH forced off", env: []string{"SSH_TTY=/dev/pts/1", "MODU_TUI_MOUSE=off"}, want: tea.MouseModeNone},
 	}
-	if !moduTUIMouseDisabledFromEnv([]string{"MODU_TUI_MOUSE=off"}) {
-		t.Fatal("MODU_TUI_MOUSE=off should force mouse reporting off")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := modutui.NewModel(modutui.Options{
+				Width:        24,
+				Height:       8,
+				DisableMouse: moduTUIMouseDisabledFromEnv(tt.env),
+			}).View()
+			if got := view.MouseMode; got != tt.want {
+				t.Fatalf("view mouse mode = %v, want %v for env %v", got, tt.want, tt.env)
+			}
+		})
 	}
-	if moduTUIMouseDisabledFromEnv([]string{"TERM=xterm-256color"}) {
-		t.Fatal("non-SSH terminal should keep mouse reporting by default")
+}
+
+func TestModuTUIAltScreenDefaultsToInlineAcrossSSH(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      []string
+		disabled bool
+	}{
+		{name: "local default", env: []string{"TERM=xterm-256color"}},
+		{name: "SSH_TTY", env: []string{"SSH_TTY=/dev/pts/1"}, disabled: true},
+		{name: "SSH_CONNECTION", env: []string{"SSH_CONNECTION=1.1.1.1 22 2.2.2.2 33333"}, disabled: true},
+		{name: "SSH_CLIENT", env: []string{"SSH_CLIENT=1.1.1.1 33333 22"}, disabled: true},
+		{name: "SSH auto", env: []string{"SSH_TTY=/dev/pts/1", "MODU_TUI_ALT_SCREEN=auto"}, disabled: true},
+		{name: "SSH forced on", env: []string{"SSH_TTY=/dev/pts/1", "MODU_TUI_ALT_SCREEN=on"}},
+		{name: "local forced off", env: []string{"TERM=xterm-256color", "MODU_TUI_ALT_SCREEN=off"}, disabled: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := moduTUIAltScreenDisabledFromEnv(tt.env); got != tt.disabled {
+				t.Fatalf("alternate screen disabled = %v, want %v for env %v", got, tt.disabled, tt.env)
+			}
+		})
+	}
+}
+
+func TestModuTUIAltScreenEnvironmentConfiguresTerminalView(t *testing.T) {
+	tests := []struct {
+		name string
+		env  []string
+		want bool
+	}{
+		{name: "local", env: []string{"TERM=xterm-256color"}, want: true},
+		{name: "SSH default", env: []string{"SSH_TTY=/dev/pts/1"}, want: false},
+		{name: "SSH forced on", env: []string{"SSH_TTY=/dev/pts/1", "MODU_TUI_ALT_SCREEN=on"}, want: true},
+		{name: "local forced off", env: []string{"TERM=xterm-256color", "MODU_TUI_ALT_SCREEN=off"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := modutui.NewModel(modutui.Options{
+				Width:            24,
+				Height:           8,
+				DisableAltScreen: moduTUIAltScreenDisabledFromEnv(tt.env),
+			}).View()
+			if got := view.AltScreen; got != tt.want {
+				t.Fatalf("view alternate screen = %v, want %v for env %v", got, tt.want, tt.env)
+			}
+		})
 	}
 }
 

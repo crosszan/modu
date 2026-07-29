@@ -243,13 +243,29 @@ Ollama 或 `Custom OpenAI-Compatible`，再统一填写密钥方式和 base URL�
 
 ### SSH 与移动端
 
-SSH 环境默认保留终端 mouse reporting，滚轮和拖拽选择可直接用。若 JuiceSSH 等移动端客户端在触摸滚动或键盘尺寸变化时产生大量 mouse 事件导致界面卡住，可显式关闭：
+手机 SSH 和电脑 SSH 默认统一使用 inline 渲染，不进入 terminal alternate
+screen。这样不会触发 Bubble Tea 的全屏滚屏区域优化，可避免部分 SSH
+客户端在提交输入或状态切换后残留旧文本。确认终端完整支持全屏滚屏指令时，
+可以显式恢复：
+
+```bash
+MODU_TUI_ALT_SCREEN=on modu_code
+```
+
+本地终端默认继续使用 alternate screen；`MODU_TUI_ALT_SCREEN=off` 可以让
+本地终端也使用 inline 渲染。未设置或设为 `auto` 时遵循上述默认值。
+
+本地、手机 SSH 和电脑 SSH 使用同一套 mouse reporting 配置：默认开启，支持应用内点击、滚轮和拖选。服务端只能判断连接是否经过 SSH，无法可靠识别客户端是手机还是电脑；两类客户端也可能上报相同的 `TERM`。
+
+若 JuiceSSH 等移动端客户端把一次触摸拆成大量 mouse motion 事件，导致界面刷新频繁，可在该客户端的启动命令中显式关闭：
 
 ```bash
 MODU_TUI_MOUSE=off modu_code
 ```
 
-SSH 下拖选复制会发 OSC52；在 tmux/screen 中走 passthrough 更新本机剪贴板。OSC52 写入没有回执，被终端或 multiplexer 拦掉时（tmux 未开 `allow-passthrough`、终端不支持/未授权 OSC52）复制会静默丢失，所以远程复制后状态栏会附带兜底提示：按住 Shift 拖选可绕过 mouse reporting 走终端原生选择（macOS Terminal.app 用 Fn、iTerm2 用 Option），选中后用终端自己的复制快捷键。也可 `MODU_TUI_MOUSE=off` 彻底交还鼠标。
+`MODU_TUI_MOUSE=auto` 或不设置时始终开启；`on` 和 `off` 分别强制开启或关闭，不受本地、手机 SSH 或电脑 SSH 影响。
+
+鼠标关闭时，拖选和复制由终端处理。鼠标开启后，应用内拖选通过 OSC52 写入本机剪贴板，在 tmux/screen 中使用 passthrough。OSC52 没有写入回执；若终端或 multiplexer 拦截了复制，可按住 Shift 拖选绕过 mouse reporting（macOS Terminal.app 用 Fn、iTerm2 用 Option），再使用终端自己的复制快捷键。
 
 SSH 兼容模式下，输入框为空且没有输入历史可选时，Up/Down 滚动对话内容，适配移动端把滑动手势转成方向键的行为；有输入历史时 Up/Down 优先切换历史输入。
 

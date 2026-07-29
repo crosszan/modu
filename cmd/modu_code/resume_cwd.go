@@ -119,11 +119,12 @@ func runResumeCwdPrompt(currentCwd, sessionCwd string) (string, error) {
 	width, height := initialTerminalSize(int(os.Stdout.Fd()), 120, 35)
 	model := resumeCwdPromptModel{
 		inner: modutui.NewModel(modutui.Options{
-			Width:         width,
-			Height:        height,
-			Footer:        "Enter continue · Ctrl+C exit",
-			InfoCardLines: []string{"modu_code", "resume session"},
-			DisableMouse:  moduTUIMouseDisabledFromEnv(os.Environ()),
+			Width:            width,
+			Height:           height,
+			Footer:           "Enter continue · Ctrl+C exit",
+			InfoCardLines:    []string{"modu_code", "resume session"},
+			DisableMouse:     moduTUIMouseDisabledFromEnv(os.Environ()),
+			DisableAltScreen: moduTUIAltScreenDisabledFromEnv(os.Environ()),
 		}),
 		request:  resumeCwdPromptRequest(currentCwd, sessionCwd),
 		response: make(chan string, 1),

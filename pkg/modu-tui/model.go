@@ -80,10 +80,11 @@ type Model struct {
 	overlayModel
 	chromeModel
 
-	disableMouse  bool
-	services      Services
-	intentHandler func(Intent)
-	initCmds      []tea.Cmd
+	disableMouse     bool
+	disableAltScreen bool
+	services         Services
+	intentHandler    func(Intent)
+	initCmds         []tea.Cmd
 }
 
 func NewModel(options ...Options) Model {
@@ -105,6 +106,7 @@ func NewModel(options ...Options) Model {
 		opts.Footer = options[0].Footer
 		opts.InfoCardLines = append([]string(nil), options[0].InfoCardLines...)
 		opts.DisableMouse = options[0].DisableMouse
+		opts.DisableAltScreen = options[0].DisableAltScreen
 		opts.ArrowKeysScroll = options[0].ArrowKeysScroll
 		opts.Services = options[0].Services
 		opts.IntentHandler = options[0].IntentHandler
@@ -143,9 +145,10 @@ func NewModel(options ...Options) Model {
 			footer:      opts.Footer,
 			todos:       normalizeTodos(opts.Todos),
 		},
-		disableMouse:  opts.DisableMouse,
-		services:      opts.Services,
-		intentHandler: opts.IntentHandler,
+		disableMouse:     opts.DisableMouse,
+		disableAltScreen: opts.DisableAltScreen,
+		services:         opts.Services,
+		intentHandler:    opts.IntentHandler,
 	}
 	m.historyIdx = len(m.inputHistory)
 	for _, entry := range opts.InitialEntries {
@@ -1012,7 +1015,7 @@ func normalizeEntry(entry Entry) Entry {
 
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
-	v.AltScreen = true
+	v.AltScreen = !m.disableAltScreen
 	if m.disableMouse {
 		v.MouseMode = tea.MouseModeNone
 	} else {
