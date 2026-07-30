@@ -125,12 +125,23 @@ func (e *Extension) AutomationVerifierEnabled() bool {
 // key existing even when no goal is set.
 func (e *Extension) RuntimeState() any {
 	watching := e.isWatching()
-	g, ok, err := e.store.CurrentErr()
+	// One read for both the focused goal and the list: this runs on every
+	// writeRuntimeState (agent_end, todo changes, background-task changes),
+	// so reading the store twice here doubled that cost for nothing.
+	all, focused, err := e.store.List()
 	if err != nil {
 		return map[string]any{
 			"active":   false,
 			"watching": watching,
 			"error":    err.Error(),
+		}
+	}
+	var g Goal
+	ok := false
+	for _, item := range all {
+		if item.ID == focused {
+			g, ok = item, true
+			break
 		}
 	}
 	if !ok {
@@ -168,7 +179,7 @@ func (e *Extension) RuntimeState() any {
 	if g.CompletedAt != nil {
 		state["completedAt"] = *g.CompletedAt
 	}
-	if all, focused, err := e.store.List(); err == nil && len(all) > 1 {
+	if len(all) > 1 {
 		items := make([]map[string]any, 0, len(all))
 		for _, item := range all {
 			items = append(items, map[string]any{
@@ -365,6 +376,12 @@ func (e *Extension) cmdClear(string) error {
 		return err
 	}
 	e.stopAgentGoalAccounting(g.ID)
+	// Clearing one of several goals re-homes the focus, so say which goal is
+	// now current instead of leaving the user to guess.
+	if next, ok, err := e.store.CurrentErr(); err == nil && ok {
+		e.tell(fmt.Sprintf("Goal cleared\nNow focused: %s %s", goalStatusIcon(next.Status), goalObjectivePreview(next.Objective, 56)))
+		return nil
+	}
 	e.tell("Goal cleared")
 	return nil
 }
@@ -436,7 +453,7 @@ func (e *Extension) onAgentStart(_ types.Event) {
 		return
 	}
 	if ok && g.Status == StatusActive {
-		e.beginAgentGoalAccounting(g)
+		e.startAgentGoalTurnClock(g)
 		return
 	}
 	e.clearAgentGoalAccounting()
@@ -655,6 +672,21 @@ func (e *Extension) beginAgentGoalAccounting(g Goal) {
 	e.agentMeasuredFrom = time.Now()
 }
 
+// startAgentGoalTurnClock (re)starts the elapsed-time measurement at the start
+// of an agent turn. Unlike beginAgentGoalAccounting it always restarts the
+// clock, even when the goal is unchanged: only time spent inside a turn counts
+// toward the goal, so an idle gap between turns (the user reading output,
+// stepping away, or an interrupted run) must not be billed to it.
+func (e *Extension) startAgentGoalTurnClock(g Goal) {
+	if g.Status != StatusActive {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.agentGoalID = g.ID
+	e.agentMeasuredFrom = time.Now()
+}
+
 func (e *Extension) markGoalCompletedThisTurn(g Goal) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -727,8 +759,13 @@ func (e *Extension) accountCurrentAgentTurn(usage types.AgentUsage, includeCompl
 		return Goal{}, false
 	}
 	if ok && g.ID == goalID {
+		// Stop the clock rather than restarting it: the turn's time is now
+		// banked, and whatever happens before the next turn starts (idle
+		// time, the user reading output) is not work on this goal. The next
+		// agent_start restarts it via startAgentGoalTurnClock; a mid-turn
+		// completion restarts it via markGoalCompletedThisTurn.
 		e.mu.Lock()
-		e.agentMeasuredFrom = time.Now()
+		e.agentMeasuredFrom = time.Time{}
 		e.mu.Unlock()
 	} else {
 		e.clearAgentGoalAccounting()

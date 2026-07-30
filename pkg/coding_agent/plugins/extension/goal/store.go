@@ -297,7 +297,7 @@ func (s *Store) ClearTokenBudget() (Goal, error) {
 func (s *Store) updateTokenBudget(tokenBudget *int, clear bool) (Goal, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, err := s.readLocked()
+	goals, focused, current, err := s.readStateLocked()
 	if err != nil {
 		return Goal{}, err
 	}
@@ -320,7 +320,7 @@ func (s *Store) updateTokenBudget(tokenBudget *int, clear bool) (Goal, error) {
 	if current.Status != StatusComplete {
 		current.CompletedAt = nil
 	}
-	if err := s.writeLocked(current); err != nil {
+	if err := s.saveGoalLocked(goals, focused, current); err != nil {
 		return Goal{}, err
 	}
 	return *current, nil
@@ -329,7 +329,7 @@ func (s *Store) updateTokenBudget(tokenBudget *int, clear bool) (Goal, error) {
 func (s *Store) updateStatus(status Status) (Goal, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, err := s.readLocked()
+	goals, focused, current, err := s.readStateLocked()
 	if err != nil {
 		return Goal{}, err
 	}
@@ -356,7 +356,7 @@ func (s *Store) updateStatus(status Status) (Goal, error) {
 	} else {
 		current.CompletedAt = nil
 	}
-	if err := s.writeLocked(current); err != nil {
+	if err := s.saveGoalLocked(goals, focused, current); err != nil {
 		return Goal{}, err
 	}
 	return *current, nil
@@ -367,7 +367,7 @@ func (s *Store) updateStatus(status Status) (Goal, error) {
 func (s *Store) IncrementVerifierRejects() (Goal, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, err := s.readLocked()
+	goals, focused, current, err := s.readStateLocked()
 	if err != nil {
 		return Goal{}, err
 	}
@@ -376,7 +376,7 @@ func (s *Store) IncrementVerifierRejects() (Goal, error) {
 	}
 	current.VerifierRejects++
 	current.UpdatedAt = nowSeconds()
-	if err := s.writeLocked(current); err != nil {
+	if err := s.saveGoalLocked(goals, focused, current); err != nil {
 		return Goal{}, err
 	}
 	return *current, nil
@@ -386,7 +386,7 @@ func (s *Store) IncrementVerifierRejects() (Goal, error) {
 func (s *Store) Cancel() (Goal, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, err := s.readLocked()
+	goals, focused, current, err := s.readStateLocked()
 	if err != nil {
 		return Goal{}, err
 	}
@@ -394,7 +394,7 @@ func (s *Store) Cancel() (Goal, error) {
 		return Goal{}, ErrNoGoal
 	}
 	g := *current
-	if err := s.writeLocked(nil); err != nil {
+	if err := s.saveGoalLocked(goals, focused, nil); err != nil {
 		return Goal{}, err
 	}
 	return g, nil
@@ -417,7 +417,7 @@ func (s *Store) AccountUsage(usage types.AgentUsage, elapsedSeconds int64, inclu
 func (s *Store) accountUsage(usage types.AgentUsage, elapsedSeconds int64, mode accountingMode, expectedGoalID string) (Goal, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, err := s.readLocked()
+	goals, focused, current, err := s.readStateLocked()
 	if err != nil {
 		return Goal{}, false, err
 	}
@@ -449,7 +449,7 @@ func (s *Store) accountUsage(usage types.AgentUsage, elapsedSeconds int64, mode 
 	if current.Status == StatusBudgetLimited {
 		current.LastStartedAt = nil
 	}
-	if err := s.writeLocked(current); err != nil {
+	if err := s.saveGoalLocked(goals, focused, current); err != nil {
 		return Goal{}, false, err
 	}
 	return *current, true, nil
@@ -778,7 +778,21 @@ func (s *Store) writeCollectionLocked(goals []*Goal, focused string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(GoalFilePath(ref), append(data, '\n'), 0o600)
+	// Write via a temp file + rename so the store is never observed
+	// half-written. A truncated file fails validateGoalFields on every
+	// subsequent read, which would brick the goal for the rest of the session
+	// (and re-notify the user each turn) with no recovery path short of
+	// deleting the file by hand.
+	path := GoalFilePath(ref)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // readLocked returns the focused goal, or nil when no goal is focused. It is
@@ -791,6 +805,18 @@ func (s *Store) readLocked() (*Goal, error) {
 	return findGoal(goals, focused), nil
 }
 
+// readStateLocked reads the store once and returns the whole collection, the
+// focused id, and the focused goal together. An operation that mutates and
+// saves should use this and pair it with saveGoalLocked, so a single update
+// costs one read instead of two (readLocked, then another inside writeLocked).
+func (s *Store) readStateLocked() ([]*Goal, string, *Goal, error) {
+	goals, focused, err := s.readCollectionLocked()
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return goals, focused, findGoal(goals, focused), nil
+}
+
 // writeLocked persists a mutated focused goal. A nil goal clears the focused
 // goal (leaving any others parked). Otherwise the goal is upserted by ID and
 // becomes the focused goal; if it is active, any other active goal is demoted
@@ -800,9 +826,22 @@ func (s *Store) writeLocked(goal *Goal) error {
 	if err != nil {
 		return err
 	}
+	return s.saveGoalLocked(goals, focused, goal)
+}
+
+// saveGoalLocked persists a mutated focused goal against a collection the
+// caller has already read, so a mutate-and-save costs one read, not two.
+// A nil goal clears the focused goal. Otherwise the goal is upserted by ID and
+// becomes the focused goal; if it is active, any other active goal is demoted
+// to paused so at most one goal is ever active.
+func (s *Store) saveGoalLocked(goals []*Goal, focused string, goal *Goal) error {
 	if goal == nil {
 		goals = removeGoal(goals, focused)
-		return s.writeCollectionLocked(goals, "")
+		// Hand the focus to whatever is left. Leaving it empty strands the
+		// remaining goals: Current() would report "no goal is set" while
+		// /goal-list still lists them, and only /goal-focus could recover.
+		// Focus alone does not resume anything — a parked goal stays paused.
+		return s.writeCollectionLocked(goals, mostRecentGoalID(goals))
 	}
 	goals = upsertGoal(goals, goal)
 	if goal.Status == StatusActive {
@@ -815,6 +854,24 @@ func (s *Store) writeLocked(goal *Goal) error {
 		}
 	}
 	return s.writeCollectionLocked(goals, goal.ID)
+}
+
+// mostRecentGoalID returns the id of the most recently updated goal, or ""
+// when none remain. Used to re-home the focus pointer after the focused goal
+// is cleared.
+func mostRecentGoalID(goals []*Goal) string {
+	best := ""
+	var bestAt int64 = -1
+	for _, g := range goals {
+		if g == nil {
+			continue
+		}
+		if g.UpdatedAt > bestAt {
+			bestAt = g.UpdatedAt
+			best = g.ID
+		}
+	}
+	return best
 }
 
 func findGoal(goals []*Goal, id string) *Goal {
