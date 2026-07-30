@@ -659,6 +659,19 @@ func (e *Extension) completionFeedback(g Goal) string {
 	return msg
 }
 
+// beginAgentGoalAccounting marks g as the goal future accounting flushes
+// apply to. It is called both mid-turn (create_goal, and re-entrantly by
+// onAgentStart/onAgentEnd for the goal already being tracked) and outside any
+// turn (slash commands like /goal-resume, /goal-focus, /goal-status,
+// session_start). Only the mid-turn case should start the wall clock: a
+// command that activates a goal while the agent is idle must leave
+// agentMeasuredFrom stopped, or the gap between that command and whenever the
+// next turn actually starts — a user reading output, switching goals ahead of
+// time — gets billed as work once the next accounting flush reads
+// time.Since(agentMeasuredFrom). The next real onAgentStart starts the clock
+// via startAgentGoalTurnClock; this only needs to do it when a turn is
+// already running around the call (agentTurnInProgress), e.g. a create_goal
+// tool call partway through one.
 func (e *Extension) beginAgentGoalAccounting(g Goal) {
 	if g.Status != StatusActive {
 		return
@@ -669,7 +682,11 @@ func (e *Extension) beginAgentGoalAccounting(g Goal) {
 		return
 	}
 	e.agentGoalID = g.ID
-	e.agentMeasuredFrom = time.Now()
+	if e.agentTurnInProgress {
+		e.agentMeasuredFrom = time.Now()
+	} else {
+		e.agentMeasuredFrom = time.Time{}
+	}
 }
 
 // startAgentGoalTurnClock (re)starts the elapsed-time measurement at the start
