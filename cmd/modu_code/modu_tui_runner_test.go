@@ -48,6 +48,17 @@ type presentedEntry struct {
 	Plain            bool
 }
 
+type historicalParallelTool struct{}
+
+func (historicalParallelTool) Name() string        { return "parallel_read" }
+func (historicalParallelTool) Label() string       { return "Parallel Read" }
+func (historicalParallelTool) Description() string { return "test parallel resume metadata" }
+func (historicalParallelTool) Parameters() any     { return nil }
+func (historicalParallelTool) Parallel() bool      { return true }
+func (historicalParallelTool) Execute(context.Context, string, map[string]any, types.ToolUpdateCallback) (types.ToolResult, error) {
+	return types.ToolResult{}, nil
+}
+
 func presentedMessagesFromAgentMessage(message types.AgentMessage, cwd ...string) []presentedEntry {
 	path := ""
 	if len(cwd) > 0 {
@@ -282,6 +293,28 @@ func TestModuTUITranscriptEntriesUseEventPresenterForThinkingAndTools(t *testing
 	end, ok := entries[2].Nodes[0].(modutui.ToolNode)
 	if !ok || entries[2].ID != "call-1" || !end.Call.Done || end.Call.Summary != "Read 1 line" {
 		t.Fatalf("tool result entry = %#v", entries[2])
+	}
+}
+
+func TestHistoricalParallelToolsRegroupWithoutPersistedBatchMetadata(t *testing.T) {
+	calls := []types.ContentBlock{
+		&types.ToolCallContent{Type: "toolCall", ID: "call-1", Name: "parallel_read", Arguments: map[string]any{"path": "a.go"}},
+		&types.ToolCallContent{Type: "toolCall", ID: "call-2", Name: "parallel_read", Arguments: map[string]any{"path": "b.go"}},
+		&types.ToolCallContent{Type: "toolCall", ID: "call-3", Name: "parallel_read", Arguments: map[string]any{"path": "c.go"}},
+	}
+	messages := []types.AgentMessage{
+		types.AssistantMessage{Role: types.RoleAssistant, Content: calls},
+		types.ToolResultMessage{Role: types.RoleToolResult, ToolCallID: "call-1", ToolName: "parallel_read"},
+		types.ToolResultMessage{Role: types.RoleToolResult, ToolCallID: "call-2", ToolName: "parallel_read"},
+		types.ToolResultMessage{Role: types.RoleToolResult, ToolCallID: "call-3", ToolName: "parallel_read"},
+	}
+
+	restored := moduTUIRestoreToolBatchMetadata(messages, []types.Tool{historicalParallelTool{}})
+	entries := newModuTUIEventPresenter().AgentMessages(restored, "")
+	model := modutui.NewModel(modutui.Options{Width: 80, Height: 24, InitialEntries: entries})
+	rendered := strings.Join(model.Lines(), "\n")
+	if !strings.Contains(rendered, "3 tools · parallel") {
+		t.Fatalf("historical parallel calls were not regrouped:\n%s", rendered)
 	}
 }
 

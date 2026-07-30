@@ -42,6 +42,8 @@ type ToolCallContent struct {
 	Name             string         `json:"name"`
 	Arguments        map[string]any `json:"arguments"`
 	ThoughtSignature string         `json:"thoughtSignature,omitempty"`
+	BatchSize        int            `json:"-"`
+	BatchID          string         `json:"-"`
 }
 
 func (*ToolCallContent) isContentBlock() {}

@@ -201,6 +201,8 @@ func executePreparedCall(ctx context.Context, input types.ToolInput, call types.
 		ToolName:   call.Name,
 		Content:    result.Content,
 		Details:    result.Details,
+		BatchSize:  batchSize,
+		BatchID:    batchID,
 		IsError:    isError,
 		Timestamp:  time.Now().UnixMilli(),
 	}

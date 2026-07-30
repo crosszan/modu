@@ -616,6 +616,9 @@ func TestDefaultToolsParallelBatchHonorsMaxConcurrencyAndResultOrder(t *testing.
 		if output.Results[i].ToolCallID != fmt.Sprintf("tool-%d", i+1) {
 			t.Fatalf("result %d has tool call id %q", i, output.Results[i].ToolCallID)
 		}
+		if output.Results[i].BatchSize != 4 || output.Results[i].BatchID != "batch-tool-1" {
+			t.Fatalf("result %d batch = (%d, %q), want (4, %q)", i, output.Results[i].BatchSize, output.Results[i].BatchID, "batch-tool-1")
+		}
 	}
 }
 

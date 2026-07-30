@@ -59,6 +59,8 @@ err := session.PromptWithImages(context.Background(), "解释这张截图", []ty
 }})
 ```
 
+持久化的工具结果包含并行批次元数据，恢复会话后可继续按批次展示工具调用。
+
 任务运行中使用 `FollowUpWithImages` 或 `SteerWithImages`。模型显式声明不支持图片，或配置启用 `blockImages` 时，这三个入口会返回错误。
 
 ## 文档

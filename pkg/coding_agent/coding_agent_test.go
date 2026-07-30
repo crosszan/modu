@@ -3933,6 +3933,8 @@ func TestRestoreRecognizesPersistedToolResultRole(t *testing.T) {
 		"toolCallId":"call-1",
 		"toolName":"todo_write",
 		"content":[{"type":"text","text":"updated todo list"}],
+		"batchSize":3,
+		"batchId":"batch-call-1",
 		"isError":false,
 		"timestamp":123
 	}`)
@@ -3947,6 +3949,9 @@ func TestRestoreRecognizesPersistedToolResultRole(t *testing.T) {
 	}
 	if toolResult.Role != types.RoleToolResult || toolResult.ToolName != "todo_write" {
 		t.Fatalf("unexpected tool result: %#v", toolResult)
+	}
+	if toolResult.BatchSize != 3 || toolResult.BatchID != "batch-call-1" {
+		t.Fatalf("restored tool result batch = (%d, %q)", toolResult.BatchSize, toolResult.BatchID)
 	}
 }
 

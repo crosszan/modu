@@ -64,6 +64,7 @@ err := a.Prompt(ctx, "Hello")
 - A nil `ConvertToLLM` removes roles that the Provider cannot consume.
 - Tool arguments are checked against JSON Schema before execution.
 - Tools implementing `ParallelTool` may run in parallel.
+- Parallel tool-result messages retain `BatchID` and `BatchSize` so persisted hosts can restore the batch presentation.
 - `Agent` appends an Assistant error message when execution fails.
 - `Steer`, `FollowUp`, `Continue`, queue inspection, and one-or-all queue consumption are available on `Agent`.
 - Tool-approval and max-step interrupts resume through `Resume`.

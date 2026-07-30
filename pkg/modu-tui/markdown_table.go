@@ -66,7 +66,7 @@ func renderMarkdownText(renderer MarkdownRenderer, text string) (string, error) 
 	if renderer == nil {
 		return text, nil
 	}
-	out, err := renderer.Render(text)
+	out, err := renderer.Render(markdownWithPlaintextFences(text))
 	if err != nil {
 		return "", err
 	}

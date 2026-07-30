@@ -64,6 +64,7 @@ err := a.Prompt(ctx, "Hello")
 - `ConvertToLLM` 为空时，过滤 Provider 无法处理的消息角色。
 - 执行工具前，按 JSON Schema 校验参数。
 - 实现 `ParallelTool` 的工具可以并行执行。
+- 并行工具结果会保留 `BatchID` 和 `BatchSize`，便于持久化宿主在恢复会话时重建批次展示。
 - 执行失败时，`Agent` 会追加一条 Assistant 错误消息。
 - `Agent` 提供 `Steer`、`FollowUp`、`Continue`、队列查询和单条/全部消费模式。
 - 工具审批和最大步数中断通过 `Resume` 恢复。
