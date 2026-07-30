@@ -3,6 +3,7 @@ package goal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 
@@ -44,12 +45,12 @@ func (t *createGoalTool) Execute(_ context.Context, _ string, args map[string]an
 	if err != nil {
 		return textResult(fmt.Sprintf("create_goal failed: %v", err), true), nil
 	}
-	if _, ok, err := t.store.CurrentErr(); err != nil {
-		return textResult(fmt.Sprintf("create_goal failed: %v", err), true), nil
-	} else if ok {
+	// StartWithBudget re-checks this under its own lock, so a separate
+	// pre-flight read would only cost an extra file read for the same answer.
+	g, err := t.store.StartWithBudget(objective, budget)
+	if errors.Is(err, ErrGoalActive) {
 		return textResult("cannot create a new goal because this thread already has a goal; use update_goal only when the existing goal is complete", true), nil
 	}
-	g, err := t.store.StartWithBudget(objective, budget)
 	if err != nil {
 		return textResult(fmt.Sprintf("create_goal failed: %v", err), true), nil
 	}

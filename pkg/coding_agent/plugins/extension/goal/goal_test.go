@@ -2,6 +2,7 @@ package goal
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -329,6 +330,101 @@ func TestPauseStopsLoopResumeRestartsIt(t *testing.T) {
 	api.fireAgentEnd()
 	if api.sentCount() != before+2 {
 		t.Errorf("loop should be active after resume; sent=%d want=%d", api.sentCount(), before+2)
+	}
+}
+
+// Only time inside an agent turn is work on the goal. The gap between turns
+// (the user reading output, stepping away) must not be billed to it, or
+// TimeUsedSeconds degrades into "wall clock since the goal was set".
+func TestIdleTimeBetweenTurnsIsNotBilledToTheGoal(t *testing.T) {
+	ext, api := initialized(t)
+	if err := api.runCommand(t, "goal", "do not bill idle time"); err != nil {
+		t.Fatalf("/goal: %v", err)
+	}
+
+	// One turn ends, banking its own elapsed time.
+	api.fire(string(types.EventTypeAgentStart))
+	api.fireAgentEnd()
+	afterTurn, _ := ext.store.Current()
+
+	// Now simulate a long idle gap before the next turn starts.
+	ext.mu.Lock()
+	idle := ext.agentMeasuredFrom
+	ext.mu.Unlock()
+	if !idle.IsZero() {
+		t.Fatalf("the clock should be stopped between turns, got measuredFrom=%v", idle)
+	}
+
+	ext.mu.Lock()
+	ext.agentMeasuredFrom = time.Now().Add(-time.Hour)
+	ext.mu.Unlock()
+	// agent_start must restart the clock rather than inherit the stale stamp.
+	api.fire(string(types.EventTypeAgentStart))
+	api.fireAgentEnd()
+
+	got, _ := ext.store.Current()
+	if got.TimeUsedSeconds-afterTurn.TimeUsedSeconds > 60 {
+		t.Fatalf("idle time leaked into the goal: %ds before, %ds after",
+			afterTurn.TimeUsedSeconds, got.TimeUsedSeconds)
+	}
+}
+
+// Clearing one of several goals must not strand the rest: without re-homing
+// the focus, Current() reports "no goal" while /goal-list still shows them.
+func TestClearingFocusedGoalRehomesFocusToARemainingGoal(t *testing.T) {
+	ext, api := initialized(t)
+	if err := api.runCommand(t, "goal", "first objective"); err != nil {
+		t.Fatalf("/goal: %v", err)
+	}
+	if err := api.runCommand(t, "goal", "second objective"); err != nil {
+		t.Fatalf("/goal: %v", err)
+	}
+	if goals, _, err := ext.store.List(); err != nil || len(goals) != 2 {
+		t.Fatalf("setup expects two goals, got %d (err=%v)", len(goals), err)
+	}
+
+	if err := api.runCommand(t, "goal-cancel", ""); err != nil {
+		t.Fatalf("/goal-cancel: %v", err)
+	}
+
+	goals, focused, err := ext.store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(goals) != 1 {
+		t.Fatalf("clearing one goal should leave exactly one, got %d", len(goals))
+	}
+	if focused != goals[0].ID {
+		t.Fatalf("the remaining goal should hold the focus, focused=%q remaining=%q", focused, goals[0].ID)
+	}
+	if _, ok := ext.store.Current(); !ok {
+		t.Fatal("Current() must see the re-homed goal instead of reporting no goal")
+	}
+}
+
+// A half-written store fails validation on every later read, which would brick
+// the goal for the rest of the session. The write must be atomic so a crash
+// mid-save leaves the previous good file in place.
+func TestGoalStoreWritesAtomically(t *testing.T) {
+	ext, api := initialized(t)
+	if err := api.runCommand(t, "goal", "survive a crash"); err != nil {
+		t.Fatalf("/goal: %v", err)
+	}
+	ref := StoreRef{BaseDir: filepath.Join(api.dir, "extensions", "goal"), ThreadID: api.SessionID()}
+	path := GoalFilePath(ref)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("goal file should exist at %s: %v", path, err)
+	}
+	if entries, err := os.ReadDir(filepath.Dir(path)); err == nil {
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".tmp") {
+				t.Fatalf("a completed write should leave no temp file behind, found %s", e.Name())
+			}
+		}
+	}
+	// The store must still parse: an atomic rename never exposes a partial file.
+	if _, ok, err := ext.store.CurrentErr(); err != nil || !ok {
+		t.Fatalf("store should read back cleanly, ok=%v err=%v", ok, err)
 	}
 }
 

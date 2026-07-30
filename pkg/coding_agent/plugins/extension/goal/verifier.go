@@ -17,14 +17,16 @@ package goal
 //	      verifier:
 //	        enabled: true
 //	        model: ""        # optional model ID override for the verifier
-//	        max_rejects: 3   # consecutive rejects before the goal pauses
-//	        max_turns: 12    # verifier agent turn cap
+//	        max_rejects: 3       # consecutive rejects before the goal pauses
+//	        max_turns: 20        # verifier agent turn cap
+//	        timeout_seconds: 600 # wall-clock cap for the whole check
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/openmodu/modu/pkg/coding_agent/plugins/extension"
 	"github.com/openmodu/modu/pkg/coding_agent/plugins/subagent"
@@ -36,6 +38,10 @@ const (
 	// before it can judge; 12 turns was tight enough that real checks hit
 	// the cap and fell through as "unverified". 20 gives normal checks room.
 	defaultVerifierMaxTurns = 20
+	// MaxTurns alone does not bound wall clock: each turn may run a bash
+	// command that is itself allowed to take minutes, so a stuck test suite
+	// could hold update_goal for hours. Cap the whole check instead.
+	defaultVerifierTimeout = 10 * time.Minute
 )
 
 // verifierTools is the child's tool whitelist: discovery plus execution,
@@ -47,6 +53,7 @@ type verifierConfig struct {
 	Model      string
 	MaxRejects int
 	MaxTurns   int
+	Timeout    time.Duration
 }
 
 func (c verifierConfig) maxRejects() int {
@@ -61,6 +68,13 @@ func (c verifierConfig) maxTurns() int {
 		return c.MaxTurns
 	}
 	return defaultVerifierMaxTurns
+}
+
+func (c verifierConfig) timeout() time.Duration {
+	if c.Timeout > 0 {
+		return c.Timeout
+	}
+	return defaultVerifierTimeout
 }
 
 // ApplyConfig implements extension.ConfigurableExtension for the `config:`
@@ -101,6 +115,12 @@ func (e *Extension) ApplyConfig(cfg map[string]any) error {
 				return fmt.Errorf("goal: verifier.max_turns: %v", err)
 			}
 			out.MaxTurns = n
+		case "timeout_seconds":
+			n, err := toPositiveInt(value)
+			if err != nil {
+				return fmt.Errorf("goal: verifier.timeout_seconds: %v", err)
+			}
+			out.Timeout = time.Duration(n) * time.Second
 		default:
 			return fmt.Errorf("goal: unknown verifier config key %q", key)
 		}
@@ -279,6 +299,8 @@ func (e *Extension) verifyCompletion(ctx context.Context) (string, bool) {
 	// message only lands after that child finishes — which reads as the goal
 	// finishing, stalling, then finishing again.
 	e.tell("completion claimed — running an independent verifier before marking it done…")
+	ctx, cancel := context.WithTimeout(ctx, cfg.timeout())
+	defer cancel()
 	out, err := e.api.ForkSession(ctx, extension.ForkOptions{
 		Name:         "goal-verifier",
 		SystemPrompt: sysPrompt,
