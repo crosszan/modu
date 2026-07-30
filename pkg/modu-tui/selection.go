@@ -89,11 +89,14 @@ func (m *Model) onPress(x, y int) tea.Cmd {
 		return nil
 	}
 	if y >= 0 && y < h {
+		// A press on a collapsible block's header only *arms* the toggle: an
+		// expanded block registers every one of its lines as a header, so
+		// firing here would make its content impossible to select. Whether
+		// this is a click (toggle) or a drag (selection) is decided on
+		// release by resolvePendingToggle.
+		m.pendingToggle = -1
 		if idx, ok := m.headers[m.yOffset+y]; ok {
-			setEntryExpanded(&m.entries[idx], !entryExpanded(m.entries[idx]))
-			m.clearSelection()
-			m.rebuild()
-			return m.loadExpandedToolArtifactsCmd()
+			m.pendingToggle = idx
 		}
 		m.selecting = true
 		m.follow = false
@@ -104,6 +107,26 @@ func (m *Model) onPress(x, y int) tea.Cmd {
 		m.status = ""
 	}
 	return nil
+}
+
+// resolvePendingToggle fires an armed header toggle when the press never grew
+// into a selection. It reports whether it handled the release, so the caller
+// knows not to also run a copy.
+func (m *Model) resolvePendingToggle() (tea.Cmd, bool) {
+	idx := m.pendingToggle
+	m.pendingToggle = -1
+	if idx < 0 || idx >= len(m.entries) {
+		return nil, false
+	}
+	if m.selStart != m.selEnd {
+		// The pointer moved: this was a drag, so it selects text rather than
+		// collapsing the block.
+		return nil, false
+	}
+	setEntryExpanded(&m.entries[idx], !entryExpanded(m.entries[idx]))
+	m.clearSelection()
+	m.rebuild()
+	return m.loadExpandedToolArtifactsCmd(), true
 }
 
 func (m *Model) onDrag(x, y int) tea.Cmd {

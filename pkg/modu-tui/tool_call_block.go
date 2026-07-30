@@ -38,12 +38,12 @@ func (b ToolCallBlock) Render(ctx RenderContext) BlockRender {
 	out := BlockRender{}
 	expanded := b.Expanded || b.Call.NoCollapse
 	if !expanded {
-		out.Add(toolExpandedLine(ctx.ContentWidth, "  "+summary), 0)
+		out.Add(toolExpandedLine(ctx.ContentWidth, toolSummaryIndent+summary), lipgloss.Width(toolSummaryIndent))
 		return out
 	}
 
 	for _, line := range toolExpandedHeaderLines(ctx.ContentWidth, b.Call) {
-		out.Add(line, 0)
+		out.Add(line.Text, line.Gutter)
 	}
 	for _, line := range toolOutputLines(ctx, b.Call) {
 		out.Add(toolExpandedLine(ctx.ContentWidth, line.Text), line.Gutter)
@@ -76,7 +76,15 @@ func toolBlockSummary(summary string, call ToolCall) string {
 	return summary
 }
 
-func toolExpandedHeaderLines(width int, call ToolCall) []string {
+// toolSummaryIndent is the leading pad on a collapsed tool line. It is a
+// visual gutter, so it is reported as one and stays out of copied text.
+const toolSummaryIndent = "  "
+
+// toolExpandedHeaderLines renders the invocation header of an expanded tool
+// block. Each line carries the display width of its own decoration (the ⏺
+// marker, or the "│" continuation prefix) as its gutter so selection and copy
+// skip the decoration and yield just the invocation text.
+func toolExpandedHeaderLines(width int, call ToolCall) []RenderedLine {
 	width = max(1, width)
 	markerText := "⏺ "
 	markerWidth := max(0, lipgloss.Width(markerText))
@@ -86,11 +94,17 @@ func toolExpandedHeaderLines(width int, call ToolCall) []string {
 	if len(chunks) == 0 {
 		chunks = []string{""}
 	}
-	lines := make([]string, 0, len(chunks))
+	lines := make([]RenderedLine, 0, len(chunks))
 	marker := toolExpandedMarkerStyle.Render(markerText)
-	lines = append(lines, marker+fitLine(dimStyle.Render(chunks[0]), max(1, width-markerWidth)))
+	lines = append(lines, RenderedLine{
+		Text:   marker + fitLine(dimStyle.Render(chunks[0]), max(1, width-markerWidth)),
+		Gutter: markerWidth,
+	})
 	for _, chunk := range chunks[1:] {
-		lines = append(lines, toolExpandedLine(width, continuation+chunk))
+		lines = append(lines, RenderedLine{
+			Text:   toolExpandedLine(width, continuation+chunk),
+			Gutter: continuationWidth,
+		})
 	}
 	return lines
 }
@@ -122,11 +136,10 @@ func toolOutputLines(ctx RenderContext, call ToolCall) []RenderedLine {
 	output := strings.TrimRight(toolDisplayOutput(call), "\n")
 	var lines []RenderedLine
 	if strings.TrimSpace(output) == "" {
-		lines = append(lines, RenderedLine{Text: toolOutputBranchPrefix() + "no content data"})
+		branch := toolOutputBranchPrefix()
+		lines = append(lines, RenderedLine{Text: branch + "no content data", Gutter: lipgloss.Width(branch)})
 	} else {
-		for _, line := range wrappedToolOutputLines(ctx.ContentWidth, output) {
-			lines = append(lines, RenderedLine{Text: line})
-		}
+		lines = append(lines, wrappedToolOutputLines(ctx.ContentWidth, output)...)
 	}
 
 	codeIndent := toolOutputIndent()
@@ -187,7 +200,10 @@ func toolNumberedCodeIndent() string { return "    " }
 
 func toolHeaderContinuationPrefix() string { return "  │ " }
 
-func wrappedToolOutputLines(width int, output string) []string {
+// wrappedToolOutputLines lays out tool output under a "└" branch. Each line
+// reports its own prefix width as gutter so selection and copy skip the tree
+// drawing and yield the raw output text.
+func wrappedToolOutputLines(width int, output string) []RenderedLine {
 	width = max(1, width)
 	branch := toolOutputBranchPrefix()
 	indent := toolOutputIndent()
@@ -196,7 +212,7 @@ func wrappedToolOutputLines(width int, output string) []string {
 	branchContentWidth := max(1, width-branchWidth)
 	indentContentWidth := max(1, width-indentWidth)
 
-	var lines []string
+	var lines []RenderedLine
 	first := true
 	for _, raw := range strings.Split(output, "\n") {
 		contentWidth := indentContentWidth
@@ -209,10 +225,12 @@ func wrappedToolOutputLines(width int, output string) []string {
 		}
 		for i, chunk := range chunks {
 			prefix := indent
+			prefixWidth := indentWidth
 			if first && i == 0 {
 				prefix = branch
+				prefixWidth = branchWidth
 			}
-			lines = append(lines, prefix+chunk)
+			lines = append(lines, RenderedLine{Text: prefix + chunk, Gutter: prefixWidth})
 		}
 		first = false
 	}

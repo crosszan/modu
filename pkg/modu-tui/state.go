@@ -16,6 +16,11 @@ type transcriptModel struct {
 	selecting        bool
 	selStart, selEnd cell
 	dragCol          int
+	// pendingToggle is the entry index of a collapsible block whose header
+	// line was pressed, or -1. The press only becomes a collapse/expand if
+	// the pointer never moved; a press that turns into a drag is a text
+	// selection instead. Resolved on mouse release.
+	pendingToggle int
 	autoScroll       int
 	autoScrolling    bool
 	autoScrollTicks  int

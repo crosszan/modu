@@ -216,6 +216,42 @@ func TestPOC2ResizeClampsSelection(t *testing.T) {
 	}
 }
 
+// Left-hand decoration (the ⏺ marker, the │ continuation, tree branches, the
+// summary indent) is gutter, not content: selecting a tool block must copy
+// the invocation and output text without dragging the drawing along.
+func TestPOC2CopyingToolBlockExcludesLeftDecoration(t *testing.T) {
+	m := NewModel(Options{
+		Width:  80,
+		Height: 16,
+		InitialEntries: []Entry{testToolEntry(ToolCall{
+			ID: "call-1", Name: "bash", Summary: "Ran 1 shell command",
+			Input: "go test ./pkg/modu-tui", Output: "ok ./pkg/modu-tui", Done: true,
+		}, ToolPermissionUnknown, true)},
+	})
+
+	m.selStart = cell{line: 0, col: 0}
+	last := len(m.lines) - 1
+	m.selEnd = cell{line: last, col: m.lineWidth(last)}
+
+	got := m.selectedText()
+	if got == "" {
+		t.Fatal("expected the expanded tool block to yield selectable text")
+	}
+	for _, decoration := range []string{"⏺", "│"} {
+		if strings.Contains(got, decoration) {
+			t.Fatalf("copied text should not contain the %q decoration, got:\n%s", decoration, got)
+		}
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(line, " ") {
+			t.Fatalf("copied line should start at content, not inside the gutter: %q\nfull:\n%s", line, got)
+		}
+	}
+	if !strings.Contains(got, "go test ./pkg/modu-tui") {
+		t.Fatalf("copied text should keep the invocation, got:\n%s", got)
+	}
+}
+
 func TestPOC2CopySelectionUsesOSC52OverSSH(t *testing.T) {
 	t.Setenv("SSH_TTY", "/dev/pts/1")
 	// Isolate multiplexer env so the sequence is plain OSC52, not screen/tmux
@@ -783,11 +819,31 @@ func TestPOC2ThinkingBlockIsCollapsedAndClickable(t *testing.T) {
 		t.Fatalf("thinking block header should be clickable, headers=%#v", m.headers)
 	}
 
-	_ = m.onPress(1, 0)
+	m = mouseClick(m, 1, 0)
 	rendered = ansi.Strip(m.render())
 	if !strings.Contains(rendered, "reasoning detail") {
 		t.Fatalf("clicking thinking block should expand detail:\n%s", rendered)
 	}
+}
+
+// mouseClick drives a press-and-release with no pointer movement through
+// Update — the gesture that toggles a collapsible block.
+func mouseClick(m Model, x, y int) Model {
+	tm, _ := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	m = tm.(Model)
+	tm, _ = m.Update(tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
+	return tm.(Model)
+}
+
+// mouseDrag drives a press, a move to a second cell, and a release — the
+// gesture that selects text rather than toggling.
+func mouseDrag(m Model, x1, y1, x2, y2 int) (Model, tea.Cmd) {
+	tm, _ := m.Update(tea.MouseClickMsg{X: x1, Y: y1, Button: tea.MouseLeft})
+	m = tm.(Model)
+	tm, _ = m.Update(tea.MouseMotionMsg{X: x2, Y: y2, Button: tea.MouseLeft})
+	m = tm.(Model)
+	tm, cmd := m.Update(tea.MouseReleaseMsg{X: x2, Y: y2, Button: tea.MouseLeft})
+	return tm.(Model), cmd
 }
 
 func TestPOC2StreamingAssistantMarkerBlinks(t *testing.T) {
@@ -1675,9 +1731,32 @@ func TestPOC2ExpandedToolBlockCanCollapseFromAnyRenderedLine(t *testing.T) {
 		t.Fatalf("expanded tool output line should be clickable, headers=%#v", m.headers)
 	}
 
-	_ = m.onPress(1, 1)
+	m = mouseClick(m, 1, 1)
 	if entryExpanded(m.entries[0]) {
 		t.Fatal("clicking an expanded tool output line should collapse the block")
+	}
+}
+
+// An expanded tool block registers every rendered line as a clickable header
+// so it can be collapsed from anywhere. That must not cost the ability to
+// select its content: a press that turns into a drag is a selection, and only
+// a press that never moved collapses.
+func TestPOC2DraggingAcrossExpandedToolBlockSelectsInsteadOfCollapsing(t *testing.T) {
+	m := NewModel(Options{
+		Width:  80,
+		Height: 12,
+		InitialEntries: []Entry{testToolEntry(ToolCall{
+			ID: "call-1", Name: "bash", Summary: "Ran 1 shell command",
+			Input: "go test ./pkg/modu-tui", Output: "ok ./pkg/modu-tui", Done: true,
+		}, ToolPermissionUnknown, true)},
+	})
+	if _, ok := m.headers[1]; !ok {
+		t.Fatalf("setup expects line 1 to be a clickable header, headers=%#v", m.headers)
+	}
+
+	m, _ = mouseDrag(m, 2, 1, 20, 1)
+	if !entryExpanded(m.entries[0]) {
+		t.Fatal("dragging across an expanded tool block should select text, not collapse it")
 	}
 }
 

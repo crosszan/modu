@@ -1,6 +1,10 @@
 package modutui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 type CollapsibleBlock struct {
 	Summary  string
@@ -14,10 +18,14 @@ func (b CollapsibleBlock) Render(RenderContext) BlockRender {
 		arrow = "▾"
 	}
 	out := BlockRender{}
-	out.Add(dimStyle.Render(arrow+" "+b.Summary), 0)
+	// The arrow and the detail indent are decoration, so they are declared as
+	// gutter and stay out of copied text.
+	marker := arrow + " "
+	detailIndent := "    "
+	out.Add(dimStyle.Render(marker+b.Summary), lipgloss.Width(marker))
 	if b.Expanded {
 		for dl := range strings.SplitSeq(strings.TrimRight(b.Detail, "\n"), "\n") {
-			out.Add(dimStyle.Render("    "+dl), 0)
+			out.Add(dimStyle.Render(detailIndent+dl), lipgloss.Width(detailIndent))
 		}
 	}
 	return out
