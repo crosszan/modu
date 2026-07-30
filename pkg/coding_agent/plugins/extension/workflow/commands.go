@@ -1187,7 +1187,7 @@ func selectWorkflowRun(runs []workflowRunSummary, selector string) (workflowRunS
 		return matches[0], true, nil
 	}
 	if len(matches) > 1 {
-		return workflowRunSummary{}, false, fmt.Errorf("Workflow run prefix %q is ambiguous", selector)
+		return workflowRunSummary{}, false, fmt.Errorf("workflow run prefix %q is ambiguous", selector)
 	}
 	return workflowRunSummary{}, false, nil
 }
