@@ -352,10 +352,17 @@ func normalizeFrontmatterKey(key string) string {
 // stringifyConfigValue coerces JSON-decoded values into the simple string
 // format the frontmatter parser expects. Lists become CSV; booleans become
 // "true"/"false"; numbers become their decimal text.
+//
+// Frontmatter is written and read as one "key: value" per line (see
+// pkg/utils.ParseKeyValueLines), so any value fed back through it must not
+// contain a raw newline: an embedded "\nname: other" would land as its own
+// line and be parsed as a second frontmatter key, letting a field like
+// description silently inject or override tools/permission_mode/etc. on the
+// next load. Collapse embedded newlines to spaces to close that off.
 func stringifyConfigValue(value any) (string, bool) {
 	switch v := value.(type) {
 	case string:
-		return v, true
+		return sanitizeFrontmatterLine(v), true
 	case bool:
 		return strconv.FormatBool(v), true
 	case int:
@@ -371,7 +378,7 @@ func stringifyConfigValue(value any) (string, bool) {
 		parts := make([]string, 0, len(v))
 		for _, item := range v {
 			if s, ok := item.(string); ok {
-				if s = strings.TrimSpace(s); s != "" {
+				if s = sanitizeFrontmatterLine(s); s != "" {
 					parts = append(parts, s)
 				}
 			}
@@ -380,7 +387,7 @@ func stringifyConfigValue(value any) (string, bool) {
 	case []string:
 		parts := make([]string, 0, len(v))
 		for _, s := range v {
-			if s = strings.TrimSpace(s); s != "" {
+			if s = sanitizeFrontmatterLine(s); s != "" {
 				parts = append(parts, s)
 			}
 		}
@@ -388,6 +395,13 @@ func stringifyConfigValue(value any) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// sanitizeFrontmatterLine collapses embedded whitespace (including newlines)
+// to single spaces and trims the result, guaranteeing the value can never
+// break out of its "key: value" line when written back to a profile file.
+func sanitizeFrontmatterLine(s string) string {
+	return strings.TrimSpace(strings.Join(strings.Fields(s), " "))
 }
 
 func orderedFrontmatterKeys(m map[string]string) []string {
