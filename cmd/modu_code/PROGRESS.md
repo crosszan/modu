@@ -5,6 +5,15 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-07-30: fixed stale plan todos reappearing in the next TUI run. Agent
+  event bindings now refresh the fixed todo card only after successful
+  `exit_plan_mode` or `todo_write` calls, instead of after every completed
+  tool. Session todo state remains available to `/todos` and `/plan status`,
+  while unrelated read, search, shell, and edit tools can no longer make a
+  previous run's unfinished list look like a current-run update. A focused
+  event-filter regression test and the todo-card lifecycle tests cover the
+  boundary.
+
 - 2026-07-29: mobile and desktop SSH sessions now share an inline-rendering
   default. Disabling Bubble Tea's alternate screen avoids its full-screen
   scroll-region optimization on clients that leave stale prompt and status

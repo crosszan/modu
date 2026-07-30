@@ -24,7 +24,7 @@ func (b moduTUIEventBindings) Subscribe() func() {
 		for _, entry := range b.presenter.AgentEvent(ev, b.session.Cwd()) {
 			b.client.AppendEntry(entry)
 		}
-		if ev.Type == types.EventTypeToolExecutionEnd {
+		if moduTUITodoRefreshEvent(ev) {
 			b.client.SetTodos(moduTUITodos(b.session))
 		}
 		if ev.Type == types.EventTypeMessageEnd {
@@ -48,4 +48,11 @@ func (b moduTUIEventBindings) Subscribe() func() {
 		unsubSession()
 		unsubAgent()
 	}
+}
+
+func moduTUITodoRefreshEvent(ev types.Event) bool {
+	if ev.Type != types.EventTypeToolExecutionEnd || ev.IsError {
+		return false
+	}
+	return ev.ToolName == "exit_plan_mode" || ev.ToolName == "todo_write"
 }
