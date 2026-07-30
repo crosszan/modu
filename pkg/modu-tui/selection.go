@@ -13,9 +13,19 @@ import (
 
 var writeLocalClipboard = clipboard.WriteAll
 
+// maxOSC52ClipboardBytes caps how much text copySelection will emit as an
+// OSC52 escape sequence. OSC52 has no acknowledgement, and some terminals —
+// mobile SSH clients in particular — don't parse an oversized sequence and
+// print its raw base64 payload as literal text instead of consuming it. A
+// touch-drag selection that grows via edge auto-scroll (see onDrag) can span
+// most of the scrollback, so an unbounded payload here is a real flood risk,
+// not just a theoretical one.
+const maxOSC52ClipboardBytes = 64 * 1024
+
 type clipboardCopyResultMsg struct {
 	chars       int
 	how         string
+	copied      bool
 	needsOSC52  bool
 	text        string
 	osc52String string
@@ -131,21 +141,30 @@ func (m *Model) copySelection() tea.Cmd {
 	}
 	return func() tea.Msg {
 		localOK := writeLocalClipboard(text) == nil
-		needsOSC52 := isRemoteSession() || !localOK
+		tooLarge := len(text) > maxOSC52ClipboardBytes
+		needsOSC52 := !tooLarge && (isRemoteSession() || !localOK)
 		how := "clipboard"
-		if needsOSC52 {
+		switch {
+		case tooLarge && localOK:
+			how = "local only, selection too large for terminal clipboard"
+		case tooLarge:
+			how = "not copied, selection too large and no local clipboard"
+		case needsOSC52 && localOK:
+			how = "local+OSC52"
+		case needsOSC52:
 			how = "OSC52"
-			if localOK {
-				how = "local+OSC52"
-			}
 		}
-		return clipboardCopyResultMsg{
-			chars:       len([]rune(text)),
-			how:         how,
-			needsOSC52:  needsOSC52,
-			text:        text,
-			osc52String: clipboardSequence(text),
+		result := clipboardCopyResultMsg{
+			chars:      len([]rune(text)),
+			how:        how,
+			copied:     localOK || needsOSC52,
+			needsOSC52: needsOSC52,
+			text:       text,
 		}
+		if needsOSC52 {
+			result.osc52String = clipboardSequence(text)
+		}
+		return result
 	}
 }
 

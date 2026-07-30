@@ -207,7 +207,7 @@ func (e *moduTUICommandExecutor) handleHelp(_ context.Context, _ codetui.Command
 		"",
 		"keys",
 		"ctrl+j — insert newline",
-		"ctrl+l — clear conversation buffer",
+		"ctrl+l — force screen repaint (keeps conversation history)",
 		"ctrl+o — toggle expanded tool output",
 		"ctrl+c — interrupt running query / exit when idle",
 		"esc — interrupt running query / dismiss suggestions",

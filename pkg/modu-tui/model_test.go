@@ -256,6 +256,47 @@ func TestPOC2CopySelectionUsesOSC52OverSSH(t *testing.T) {
 	}
 }
 
+func TestPOC2CopySelectionSkipsOSC52WhenSelectionTooLarge(t *testing.T) {
+	t.Setenv("SSH_TTY", "/dev/pts/1")
+	t.Setenv("TMUX", "")
+	t.Setenv("TERM", "xterm-256color")
+	oldWrite := writeLocalClipboard
+	writeLocalClipboard = func(string) error { return nil }
+	t.Cleanup(func() { writeLocalClipboard = oldWrite })
+
+	// A touch-drag selection extended by edge auto-scroll can span most of a
+	// long scrollback; simulate that with enough lines to clear the cap
+	// regardless of per-line wrapping.
+	rawLines := make([]string, 5000)
+	for i := range rawLines {
+		rawLines[i] = "xxxxxxxxxxxxxxxxxxxx"
+	}
+	m := NewModel(Options{
+		Width:          40,
+		Height:         8,
+		InitialEntries: []Entry{testTextEntry(RoleAssistant, strings.Join(rawLines, "\n"))},
+	})
+	m.selStart = cell{line: 0, col: 0}
+	lastLine := len(m.lines) - 1
+	m.selEnd = cell{line: lastLine, col: m.lineWidth(lastLine)}
+
+	cmd := m.copySelection()
+	if cmd == nil {
+		t.Fatal("copySelection should still return a command so the local clipboard write happens")
+	}
+	tm, finalCmd := m.Update(cmd())
+	m = tm.(Model)
+	if finalCmd != nil {
+		t.Fatal("an oversized selection has nothing left to send once OSC52 is skipped, so Update should return a nil command")
+	}
+	if strings.Contains(m.status, "OSC52") {
+		t.Fatalf("oversized selection should not report an OSC52 path, got %q", m.status)
+	}
+	if !strings.Contains(m.status, "too large") {
+		t.Fatalf("status should explain the selection was too large for terminal clipboard, got %q", m.status)
+	}
+}
+
 func TestPOC2CopySelectionUsesTmuxPassthrough(t *testing.T) {
 	t.Setenv("SSH_TTY", "/dev/pts/1")
 	t.Setenv("TMUX", "/tmp/tmux")

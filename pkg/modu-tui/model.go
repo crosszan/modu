@@ -330,6 +330,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.rebuild()
 				return m, m.loadExpandedToolArtifactsCmd()
 			}
+		case msg.String() == "ctrl+l":
+			// Forces a full repaint without touching conversation history.
+			// Inline (non-altscreen) rendering can leave stale glyphs on
+			// screen under certain terminal/client conditions (narrow
+			// mobile SSH clients are the common case); tea.ClearScreen is
+			// bubbletea's own escape hatch for exactly this, per its doc
+			// comment ("clear visual clutter when the alt screen is not
+			// in use").
+			m.resetIMEState()
+			return m, func() tea.Msg { return tea.ClearScreen() }
 		case isEscKey(msg):
 			m.resetIMEState()
 			if len(m.slashMatches) > 0 {
@@ -474,7 +484,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 
 	case clipboardCopyResultMsg:
-		m.status = fmt.Sprintf("✓ copied %d chars (%s)", msg.chars, msg.how)
+		if msg.copied {
+			m.status = fmt.Sprintf("✓ copied %d chars (%s)", msg.chars, msg.how)
+		} else {
+			m.status = fmt.Sprintf("✗ %s (%d chars)", msg.how, msg.chars)
+		}
 		if msg.needsOSC52 {
 			// OSC52 has no acknowledgement. Keep the terminal-native selection
 			// fallback visible when a multiplexer or terminal drops it.
