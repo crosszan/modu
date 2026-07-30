@@ -369,6 +369,35 @@ func TestIdleTimeBetweenTurnsIsNotBilledToTheGoal(t *testing.T) {
 	}
 }
 
+// The same idle-time leak reappears through a different door: /goal-resume
+// (also /goal-focus, /goal-status, session_start) calls
+// beginAgentGoalAccounting outside any agent turn. If that starts the wall
+// clock immediately, whatever time passes before the next real turn — or
+// before the next accounting flush, e.g. /goal-pause with no turn in
+// between — gets billed as work on the goal.
+func TestResumeOutsideATurnDoesNotStartTheClock(t *testing.T) {
+	ext, api := initialized(t)
+	if err := api.runCommand(t, "goal", "objective"); err != nil {
+		t.Fatalf("/goal: %v", err)
+	}
+	api.fire(string(types.EventTypeAgentStart))
+	api.fireAgentEnd()
+
+	if err := api.runCommand(t, "goal-pause", ""); err != nil {
+		t.Fatalf("/goal-pause: %v", err)
+	}
+	if err := api.runCommand(t, "goal-resume", ""); err != nil {
+		t.Fatalf("/goal-resume: %v", err)
+	}
+
+	ext.mu.Lock()
+	measuredFrom := ext.agentMeasuredFrom
+	ext.mu.Unlock()
+	if !measuredFrom.IsZero() {
+		t.Fatalf("/goal-resume outside a turn must not start the wall clock, got measuredFrom=%v", measuredFrom)
+	}
+}
+
 // Clearing one of several goals must not strand the rest: without re-homing
 // the focus, Current() reports "no goal" while /goal-list still shows them.
 func TestClearingFocusedGoalRehomesFocusToARemainingGoal(t *testing.T) {
