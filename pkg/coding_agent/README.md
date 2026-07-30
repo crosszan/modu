@@ -59,6 +59,8 @@ err := session.PromptWithImages(context.Background(), "Explain this screenshot",
 }})
 ```
 
+Persisted tool results include parallel batch metadata, allowing resumed transcript UIs to restore grouped tool calls.
+
 Use `FollowUpWithImages` or `SteerWithImages` while a task is active. These methods reject images when the model explicitly lacks image input support or configuration enables `blockImages`.
 
 ## Documentation

@@ -40,6 +40,33 @@ func TestMarkdownInlineCodeDoesNotRenderAsRedBackgroundBlock(t *testing.T) {
 	}
 }
 
+func TestMarkdownUnlabelledFlowCodeBlockRendersAsPlaintext(t *testing.T) {
+	block := MarkdownBlock{
+		Marker: botStyle.Render("● "),
+		Text: "```\n" +
+			"创建工具请求\n" +
+			"  → toolimage.ValidateToolType() // 校验 ToolType\n" +
+			"       └── 未预热 → 调用 PrecacheSandboxImages 发起预热\n" +
+			"```",
+	}
+	normalized := markdownWithPlaintextFences(block.Text)
+	if !strings.HasPrefix(normalized, "```text\n") {
+		t.Fatalf("unlabelled code fence should default to text:\n%s", normalized)
+	}
+	rendered := block.Render(RenderContext{ContentWidth: 100, Markdown: markdownRenderer(100)})
+	got := strings.Join(renderedTexts(rendered), "\n")
+	if strings.Contains(got, "\x1b[48;5;203m") || strings.Contains(got, "\x1b[48;2;240;91;91m") {
+		t.Fatalf("unlabelled flow code block should not emit Chroma error backgrounds:\n%q", got)
+	}
+}
+
+func TestMarkdownPlaintextFenceNormalizationPreservesExplicitLanguage(t *testing.T) {
+	source := "```go\nfmt.Println(\"ok\")\n```\n\n~~~json\n{}\n~~~"
+	if got := markdownWithPlaintextFences(source); got != source {
+		t.Fatalf("explicit code fence languages changed:\n%s", got)
+	}
+}
+
 func TestMarkdownBlockRendersTableWithBorders(t *testing.T) {
 	block := MarkdownBlock{
 		Marker: botStyle.Render("● "),

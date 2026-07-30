@@ -38,6 +38,8 @@ type ToolResultMessage struct {
 	ToolName   string         `json:"toolName"`
 	Content    []ContentBlock `json:"content"`
 	Details    any            `json:"details,omitempty"`
+	BatchSize  int            `json:"batchSize,omitempty"`
+	BatchID    string         `json:"batchId,omitempty"`
 	IsError    bool           `json:"isError"`
 	Timestamp  int64          `json:"timestamp"`
 }

@@ -62,7 +62,9 @@ artifact-loading queries.
 - A stable `Entry.ID` supports upsert and removal without rebuilding or parsing
   rendered text.
 - Text, Markdown, tables, fenced code, thinking, Tool Calls, and host-defined blocks render independently.
+- Unlabelled fenced code defaults to plaintext; explicit languages such as `go`, `json`, and `diff` keep syntax highlighting.
 - Tool entries with the same `ToolCall.ID` merge into one block. Expanded blocks wrap input, output, code, and diffs instead of truncating them.
+- Consecutive tool entries with the same non-empty `BatchID` render as one collapsible parallel group.
 - `ToolNode` and `ThinkingNode` carry their lifecycle and expansion state
   directly; the transcript stores only `Entry` values.
 - Tool permission and artifact services run through `tea.Cmd`; Render never invokes a host callback or reads an artifact file.

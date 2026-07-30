@@ -363,6 +363,8 @@ func unmarshalToolResultMessage(raw json.RawMessage) (types.ToolResultMessage, e
 		ToolName   string            `json:"toolName"`
 		Content    []json.RawMessage `json:"content"`
 		Details    any               `json:"details,omitempty"`
+		BatchSize  int               `json:"batchSize,omitempty"`
+		BatchID    string            `json:"batchId,omitempty"`
 		IsError    bool              `json:"isError"`
 		Timestamp  int64             `json:"timestamp"`
 	}
@@ -379,6 +381,8 @@ func unmarshalToolResultMessage(raw json.RawMessage) (types.ToolResultMessage, e
 		ToolName:   wire.ToolName,
 		Content:    blocks,
 		Details:    wire.Details,
+		BatchSize:  wire.BatchSize,
+		BatchID:    wire.BatchID,
 		IsError:    wire.IsError,
 		Timestamp:  wire.Timestamp,
 	}, nil

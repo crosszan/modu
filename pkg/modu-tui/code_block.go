@@ -10,6 +10,9 @@ type CodeBlock struct {
 
 func (b CodeBlock) Render(ctx RenderContext) BlockRender {
 	lang := strings.TrimSpace(b.Language)
+	if lang == "" {
+		lang = "text"
+	}
 	fence := "```" + lang + "\n" + strings.TrimRight(b.Code, "\n") + "\n```"
 	body := fence
 	if ctx.Markdown != nil {

@@ -47,7 +47,7 @@ func (b ToolGroupBlock) Render(ctx RenderContext) BlockRender {
 		if i == n-1 {
 			branch = "└ "
 		}
-		out.Add(toolExpandedLine(ctx.ContentWidth, "    "+branch+toolGroupChildLabel(c)), 0)
+		out.Add(toolExpandedLine(ctx.ContentWidth, "  "+branch+toolGroupChildLabel(c)), 0)
 	}
 	return out
 }

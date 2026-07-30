@@ -50,6 +50,15 @@ func TestToolGroupBlockExpandedShowsChildren(t *testing.T) {
 	if strings.Contains(got, "parallel 3") {
 		t.Fatalf("child rows should not repeat the parallel tag:\n%s", got)
 	}
+	lines := strings.Split(got, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("expanded group should render one header and three children, got %d:\n%s", len(lines), got)
+	}
+	for i, line := range lines[1:] {
+		if !strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "    ") {
+			t.Fatalf("child row %d should align its branch with the group header: %q", i, line)
+		}
+	}
 }
 
 func TestBuildTranscriptFoldsBatchIntoOneLine(t *testing.T) {
