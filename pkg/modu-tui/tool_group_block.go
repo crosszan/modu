@@ -3,6 +3,8 @@ package modutui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ToolGroupBlock renders a parallel tool batch (several tool calls that share
@@ -36,18 +38,22 @@ func (b ToolGroupBlock) Render(ctx RenderContext) BlockRender {
 		header += fmt.Sprintf(" · %d error", errors)
 	}
 
+	// Both the indent and the ├/└ branch glyphs are decoration: report them as
+	// gutter so selecting a batch copies the labels, not the tree drawing.
+	indentWidth := lipgloss.Width(toolSummaryIndent)
 	if !b.Expanded {
-		out.Add(toolExpandedLine(ctx.ContentWidth, "  "+header), 0)
+		out.Add(toolExpandedLine(ctx.ContentWidth, toolSummaryIndent+header), indentWidth)
 		return out
 	}
 
-	out.Add(toolExpandedLine(ctx.ContentWidth, "  "+header), 0)
+	out.Add(toolExpandedLine(ctx.ContentWidth, toolSummaryIndent+header), indentWidth)
 	for i, c := range b.Calls {
 		branch := "├ "
 		if i == n-1 {
 			branch = "└ "
 		}
-		out.Add(toolExpandedLine(ctx.ContentWidth, "  "+branch+toolGroupChildLabel(c)), 0)
+		prefix := toolSummaryIndent + branch
+		out.Add(toolExpandedLine(ctx.ContentWidth, prefix+toolGroupChildLabel(c)), lipgloss.Width(prefix))
 	}
 	return out
 }

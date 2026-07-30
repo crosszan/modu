@@ -126,6 +126,7 @@ func NewModel(options ...Options) Model {
 			follow:              true,
 			selStart:            cell{line: -1},
 			selEnd:              cell{line: -1},
+			pendingToggle:       -1,
 			infoCardLines:       cleanInfoCardLines(opts.InfoCardLines),
 			blockFactories:      opts.BlockFactories,
 			blockGap:            opts.BlockGap,
@@ -520,6 +521,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selecting = false
 			m.autoScroll = 0
 			m.autoScrollTicks = 0
+			if cmd, handled := m.resolvePendingToggle(); handled {
+				return m, cmd
+			}
 			return m, m.copySelection()
 		}
 
