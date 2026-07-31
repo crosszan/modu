@@ -1567,7 +1567,7 @@ func (m *Model) render() string {
 		inner += "  ·  " + steerFollowupHint
 	}
 	status := m.statusLine(inner)
-	footer := fitLine(dimStyle.Render(" "+m.footer+" "), m.width)
+	footer := fitLine(dimStyle.Render(m.footer+" "), m.width)
 
 	parts := []string{view}
 	if panel := m.approvalPanelLines(); len(panel) > 0 {
@@ -1637,6 +1637,10 @@ func panelStatusText(panel *Panel, offset, maxOffset int) string {
 	return title + " · esc closes"
 }
 
+// statusLine renders the agent-status row flush against the left edge, at
+// the same column as the input row's "❯" prefix below it — no leading
+// space, so the status icon lines up with the prompt instead of looking
+// indented relative to it.
 func (m *Model) statusLine(inner string) string {
 	if m.showJumpPanel() {
 		jump := m.jumpHint()
@@ -1645,10 +1649,10 @@ func (m *Model) statusLine(inner string) string {
 			return fitLine(jump, m.width)
 		}
 		jumpStart := max(0, (m.width-jumpWidth)/2)
-		left := ansi.Truncate(" "+inner+" ", jumpStart, "…")
+		left := ansi.Truncate(inner+" ", jumpStart, "…")
 		return fitLine(fitLine(dimStyle.Render(left), jumpStart)+jump, m.width)
 	}
-	return fitLine(dimStyle.Render(" "+inner+" "), m.width)
+	return fitLine(dimStyle.Render(inner+" "), m.width)
 }
 
 func (m *Model) inputRenderWidth() int {

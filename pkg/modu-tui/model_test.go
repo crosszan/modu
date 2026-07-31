@@ -530,6 +530,15 @@ func TestPOC2RenderPlacesAgentStatusAboveInputAndFooterAtBottom(t *testing.T) {
 	if !strings.Contains(footerRow, "ctx 1K/10K") || !strings.Contains(footerRow, "test") {
 		t.Fatalf("footer should render at bottom, got %q in:\n%s", footerRow, rendered)
 	}
+	if strings.HasPrefix(statusRow, " ") {
+		t.Fatalf("status row should start flush at column 0, aligned with the input row's \"❯\", got %q", statusRow)
+	}
+	if !strings.HasPrefix(inputRow, "❯") {
+		t.Fatalf("input row should start flush at column 0, got %q", inputRow)
+	}
+	if strings.HasPrefix(footerRow, " ") {
+		t.Fatalf("footer row should start flush at column 0, aligned with the input row's \"❯\", got %q", footerRow)
+	}
 }
 
 func TestPOC2EscInterruptsRunningAgent(t *testing.T) {
