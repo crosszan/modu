@@ -1114,6 +1114,42 @@ func TestModuTUIFooterIncludesContextModelAndCwd(t *testing.T) {
 	}
 }
 
+func TestModuTUIFooterOmitsCacheRateBeforeAnyUsage(t *testing.T) {
+	session, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
+		Cwd:       t.TempDir(),
+		AgentDir:  t.TempDir(),
+		Model:     &types.Model{ID: "test-model", Name: "Test Model", ProviderID: "test-provider", ContextWindow: 32768},
+		GetAPIKey: func(string) (string, error) { return "", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if footer := moduTUIFooter(session); strings.Contains(footer, "cache") {
+		t.Fatalf("a fresh session has no usage yet, footer should omit the cache segment:\n%s", footer)
+	}
+}
+
+func TestModuTUIFooterIncludesCacheHitRate(t *testing.T) {
+	session, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
+		Cwd:       t.TempDir(),
+		AgentDir:  t.TempDir(),
+		Model:     &types.Model{ID: "test-model", Name: "Test Model", ProviderID: "test-provider", ContextWindow: 32768},
+		GetAPIKey: func(string) (string, error) { return "", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session.GetAgent().AppendMessage(types.AssistantMessage{
+		Role: types.RoleAssistant,
+		Usage: types.AgentUsage{Input: 10, CacheRead: 90, Output: 5},
+	})
+
+	footer := moduTUIFooter(session)
+	if !strings.Contains(footer, "cache 90%") {
+		t.Fatalf("footer should report a 90%% cache hit rate (90 cached / 100 total input), got:\n%s", footer)
+	}
+}
+
 func TestFormatModuTUITokens(t *testing.T) {
 	tests := map[int]string{
 		0:       "0",

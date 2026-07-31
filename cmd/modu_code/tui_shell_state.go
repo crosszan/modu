@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -105,6 +106,9 @@ func moduTUIFooter(session *coding_agent.CodingSession) string {
 	} else {
 		parts = append(parts, "-")
 	}
+	if rate := moduTUICacheHitRate(session); rate != "" {
+		parts = append(parts, rate)
+	}
 	cwd := strings.TrimSpace(session.RuntimeState().Cwd)
 	if cwd == "" {
 		cwd = session.Cwd()
@@ -113,6 +117,21 @@ func moduTUIFooter(session *coding_agent.CodingSession) string {
 		cwd = "-"
 	}
 	return strings.Join(append(parts, compactModuTUICwd(cwd)), " · ")
+}
+
+// moduTUICacheHitRate reports the session's lifetime prompt-cache hit rate as
+// "cache NN%". Returns "" before any input tokens have been recorded (a
+// fresh session has nothing to report yet), so the footer segment appears
+// only once it means something.
+func moduTUICacheHitRate(session *coding_agent.CodingSession) string {
+	if session == nil {
+		return ""
+	}
+	rate, ok := session.GetSessionStats().CacheHitRate()
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("cache %d%%", int(math.Round(rate*100)))
 }
 
 func moduTUIContextUsage(session *coding_agent.CodingSession, model *types.Model) string {

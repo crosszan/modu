@@ -70,6 +70,12 @@ type chromeModel struct {
 	streamReply string
 	busy        bool
 
+	// spinnerFrame indexes into spinnerFrames for the animated status glyph
+	// shown while streaming or busy. spinnerRunning guards against arming a
+	// second concurrent tick loop when both states are already active.
+	spinnerFrame   int
+	spinnerRunning bool
+
 	todos        []TodoItem
 	todosCurrent bool
 

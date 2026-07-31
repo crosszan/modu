@@ -40,4 +40,21 @@ type SessionStats struct {
 	MessageCount   int   `json:"messageCount"`
 	SessionStarted int64 `json:"sessionStarted"`
 	DurationMs     int64 `json:"durationMs"`
+	// CacheReadTokens and FreshInputTokens are the lifetime sums across every
+	// assistant turn in the session (not just the current context window),
+	// used to report a prompt-cache hit rate.
+	CacheReadTokens  int `json:"cacheReadTokens"`
+	FreshInputTokens int `json:"freshInputTokens"`
+}
+
+// CacheHitRate returns the fraction of input tokens served from the prompt
+// cache, in [0, 1]. Returns (0, false) when no input tokens have been
+// recorded yet (a fresh session), so callers can distinguish "no data" from
+// "0% hit rate".
+func (s SessionStats) CacheHitRate() (float64, bool) {
+	total := s.CacheReadTokens + s.FreshInputTokens
+	if total <= 0 {
+		return 0, false
+	}
+	return float64(s.CacheReadTokens) / float64(total), true
 }
