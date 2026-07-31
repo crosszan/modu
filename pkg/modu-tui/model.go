@@ -13,6 +13,7 @@ import (
 )
 
 type streamTickMsg struct{}
+type spinnerTickMsg struct{}
 type autoScrollTickMsg struct{}
 type statusExpireMsg struct {
 	status string
@@ -212,7 +213,7 @@ func (m *Model) submitInput(steer bool) tea.Cmd {
 	if kind == SubmitKindPrompt && m.streamReply != "" {
 		m.startStream()
 		m.rebuild()
-		return batchCmds(historyCmd, submitCmd, m.tick())
+		return batchCmds(historyCmd, submitCmd, m.tick(), m.ensureSpinnerRunning())
 	}
 	return batchCmds(historyCmd, submitCmd)
 }
@@ -559,6 +560,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case spinnerTickMsg:
+		if !m.busy && !m.streaming {
+			m.spinnerRunning = false
+			return m, nil
+		}
+		m.spinnerFrame++
+		return m, m.spinnerTick()
+
 	case UpdateMsg:
 		return m.applyHostUpdate(msg.Update)
 
@@ -731,7 +740,7 @@ func (m Model) applyHostUpdate(update Update) (tea.Model, tea.Cmd) {
 		}
 		m.busy = update.Busy
 		m.clampScroll()
-		return m, nil
+		return m, m.ensureSpinnerRunning()
 	case SetFooterUpdate:
 		m.footer = update.Footer
 		return m, nil
@@ -1541,7 +1550,7 @@ func (m *Model) render() string {
 	}
 	state := "○ idle"
 	if m.streaming {
-		state = "● streaming"
+		state = m.spinnerGlyph() + " streaming"
 	} else if m.approval != nil {
 		state = "● approval"
 	} else if m.panel != nil {
@@ -1549,7 +1558,7 @@ func (m *Model) render() string {
 	} else if m.humanPrompt != nil || m.humanText != nil {
 		state = "● input"
 	} else if m.busy {
-		state = "● running"
+		state = m.spinnerGlyph() + " running"
 	}
 	inner := agentStatusText(state, m.status)
 	if m.panel != nil {
@@ -2516,4 +2525,29 @@ func (m *Model) finishStream() {
 
 func (m Model) tick() tea.Cmd {
 	return tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg { return streamTickMsg{} })
+}
+
+// spinnerFrames is the classic braille "dots" cycle used by most CLI
+// spinners (Claude Code included) for an in-progress indicator.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// spinnerGlyph returns the current animation frame for the status line.
+func (m *Model) spinnerGlyph() string {
+	return spinnerFrames[m.spinnerFrame%len(spinnerFrames)]
+}
+
+func (m Model) spinnerTick() tea.Cmd {
+	return tea.Tick(90*time.Millisecond, func(time.Time) tea.Msg { return spinnerTickMsg{} })
+}
+
+// ensureSpinnerRunning arms the spinner tick loop if the model is busy or
+// streaming and no loop is already running. Safe to call from multiple entry
+// points (SetBusyUpdate, startStream) — spinnerRunning prevents a second
+// concurrent chain from doubling the animation rate.
+func (m *Model) ensureSpinnerRunning() tea.Cmd {
+	if m.spinnerRunning || (!m.busy && !m.streaming) {
+		return nil
+	}
+	m.spinnerRunning = true
+	return m.spinnerTick()
 }

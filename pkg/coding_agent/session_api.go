@@ -264,12 +264,35 @@ func (s *CodingSession) GetForkMessages() []ForkMessage {
 func (s *CodingSession) GetSessionStats() SessionStats {
 	msgs := s.agent.GetState().Messages
 	now := time.Now().UnixMilli()
+	cacheRead, freshInput := sumCacheUsage(msgs)
 	return SessionStats{
-		TotalTokens:    s.ctxMgr.Tokens(),
-		MessageCount:   len(msgs),
-		SessionStarted: s.sessionStarted,
-		DurationMs:     now - s.sessionStarted,
+		TotalTokens:      s.ctxMgr.Tokens(),
+		MessageCount:     len(msgs),
+		SessionStarted:   s.sessionStarted,
+		DurationMs:       now - s.sessionStarted,
+		CacheReadTokens:  cacheRead,
+		FreshInputTokens: freshInput,
 	}
+}
+
+// sumCacheUsage totals CacheRead and Input tokens across every assistant
+// message in the session, for a lifetime prompt-cache hit rate. Handles both
+// value and pointer AssistantMessage forms, matching how the agent loop
+// appends turns.
+func sumCacheUsage(msgs []types.AgentMessage) (cacheRead, freshInput int) {
+	for _, msg := range msgs {
+		switch m := msg.(type) {
+		case types.AssistantMessage:
+			cacheRead += m.Usage.CacheRead
+			freshInput += m.Usage.Input
+		case *types.AssistantMessage:
+			if m != nil {
+				cacheRead += m.Usage.CacheRead
+				freshInput += m.Usage.Input
+			}
+		}
+	}
+	return cacheRead, freshInput
 }
 
 // ResumeByID switches to a saved session identified by id (full id or a unique

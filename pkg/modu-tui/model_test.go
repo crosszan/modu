@@ -474,6 +474,34 @@ func TestPOC2RenderPadsEveryLineToTerminalWidth(t *testing.T) {
 	}
 }
 
+func TestSpinnerAnimatesWhileBusyAndStopsWhenIdle(t *testing.T) {
+	m := NewModel(Options{Width: 56, Height: 8})
+	m.busy = true
+
+	tm, cmd := m.Update(spinnerTickMsg{})
+	m = tm.(Model)
+	if m.spinnerFrame != 1 {
+		t.Fatalf("spinnerFrame after one tick = %d, want 1", m.spinnerFrame)
+	}
+	if cmd == nil {
+		t.Fatal("still busy: spinnerTickMsg should re-arm the next tick")
+	}
+	first := ansi.Strip(m.render())
+	if !strings.Contains(first, spinnerFrames[1]) {
+		t.Fatalf("rendered status should show spinner frame %q, got:\n%s", spinnerFrames[1], first)
+	}
+
+	m.busy = false
+	tm, cmd = m.Update(spinnerTickMsg{})
+	m = tm.(Model)
+	if cmd != nil {
+		t.Fatal("idle: spinnerTickMsg should stop re-arming once busy and streaming both end")
+	}
+	if m.spinnerRunning {
+		t.Fatal("spinnerRunning should clear once the loop stops")
+	}
+}
+
 func TestPOC2RenderPlacesAgentStatusAboveInputAndFooterAtBottom(t *testing.T) {
 	m := NewModel(Options{
 		Width:  56,
@@ -493,7 +521,7 @@ func TestPOC2RenderPlacesAgentStatusAboveInputAndFooterAtBottom(t *testing.T) {
 	if strings.TrimSpace(gapRow) != "" {
 		t.Fatalf("agent status should have a blank row above it, got %q in:\n%s", gapRow, rendered)
 	}
-	if !strings.Contains(statusRow, "● running") {
+	if !strings.Contains(statusRow, "running") {
 		t.Fatalf("agent status should render above input, got %q in:\n%s", statusRow, rendered)
 	}
 	if !strings.Contains(inputRow, "❯") {
@@ -874,7 +902,7 @@ func TestPOC2JumpHintSharesAgentStatusRow(t *testing.T) {
 	}
 	lines := strings.Split(rendered, "\n")
 	statusRow := m.vpHeight() + m.approvalPanelHeight() + m.humanPromptPanelHeight() + m.slashPanelHeight() + m.todoPanelHeight() + 1
-	if !strings.Contains(lines[statusRow], "● running") || !strings.Contains(lines[statusRow], jumpHintText()) {
+	if !strings.Contains(lines[statusRow], "running") || !strings.Contains(lines[statusRow], jumpHintText()) {
 		t.Fatalf("jump hint should share the agent status row, got %q in:\n%s", lines[statusRow], rendered)
 	}
 	idx := strings.Index(lines[statusRow], jumpHintText())
