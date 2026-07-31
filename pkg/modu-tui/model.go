@@ -2531,9 +2531,15 @@ func (m Model) tick() tea.Cmd {
 	return tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg { return streamTickMsg{} })
 }
 
-// spinnerFrames is the classic braille "dots" cycle used by most CLI
-// spinners (Claude Code included) for an in-progress indicator.
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+// spinnerFrames animates the idle state's "○"/"●" glyph. Deliberately drawn
+// from the same circle block (U+25CB-U+25D3) as those static glyphs rather
+// than the braille "dots" most CLI spinners use: braille cells are a
+// different Unicode block with different font metrics, so most terminal
+// fonts draw them smaller and off-baseline, making the status line jump
+// sideways/vertically every time it switches between idle and running. These
+// frames match "○"/"●" in width and baseline in every font that draws those
+// consistently, since it's the same glyph family.
+var spinnerFrames = []string{"◐", "◓", "◑", "◒"}
 
 // spinnerGlyph returns the current animation frame for the status line.
 func (m *Model) spinnerGlyph() string {
