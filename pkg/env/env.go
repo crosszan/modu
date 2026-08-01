@@ -191,22 +191,27 @@ func parseLine(line string) (key, value string, err error) {
 	return key, value, nil
 }
 
-// unquote removes surrounding quotes and handles escape sequences
+// unquote removes surrounding quotes and, only for double-quoted values,
+// handles escape sequences. Per standard .env conventions, unquoted and
+// single-quoted values are literal — escaping them too used to mangle any
+// value with a literal backslash-n/t/backslash/quote sequence, such as a
+// Windows path (C:\new\temp) or a regex (\temp\d+).
 func unquote(s string) string {
 	if len(s) < 2 {
 		return s
 	}
 
-	// Check for single or double quotes
-	if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+	if s[0] == '"' && s[len(s)-1] == '"' {
 		s = s[1 : len(s)-1]
+		s = strings.ReplaceAll(s, `\n`, "\n")
+		s = strings.ReplaceAll(s, `\t`, "\t")
+		s = strings.ReplaceAll(s, `\\`, "\\")
+		s = strings.ReplaceAll(s, `\"`, "\"")
+		return s
 	}
-
-	// Handle common escape sequences in double-quoted strings
-	s = strings.ReplaceAll(s, `\n`, "\n")
-	s = strings.ReplaceAll(s, `\t`, "\t")
-	s = strings.ReplaceAll(s, `\\`, "\\")
-	s = strings.ReplaceAll(s, `\"`, "\"")
+	if s[0] == '\'' && s[len(s)-1] == '\'' {
+		return s[1 : len(s)-1]
+	}
 
 	return s
 }

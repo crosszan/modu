@@ -147,12 +147,14 @@ func readLineWindow(ctx context.Context, path string, offset, limit int) ([]stri
 		if lineNo >= offset {
 			out = append(out, fmt.Sprintf("%d\t%s", lineNo, line))
 			if len(out) == limit {
-				hasMore := err != io.EOF
-				if !hasMore {
-					if next, nextErr := reader.Peek(1); nextErr == nil && len(next) > 0 {
-						hasMore = true
-					}
-				}
+				// Whether the line that just filled the window happened to
+				// end via a delimiter or EOF says nothing about whether more
+				// data follows it — a newline-terminated last line reads as
+				// a normal success (err == nil), which previously made
+				// hasMore default to true even when the window covered the
+				// whole file. Peek is the only reliable check.
+				next, nextErr := reader.Peek(1)
+				hasMore := nextErr == nil && len(next) > 0
 				return out, len(out), hasMore, nil
 			}
 		}
