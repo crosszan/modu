@@ -746,11 +746,17 @@ func applyGrepWindow(lines []string, opts grepOptions) ([]string, bool) {
 	return lines[start:end], start > 0 || end < len(lines)
 }
 
+// grepWindowMessage explains why the shown results don't cover everything.
+// It must not claim there's more ahead ("use offset to continue") when
+// offset alone is what triggered the note and this window already reaches
+// the last result — applyGrepWindow's truncated flag conflates "skipped
+// earlier results" with "more results after this window", so the wording
+// here stays generic enough to be accurate either way.
 func grepWindowMessage(opts grepOptions) string {
 	if opts.unlimited {
 		return fmt.Sprintf("\n\n... (results offset by %d item(s); use a lower offset to see earlier results)", opts.offset)
 	}
-	return fmt.Sprintf("\n\n... (results limited to %d item(s); use offset to continue)", opts.limit)
+	return fmt.Sprintf("\n\n... (results limited to %d item(s) starting at offset %d; adjust offset to see other results)", opts.limit, opts.offset)
 }
 
 func noGrepMatchesMessage(outputMode string) string {
