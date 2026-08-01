@@ -43,8 +43,13 @@ func TruncateHead(content string, opts TruncateOptions) TruncationResult {
 	lines := strings.Split(content, "\n")
 	origLines := len(lines)
 
-	// Check byte limit
-	if len(content) > opts.MaxBytes {
+	// Check byte limit. byteLimited tracks whether this branch actually ran,
+	// so content with no line breaks (a single line over MaxBytes) is still
+	// recognized as truncated below — comparing line counts alone missed
+	// that case, since cutting bytes out of one line doesn't change how many
+	// lines there are.
+	byteLimited := len(content) > opts.MaxBytes
+	if byteLimited {
 		byteContent := content[:opts.MaxBytes]
 		// Find last complete line
 		lastNL := strings.LastIndex(byteContent, "\n")
@@ -67,7 +72,7 @@ func TruncateHead(content string, opts TruncateOptions) TruncationResult {
 		}
 	}
 
-	if len(lines) < origLines {
+	if byteLimited {
 		kept := len(lines)
 		return TruncationResult{
 			Content:      strings.Join(lines, "\n"),
@@ -99,8 +104,11 @@ func TruncateTail(content string, opts TruncateOptions) TruncationResult {
 	lines := strings.Split(content, "\n")
 	origLines := len(lines)
 
-	// Check byte limit first
-	if len(content) > opts.MaxBytes {
+	// Check byte limit first. byteLimited tracks whether this branch
+	// actually ran — see the matching comment in TruncateHead for why line
+	// counts alone can't detect truncation of a single long line.
+	byteLimited := len(content) > opts.MaxBytes
+	if byteLimited {
 		byteContent := content[len(content)-opts.MaxBytes:]
 		// Find first complete line
 		firstNL := strings.Index(byteContent, "\n")
@@ -124,7 +132,7 @@ func TruncateTail(content string, opts TruncateOptions) TruncationResult {
 		}
 	}
 
-	if len(lines) < origLines {
+	if byteLimited {
 		kept := len(lines)
 		return TruncationResult{
 			Content:      strings.Join(lines, "\n"),

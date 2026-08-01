@@ -102,6 +102,19 @@ func (c *Controller) ExitPlanMode(plan string, steps []string) {
 	c.mu.Lock()
 	c.mode = false
 	c.mu.Unlock()
+	c.applyPlan(plan, steps)
+	c.host.RefreshSystemPrompt()
+	c.host.WriteRuntimeState()
+}
+
+// applyPlan persists plan (if non-empty) and seeds the todo list from steps
+// (if any). Callers are responsible for nil-checking c.host first; this is
+// the part of ExitPlanMode that SubmitPlan's disabled-host fallback also
+// needs, since it must not route through ExitPlanMode itself — that method
+// gates on c.enabled(), which is already false on that path, so calling it
+// there would silently no-op despite the caller's message claiming the plan
+// was recorded.
+func (c *Controller) applyPlan(plan string, steps []string) {
 	if strings.TrimSpace(plan) != "" {
 		_ = c.writeLatestPlan(plan)
 	}
@@ -118,14 +131,20 @@ func (c *Controller) ExitPlanMode(plan string, steps []string) {
 			c.host.SetTodos(items)
 		}
 	}
-	c.host.RefreshSystemPrompt()
-	c.host.WriteRuntimeState()
 }
 
 // SubmitPlan is the plan approval gate.
 func (c *Controller) SubmitPlan(ctx context.Context, plan string, steps []string) string {
 	if !c.enabled() {
-		c.ExitPlanMode(plan, steps)
+		// Not ExitPlanMode: it gates on c.enabled(), which is already false
+		// here, so it would silently do nothing while this still claimed the
+		// plan was recorded. Persist directly, guarding against the nil-host
+		// sentinel Controller some callers construct before a real host is
+		// wired up.
+		if c.host != nil {
+			c.applyPlan(plan, steps)
+			c.host.WriteRuntimeState()
+		}
 		return "Plan recorded. Proceed to implement it."
 	}
 
