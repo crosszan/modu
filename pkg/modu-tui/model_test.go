@@ -2521,3 +2521,101 @@ func TestReplaceEntriesUpdateReplacesTranscript(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamingEntryRendersAsPlainText(t *testing.T) {
+	var tm tea.Model = NewModel(Options{Width: 72, Height: 12})
+	m := tm.(Model)
+
+	tm, _ = m.Update(UpdateMsg{Update: UpsertEntryUpdate{Entry: Entry{
+		ID:        "live-1",
+		Role:      RoleAssistant,
+		Nodes:     []Node{TextNode{Text: "**bold** should stay literal while streaming"}},
+		Streaming: true,
+	}}})
+	m = tm.(Model)
+
+	rendered := ansi.Strip(m.render())
+	if !strings.Contains(rendered, "**bold** should stay literal while streaming") {
+		t.Fatalf("streaming entry should render its markdown source verbatim (no glamour pass), got:\n%s", rendered)
+	}
+}
+
+func TestRenderEntryLinesReusesCacheForUnchangedEntry(t *testing.T) {
+	var tm tea.Model = NewModel(Options{Width: 72, Height: 12})
+	m := tm.(Model)
+	m.entries = append(m.entries, Entry{ID: "msg-1", Role: RoleAssistant, Nodes: []Node{MarkdownNode{Text: "hello **world**"}}})
+	m.rebuild()
+
+	first, ok := m.blockRenderCache["msg-1"]
+	if !ok {
+		t.Fatal("finalized entry should populate the render cache after rebuild")
+	}
+
+	// Poison the cached lines directly: if rebuild() actually re-rendered the
+	// entry (instead of reusing the cache), it would overwrite this with the
+	// real render and the assertion below would fail.
+	m.blockRenderCache["msg-1"] = blockRenderCacheEntry{signature: first.signature, lines: []RenderedLine{{Text: "POISONED"}}}
+	m.rebuild()
+
+	rendered := ansi.Strip(m.render())
+	if !strings.Contains(rendered, "POISONED") {
+		t.Fatalf("rebuild should have reused the cached lines for an unchanged entry, got:\n%s", rendered)
+	}
+}
+
+func TestRenderEntryLinesInvalidatesCacheOnContentChange(t *testing.T) {
+	var tm tea.Model = NewModel(Options{Width: 72, Height: 12})
+	m := tm.(Model)
+	m.entries = append(m.entries, Entry{ID: "msg-1", Role: RoleAssistant, Nodes: []Node{MarkdownNode{Text: "first version"}}})
+	m.rebuild()
+	if rendered := ansi.Strip(m.render()); !strings.Contains(rendered, "first version") {
+		t.Fatalf("expected first version rendered, got:\n%s", rendered)
+	}
+
+	m.entries[0] = Entry{ID: "msg-1", Role: RoleAssistant, Nodes: []Node{MarkdownNode{Text: "second version"}}}
+	m.rebuild()
+
+	rendered := ansi.Strip(m.render())
+	if strings.Contains(rendered, "first version") {
+		t.Fatalf("stale cached content should not survive a content change:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "second version") {
+		t.Fatalf("updated content should be rendered after a content change:\n%s", rendered)
+	}
+}
+
+func TestUpsertEntryFinalizesStreamingEntryInPlace(t *testing.T) {
+	var tm tea.Model = NewModel(Options{Width: 72, Height: 12, InitialEntries: []Entry{
+		testTextEntry(RoleUser, "question"),
+	}})
+	m := tm.(Model)
+
+	tm, _ = m.Update(UpdateMsg{Update: UpsertEntryUpdate{Entry: Entry{
+		ID:        "live-1",
+		Role:      RoleAssistant,
+		Nodes:     []Node{TextNode{Text: "partial reply"}},
+		Streaming: true,
+	}}})
+	m = tm.(Model)
+	if len(m.entries) != 2 {
+		t.Fatalf("live update should upsert into a single entry, got %d entries", len(m.entries))
+	}
+
+	tm, _ = m.Update(UpdateMsg{Update: UpsertEntryUpdate{Entry: Entry{
+		ID:    "live-1",
+		Role:  RoleAssistant,
+		Nodes: []Node{MarkdownNode{Text: "final **reply**"}},
+	}}})
+	m = tm.(Model)
+
+	if len(m.entries) != 2 {
+		t.Fatalf("finalizing the streaming entry should replace it in place, not append; got %d entries", len(m.entries))
+	}
+	rendered := ansi.Strip(m.render())
+	if strings.Contains(rendered, "partial reply") {
+		t.Fatalf("finalized transcript should not still show the partial streaming text:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "reply") {
+		t.Fatalf("finalized transcript missing the final reply:\n%s", rendered)
+	}
+}
