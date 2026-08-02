@@ -17,6 +17,7 @@ type EventStream[E any, R any] struct {
 	done       chan struct{}
 	mu         sync.Mutex // protects closed and the close sequence
 	closed     bool
+	pushing    sync.WaitGroup // tracks Push calls in flight, so Close can wait for them before closing ch
 	result     chan streamResult[R]
 	resultOnce sync.Once
 }
@@ -33,6 +34,20 @@ func New[E any, R any]() *EventStream[E, R] {
 // Push sends an event to the stream.
 // It is non-blocking if the stream is closed or being closed.
 func (s *EventStream[E, R]) Push(event E) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.pushing.Add(1)
+	s.mu.Unlock()
+	defer s.pushing.Done()
+
+	// select alone cannot guarantee this send loses to a closed done: Go
+	// picks randomly among ready cases, and a send on an already-closed ch
+	// is "ready" too — it panics the instant it's chosen. Close() keeps ch
+	// open until every in-flight Push (tracked above) has returned, so this
+	// send is always safe for as long as it can actually reach it.
 	select {
 	case s.ch <- event:
 	case <-s.done:
@@ -65,8 +80,9 @@ func (s *EventStream[E, R]) Close() {
 	var zeroR R
 	s.Resolve(zeroR, fmt.Errorf("stream closed without a resolution"))
 
-	close(s.done) // signal Push() to stop sending before closing ch
-	close(s.ch)
+	close(s.done)    // give any in-flight Push an immediate alternative to sending
+	s.pushing.Wait() // wait for every in-flight Push to actually return
+	close(s.ch)      // now guaranteed safe: no Push can still be mid-send
 }
 
 // Result blocks until the stream is resolved and returns the final result or error.
