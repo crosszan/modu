@@ -13,15 +13,6 @@ type SlashCommandBlock struct {
 	MaxRows  int
 }
 
-func (b SlashCommandBlock) Render(ctx RenderContext) BlockRender {
-	var out BlockRender
-	lines := b.cardLines(ctx.ContentWidth)
-	for _, line := range lines {
-		out.Add(line, 0)
-	}
-	return out
-}
-
 func (b SlashCommandBlock) RenderWidth(width int) []string {
 	return b.cardLines(width)
 }

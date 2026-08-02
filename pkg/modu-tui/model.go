@@ -1435,21 +1435,6 @@ func panelLineStartsMarkdownBlock(raw string) bool {
 	return false
 }
 
-func panelOrderedMarkdownLine(line string) bool {
-	if len(line) < 3 || line[0] < '0' || line[0] > '9' {
-		return false
-	}
-	for i := 1; i < len(line); i++ {
-		if line[i] == '.' && i+1 < len(line) && line[i+1] == ' ' {
-			return true
-		}
-		if line[i] < '0' || line[i] > '9' {
-			return false
-		}
-	}
-	return false
-}
-
 func panelLineStartsCodeFence(line string) bool {
 	return strings.HasPrefix(strings.TrimSpace(line), "```")
 }

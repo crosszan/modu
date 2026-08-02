@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"strings"
@@ -141,21 +140,4 @@ func TestLevelString(t *testing.T) {
 			t.Errorf("Level(%d).String() = %q, want %q", tt.level, got, tt.want)
 		}
 	}
-}
-
-// captureStderr is a test helper (unused currently but available for
-// future tests that want to verify stderr output).
-func captureStderr(fn func()) string {
-	old := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
-
-	fn()
-
-	w.Close()
-	os.Stderr = old
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	return buf.String()
 }

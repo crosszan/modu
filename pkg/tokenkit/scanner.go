@@ -4,10 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
 type Scanner struct {
@@ -17,47 +14,6 @@ type Scanner struct {
 
 func NewScanner(store *Store, opts ScannerOptions) *Scanner {
 	return &Scanner{store: store, opts: opts}
-}
-
-func (s *Scanner) ScanAll(ctx context.Context) (ScanStats, error) {
-	var total ScanStats
-	var mu sync.Mutex
-	g, ctx := errgroup.WithContext(ctx)
-
-	g.Go(func() error {
-		stats, err := s.ScanCodex(ctx)
-		if err == nil {
-			mu.Lock()
-			total = total.Add(stats)
-			mu.Unlock()
-		}
-		return err
-	})
-
-	g.Go(func() error {
-		stats, err := s.ScanClaudeCode(ctx)
-		if err == nil {
-			mu.Lock()
-			total = total.Add(stats)
-			mu.Unlock()
-		}
-		return err
-	})
-
-	g.Go(func() error {
-		stats, err := s.ScanGemini(ctx)
-		if err == nil {
-			mu.Lock()
-			total = total.Add(stats)
-			mu.Unlock()
-		}
-		return err
-	})
-
-	if err := g.Wait(); err != nil {
-		return total, err
-	}
-	return total, nil
 }
 
 func (s *Scanner) ScanCodex(ctx context.Context) (ScanStats, error) {

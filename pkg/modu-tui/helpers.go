@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -84,12 +83,4 @@ func (m *Model) jumpHint() string {
 		return jumpStyle.Render(newMessagesHintText(m.unseen))
 	}
 	return jumpHint()
-}
-
-func centeredLine(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	left := max(0, (width-lipgloss.Width(s))/2)
-	return fitLine(strings.Repeat(" ", left)+s, width)
 }

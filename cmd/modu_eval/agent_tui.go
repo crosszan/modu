@@ -771,13 +771,3 @@ func runAgentEvalCommandWithTUI(tasks []agentTask, opts agentEvalOptions) error 
 	}
 	return runErr
 }
-
-func runAgentTUI(results []agentRunResult) error {
-	if len(results) == 0 {
-		fmt.Println("No agent evaluation results found.")
-		return nil
-	}
-	p := tea.NewProgram(initialAgentModel(results), tea.WithAltScreen(), tea.WithMouseCellMotion())
-	_, err := p.Run()
-	return err
-}

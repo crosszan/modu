@@ -12,14 +12,6 @@ type CardBlock struct {
 	BorderStyle lipgloss.Style
 }
 
-func (b CardBlock) Render(ctx RenderContext) BlockRender {
-	var out BlockRender
-	for _, line := range b.RenderWidth(ctx.ContentWidth) {
-		out.Add(line, 0)
-	}
-	return out
-}
-
 func (b CardBlock) RenderWidth(width int) []string {
 	width = max(1, width)
 	innerWidth := max(1, width-2)

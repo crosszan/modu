@@ -508,10 +508,6 @@ type SearchConfig struct {
 	SearchType string
 }
 
-func NewSearchTool() types.Tool {
-	return NewSearchToolWithConfig(SearchConfig{})
-}
-
 func NewSearchToolWithConfig(cfg SearchConfig) types.Tool {
 	provider := strings.ToLower(strings.TrimSpace(firstNonEmpty(cfg.Provider, os.Getenv("MODU_WEB_SEARCH_PROVIDER"))))
 	apiKey := providerAPIKey(cfg.APIKey, cfg.APIKeyEnv, "MODU_EXA_API_KEY", "EXA_API_KEY")

@@ -56,11 +56,6 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-// New creates an ACP server for the given session.
-func New(session *coding_agent.CodingSession) *Server {
-	return NewWithOptions(session, Options{})
-}
-
 // NewWithOptions creates an ACP server for the given session and options.
 func NewWithOptions(session *coding_agent.CodingSession, opts Options) *Server {
 	return &Server{

@@ -9,10 +9,6 @@ import (
 	"strings"
 )
 
-func (s *engine) gitRuntimeState() map[string]any {
-	return s.gitRuntimeStateForCwd(s.cwd)
-}
-
 func (s *engine) gitRuntimeStateForCwd(cwd string) map[string]any {
 	state, err := inspectGitRuntimeState(context.Background(), cwd)
 	if err != nil {

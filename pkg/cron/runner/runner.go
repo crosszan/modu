@@ -509,15 +509,6 @@ func goalCircuitBreakerStatus(err error) string {
 	}
 }
 
-// New returns a scheduler.Runner-compatible function — a thin wrapper around
-// Execute that discards the Result.
-func New(deps Deps) func(ctx context.Context, task config.Task) error {
-	return func(ctx context.Context, task config.Task) error {
-		_, err := Execute(ctx, deps, task)
-		return err
-	}
-}
-
 // writeJSONLine encodes obj as one NDJSON line. Errors are silently
 // dropped — the surrounding tick should not fail because the bookkeeping
 // log line couldn't be written.

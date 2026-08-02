@@ -205,16 +205,6 @@ func (s *Server) handleTokenkitLatestCodexStatus(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, map[string]any{"status": snapshot})
 }
 
-func tokenkitSummaryFilter(r *http.Request) tokenkit.SummaryFilter {
-	return tokenkit.SummaryFilter{
-		StartDate: q(r, "start"),
-		EndDate:   q(r, "end"),
-		App:       q(r, "app"),
-		Source:    q(r, "source"),
-		Model:     q(r, "model"),
-	}
-}
-
 func tokenkitUsageRecordFilter(r *http.Request) tokenkit.UsageRecordFilter {
 	return tokenkit.UsageRecordFilter{
 		StartDate: q(r, "start"),
