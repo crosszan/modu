@@ -3403,6 +3403,25 @@ func TestCodingSessionPromptWithImagesPreservesMultimodalUserMessage(t *testing.
 	}
 }
 
+func TestPromptWithImagesRejectsModelWithoutImageInput(t *testing.T) {
+	model := &types.Model{
+		ID: "text-only", Api: "ollama", ProviderID: "ollama",
+		ContextWindow: 8192, MaxTokens: 2048,
+		Input: []string{"text"},
+	}
+	session := newTestSession(t, model)
+	defer session.Close("test")
+
+	images := []types.ImageContent{{Type: "image", MimeType: "image/png", Data: "cG5n"}}
+	err := session.PromptWithImages(context.Background(), "inspect this", images)
+	if err == nil {
+		t.Fatal("expected an error for a model whose declared Input omits image")
+	}
+	if !strings.Contains(err.Error(), "does not support image input") {
+		t.Fatalf("err = %v, want a message about the model not supporting image input", err)
+	}
+}
+
 func TestPromptUsageTracksLatestContextWindowNotCumulativeSpend(t *testing.T) {
 	dir := t.TempDir()
 	model := newTestModelWithContext(10000)

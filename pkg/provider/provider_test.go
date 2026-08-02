@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openmodu/modu/pkg/providers"
 )
 
 func TestResolveWithoutProviderReturnsNil(t *testing.T) {
@@ -58,6 +60,43 @@ apiKey = "deepseek-key"
 	key, err := getAPIKey("lmstudio")
 	if err != nil || key != "local-key" {
 		t.Fatalf("unexpected api key %q err=%v", key, err)
+	}
+}
+
+func TestResolveAppliesConfiguredCapabilitiesToModelInput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeConfig(t, home, `active = "vision-qwen"
+
+[[models]]
+name = "vision-qwen"
+provider = "lmstudio"
+model = "qwen/qwen3.6-35b-a3b"
+baseUrl = "http://127.0.0.1:1234/v1"
+capabilities = ["text", "image"]
+
+[[models]]
+name = "text-only"
+provider = "lmstudio"
+model = "some/text-only-model"
+baseUrl = "http://127.0.0.1:1234/v1"
+capabilities = ["text"]
+`)
+
+	model, _ := Resolve()
+	if model == nil {
+		t.Fatal("expected configured model")
+	}
+	if !containsString(model.Input, "image") {
+		t.Fatalf("active model's declared capabilities should reach Model.Input, got %#v", model.Input)
+	}
+
+	textOnly := providers.GetModel("lmstudio", "some/text-only-model")
+	if textOnly == nil {
+		t.Fatal("expected the second configured model to be registered too")
+	}
+	if containsString(textOnly.Input, "image") {
+		t.Fatalf("a model whose capabilities omit image should not report image input, got %#v", textOnly.Input)
 	}
 }
 

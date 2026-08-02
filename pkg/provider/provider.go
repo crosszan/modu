@@ -1068,6 +1068,7 @@ func registerModel(cfg ModelConfig, baseURL string, headers map[string]string) {
 		BaseURL:       baseURL,
 		Headers:       headers,
 		ContextWindow: contextWindow,
+		Input:         cfg.Capabilities,
 	})
 }
 
