@@ -40,11 +40,30 @@ func (b *InputBlock) Insert(s string) {
 	s = normalizeInputText(s)
 	r, ins := []rune(b.Value), []rune(s)
 	b.Cursor = clamp(b.Cursor, 0, len(r))
+	if len(ins) > 0 {
+		// Typing (or pasting text) right up against an image/paste token —
+		// most commonly attaching an image and then immediately typing a
+		// question about it — would otherwise run straight into the
+		// token's expanded label with no separator.
+		if b.Cursor > 0 && isInputToken(r[b.Cursor-1]) && !unicode.IsSpace(ins[0]) {
+			ins = append([]rune{' '}, ins...)
+		}
+		if b.Cursor < len(r) && isInputToken(r[b.Cursor]) && !unicode.IsSpace(ins[len(ins)-1]) {
+			ins = append(ins, ' ')
+		}
+	}
 	out := make([]rune, 0, len(r)+len(ins))
 	out = append(out, r[:b.Cursor]...)
 	out = append(out, ins...)
 	out = append(out, r[b.Cursor:]...)
 	b.Value, b.Cursor = string(out), b.Cursor+len(ins)
+}
+
+// isInputToken reports whether r is an image or collapsed-paste placeholder
+// rune (see pasteTokenBase/imageTokenBase) rather than ordinary text.
+func isInputToken(r rune) bool {
+	return (r >= pasteTokenBase && r < pasteTokenBase+0x1000) ||
+		(r >= imageTokenBase && r < imageTokenBase+0x1000)
 }
 
 func (b *InputBlock) ReplaceBeforeCursor(removeRunes int, s string) {
@@ -83,12 +102,31 @@ func (b *InputBlock) InsertImage(image ImageAttachment) {
 	b.insertRune(imageTokenBase + rune(idx))
 }
 
+// insertRune inserts a single rune at the cursor. For an image or
+// collapsed-paste placeholder (see imageTokenBase/pasteTokenBase — the only
+// other caller, InsertNewline, inserts a plain '\n' and needs none of this),
+// it's padded with a space on either side where the adjacent character
+// isn't already whitespace. Without this, pasting an image and immediately
+// typing (or pasting mid-sentence) runs the token's expanded label straight
+// into the surrounding text with no separator, e.g. "[Image #1]what's in this".
 func (b *InputBlock) insertRune(r rune) {
 	rs := []rune(b.Value)
 	b.Cursor = clamp(b.Cursor, 0, len(rs))
-	rs = append(rs[:b.Cursor], append([]rune{r}, rs[b.Cursor:]...)...)
-	b.Cursor++
-	b.Value = string(rs)
+	var tok []rune
+	if isInputToken(r) && b.Cursor > 0 && !unicode.IsSpace(rs[b.Cursor-1]) {
+		tok = append(tok, ' ')
+	}
+	tok = append(tok, r)
+	cursorAfterToken := len(tok)
+	if isInputToken(r) && b.Cursor < len(rs) && !unicode.IsSpace(rs[b.Cursor]) {
+		tok = append(tok, ' ')
+	}
+	out := make([]rune, 0, len(rs)+len(tok))
+	out = append(out, rs[:b.Cursor]...)
+	out = append(out, tok...)
+	out = append(out, rs[b.Cursor:]...)
+	b.Cursor += cursorAfterToken
+	b.Value = string(out)
 }
 
 func (b *InputBlock) MoveLeft()  { b.Cursor = max(0, b.Cursor-1) }

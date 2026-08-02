@@ -168,3 +168,42 @@ func TestInputBlockImageAttachmentsRenderAndDeleteLikeInputTokens(t *testing.T) 
 		t.Fatalf("removing the first image should leave no attachments, got %#v", got)
 	}
 }
+
+func TestInputBlockImageAttachmentGetsSpacedFromAdjacentText(t *testing.T) {
+	// Reported regression: pasting an image into an empty input and then
+	// typing immediately after ran the expanded label straight into the
+	// following text with no separator ("[Image #1]what's in this").
+	t.Run("typed immediately after, with nothing before", func(t *testing.T) {
+		var input InputBlock
+		input.InsertImage(ImageAttachment{Name: "shot.png", MimeType: "image/png", Data: []byte("one")})
+		input.Insert("what's in this")
+
+		if got, want := input.DisplayValue(), "[Image #1] what's in this"; got != want {
+			t.Fatalf("display value = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("pasted mid-sentence with no surrounding whitespace", func(t *testing.T) {
+		var input InputBlock
+		input.Insert("before")
+		input.Cursor = len([]rune("before"))
+		input.InsertImage(ImageAttachment{Name: "shot.png", MimeType: "image/png", Data: []byte("one")})
+		input.Insert("after")
+
+		if got, want := input.DisplayValue(), "before [Image #1] after"; got != want {
+			t.Fatalf("display value = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("existing whitespace on both sides is not doubled", func(t *testing.T) {
+		var input InputBlock
+		input.Insert("before ")
+		input.Insert(" after")
+		input.Cursor = len([]rune("before "))
+		input.InsertImage(ImageAttachment{Name: "shot.png", MimeType: "image/png", Data: []byte("one")})
+
+		if got, want := input.DisplayValue(), "before [Image #1] after"; got != want {
+			t.Fatalf("display value = %q, want %q (no extra spaces added)", got, want)
+		}
+	})
+}
