@@ -91,6 +91,12 @@ type Entry struct {
 	Role  Role
 	Nodes []Node
 	Plain bool
+	// Streaming marks an entry whose content is still being appended to (a
+	// live-updating assistant reply). Streaming entries render as plain text
+	// and are never cached, since their content changes on every update;
+	// the host should re-upsert with Streaming false once the reply
+	// finishes so it gets the full markdown render and joins the cache.
+	Streaming bool
 }
 
 // Action is a stable interaction identity with an opaque business payload.

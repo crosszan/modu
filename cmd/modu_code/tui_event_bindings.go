@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"strings"
+
 	codetui "github.com/openmodu/modu/cmd/modu_code/internal/tui"
 	coding_agent "github.com/openmodu/modu/pkg/coding_agent"
 	modutui "github.com/openmodu/modu/pkg/modu-tui"
@@ -18,12 +21,46 @@ type moduTUIEventBindings struct {
 }
 
 func (b moduTUIEventBindings) Subscribe() func() {
+	// liveTextID names the transcript entry the assistant's still-streaming
+	// reply is upserted into. Assigned on the first message_update text
+	// delta of a turn, reused for every delta after it, and cleared at
+	// message_end once the final entry has taken over the same id.
+	var liveTextID string
+	var liveTextSeq int
+
 	unsubAgent := b.session.Subscribe(func(ev types.Event) {
 		b.duration.Handle(ev)
 		b.workflow.HandleToolEvent(ev)
-		for _, entry := range b.presenter.AgentEvent(ev, b.session.Cwd()) {
-			b.client.AppendEntry(entry)
+
+		switch ev.Type {
+		case types.EventTypeMessageUpdate:
+			if message, ok := moduTUIAssistantMessage(ev.Message); ok {
+				if entry, ok := moduTUILiveAssistantTextEntry(message); ok {
+					if liveTextID == "" {
+						liveTextSeq++
+						liveTextID = fmt.Sprintf("live-assistant-text-%d", liveTextSeq)
+					}
+					entry.ID = liveTextID
+					b.client.UpsertEntry(entry)
+				}
+			}
+		case types.EventTypeMessageEnd:
+			entries := b.presenter.AgentEvent(ev, b.session.Cwd())
+			liveIdx := moduTUIClaimLiveTextEntry(entries, liveTextID)
+			liveTextID = ""
+			for i, entry := range entries {
+				if i == liveIdx {
+					b.client.UpsertEntry(entry)
+				} else {
+					b.client.AppendEntry(entry)
+				}
+			}
+		default:
+			for _, entry := range b.presenter.AgentEvent(ev, b.session.Cwd()) {
+				b.client.AppendEntry(entry)
+			}
 		}
+
 		if moduTUITodoRefreshEvent(ev) {
 			b.client.SetTodos(moduTUITodos(b.session))
 		}
@@ -55,4 +92,65 @@ func moduTUITodoRefreshEvent(ev types.Event) bool {
 		return false
 	}
 	return ev.ToolName == "exit_plan_mode" || ev.ToolName == "todo_write"
+}
+
+// moduTUIAssistantMessage extracts the AssistantMessage carried by a
+// message_update/message_end event, which arrives as either a value or a
+// pointer depending on the source.
+func moduTUIAssistantMessage(msg types.AgentMessage) (types.AssistantMessage, bool) {
+	switch m := msg.(type) {
+	case types.AssistantMessage:
+		return m, true
+	case *types.AssistantMessage:
+		if m == nil {
+			return types.AssistantMessage{}, false
+		}
+		return *m, true
+	default:
+		return types.AssistantMessage{}, false
+	}
+}
+
+// moduTUILiveAssistantTextEntry builds a transcript entry for the assistant
+// reply's text so far. It renders as plain text (TextNode, not MarkdownNode)
+// so redrawing it on every delta never re-runs glamour's markdown parse;
+// message_end swaps it for a fully markdown-rendered entry via
+// moduTUIClaimLiveTextEntry.
+func moduTUILiveAssistantTextEntry(message types.AssistantMessage) (modutui.Entry, bool) {
+	var parts []string
+	for _, block := range message.Content {
+		if text, ok := block.(*types.TextContent); ok && text != nil && text.Text != "" {
+			parts = append(parts, text.Text)
+		}
+	}
+	joined := strings.TrimSpace(strings.Join(parts, "\n\n"))
+	if joined == "" {
+		return modutui.Entry{}, false
+	}
+	return modutui.Entry{
+		Role:      modutui.RoleAssistant,
+		Nodes:     []modutui.Node{modutui.TextNode{Text: joined}},
+		Streaming: true,
+	}, true
+}
+
+// moduTUIClaimLiveTextEntry stamps liveID onto the first finalized text
+// entry in entries so upserting it (instead of appending) replaces the live
+// placeholder in place. Returns -1 (nothing to claim) when liveID is empty
+// or entries has no plain markdown-text entry, in which case the caller
+// falls back to appending every entry exactly as before streaming existed.
+func moduTUIClaimLiveTextEntry(entries []modutui.Entry, liveID string) int {
+	if liveID == "" {
+		return -1
+	}
+	for i := range entries {
+		if len(entries[i].Nodes) != 1 {
+			continue
+		}
+		if _, ok := entries[i].Nodes[0].(modutui.MarkdownNode); ok {
+			entries[i].ID = liveID
+			return i
+		}
+	}
+	return -1
 }

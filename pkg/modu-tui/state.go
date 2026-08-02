@@ -31,6 +31,19 @@ type transcriptModel struct {
 	toolArtifactCache   map[string]toolArtifactCacheEntry
 	toolArtifactLoading map[string]bool
 	loadToolArtifact    func(string) (string, error)
+
+	// blockRenderCache holds each finalized entry's last rendered lines,
+	// keyed by entry ID (or "idx:N" for entries without one). buildTranscript
+	// reuses a cached entry instead of re-running Block.Render (and, for
+	// markdown, glamour's full parse) when its signature hasn't changed, so
+	// redraws only pay for the entry that actually changed rather than
+	// re-rendering the whole transcript every time.
+	blockRenderCache map[string]blockRenderCacheEntry
+}
+
+type blockRenderCacheEntry struct {
+	signature string
+	lines     []RenderedLine
 }
 
 // composerModel owns editable input and command completion state.

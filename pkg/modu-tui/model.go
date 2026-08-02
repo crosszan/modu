@@ -134,6 +134,7 @@ func NewModel(options ...Options) Model {
 			toolArtifactCache:   make(map[string]toolArtifactCacheEntry),
 			toolArtifactLoading: make(map[string]bool),
 			loadToolArtifact:    opts.Services.LoadToolArtifact,
+			blockRenderCache:    make(map[string]blockRenderCacheEntry),
 		},
 		composerModel: composerModel{
 			arrowKeysScroll:       opts.ArrowKeysScroll,
@@ -701,6 +702,7 @@ func (m Model) applyHostUpdate(update Update) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ClearEntriesUpdate:
 		m.entries = nil
+		m.blockRenderCache = make(map[string]blockRenderCacheEntry)
 		m.clearSelection()
 		m.follow = true
 		m.unseen = 0
@@ -1216,7 +1218,7 @@ func (m *Model) buildTranscript() ([]string, []int, map[int]int) {
 			continue
 		}
 
-		rendered := m.blockFromEntry(entry).Render(ctx).Lines
+		rendered := m.renderEntryLines(entry, idx, ctx)
 		tool, _, hasTool := toolNodeFromEntry(entry)
 		_, _, hasThinking := thinkingNodeFromEntry(entry)
 		expanded := entryExpanded(entry)
@@ -1497,6 +1499,35 @@ func (m *Model) blockFromEntry(entry Entry) Block {
 		}
 	}
 	return defaultBlockFromEntry(entry)
+}
+
+// renderEntryLines renders entry, reusing the last rendered lines from
+// blockRenderCache when neither the entry's content nor the content width
+// have changed since. Streaming entries skip the cache entirely since their
+// content is expected to change on every call.
+func (m *Model) renderEntryLines(entry Entry, idx int, ctx RenderContext) []RenderedLine {
+	if entry.Streaming {
+		return m.blockFromEntry(entry).Render(ctx).Lines
+	}
+	key := entry.ID
+	if key == "" {
+		key = "idx:" + strconv.Itoa(idx)
+	}
+	signature := entryRenderSignature(entry, ctx)
+	if cached, ok := m.blockRenderCache[key]; ok && cached.signature == signature {
+		return cached.lines
+	}
+	lines := m.blockFromEntry(entry).Render(ctx).Lines
+	m.blockRenderCache[key] = blockRenderCacheEntry{signature: signature, lines: lines}
+	return lines
+}
+
+// entryRenderSignature captures everything that affects an entry's rendered
+// output: content width and the entry's own fields (including per-node state
+// like a tool/thinking block's Expanded flag). Using %#v rather than
+// hand-picking fields keeps this correct as Node kinds gain new fields.
+func entryRenderSignature(entry Entry, ctx RenderContext) string {
+	return fmt.Sprintf("%d|%d|%#v", ctx.ContentWidth, entry.Role, entry.Nodes)
 }
 
 func (m *Model) render() string {
