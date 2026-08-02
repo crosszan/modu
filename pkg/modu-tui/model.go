@@ -2,6 +2,7 @@ package modutui
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -135,6 +137,7 @@ func NewModel(options ...Options) Model {
 			toolArtifactLoading: make(map[string]bool),
 			loadToolArtifact:    opts.Services.LoadToolArtifact,
 			blockRenderCache:    make(map[string]blockRenderCacheEntry),
+			markdownRenderers:   make(map[int]*glamour.TermRenderer),
 		},
 		composerModel: composerModel{
 			arrowKeysScroll:       opts.ArrowKeysScroll,
@@ -1175,7 +1178,7 @@ func (m *Model) clampScroll() {
 func (m *Model) buildTranscript() ([]string, []int, map[int]int) {
 	width := max(m.width, 1)
 	contentWidth := max(1, width-2)
-	ctx := RenderContext{ContentWidth: contentWidth, Markdown: markdownRenderer(contentWidth)}
+	ctx := RenderContext{ContentWidth: contentWidth, Markdown: m.markdownRendererForWidth(contentWidth)}
 	var lines []string
 	var gutters []int
 	headers := map[int]int{}
@@ -1201,8 +1204,7 @@ func (m *Model) buildTranscript() ([]string, []int, map[int]int) {
 		startLine := len(lines)
 
 		if groupLen := m.batchGroupLen(idx); groupLen > 1 {
-			block := toolGroupBlockFrom(m.entries[idx : idx+groupLen])
-			for offset, line := range block.Render(ctx).Lines {
+			for offset, line := range m.renderGroupLines(idx, groupLen, ctx) {
 				// Only the first (header) line is a header: clicking it toggles
 				// the whole group via the group's first message.
 				if offset == 0 {
@@ -1513,21 +1515,64 @@ func (m *Model) renderEntryLines(entry Entry, idx int, ctx RenderContext) []Rend
 	if key == "" {
 		key = "idx:" + strconv.Itoa(idx)
 	}
-	signature := entryRenderSignature(entry, ctx)
-	if cached, ok := m.blockRenderCache[key]; ok && cached.signature == signature {
+	return m.cachedRenderLines(key, ctx.ContentWidth, []Entry{entry}, func() []RenderedLine {
+		return m.blockFromEntry(entry).Render(ctx).Lines
+	})
+}
+
+// renderGroupLines renders the batched-tool-call group m.entries[idx:idx+groupLen]
+// as one block, going through the same cache as renderEntryLines.
+func (m *Model) renderGroupLines(idx, groupLen int, ctx RenderContext) []RenderedLine {
+	group := m.entries[idx : idx+groupLen]
+	key := "group:" + group[0].ID
+	if group[0].ID == "" {
+		key = "group:idx:" + strconv.Itoa(idx)
+	}
+	return m.cachedRenderLines(key, ctx.ContentWidth, group, func() []RenderedLine {
+		return toolGroupBlockFrom(group).Render(ctx).Lines
+	})
+}
+
+// cachedRenderLines returns render() reused from blockRenderCache when the
+// last render under key used the same content width and an equal (by
+// reflect.DeepEqual) snapshot of entries — a structural comparison rather
+// than hand-picked fields, so it stays correct as Node kinds gain new
+// fields, and it's cheaper than serializing entries to a string on every
+// check since there's no string to build or escape.
+//
+// The snapshot stored on a miss must be cloned via cloneEntry, not just a
+// shallow slice copy: Entry.Nodes is itself a slice, and expand/collapse
+// mutates it in place (entry.Nodes[index] = tool, see setEntryExpanded) — a
+// shallow copy would keep sharing that backing array, so the "old" snapshot
+// would silently pick up the mutation too and DeepEqual would never see a
+// difference.
+func (m *Model) cachedRenderLines(key string, width int, entries []Entry, render func() []RenderedLine) []RenderedLine {
+	if cached, ok := m.blockRenderCache[key]; ok && cached.width == width && reflect.DeepEqual(cached.entries, entries) {
 		return cached.lines
 	}
-	lines := m.blockFromEntry(entry).Render(ctx).Lines
-	m.blockRenderCache[key] = blockRenderCacheEntry{signature: signature, lines: lines}
+	lines := render()
+	snapshot := make([]Entry, len(entries))
+	for i, entry := range entries {
+		snapshot[i] = cloneEntry(entry)
+	}
+	m.blockRenderCache[key] = blockRenderCacheEntry{
+		entries: snapshot,
+		width:   width,
+		lines:   lines,
+	}
 	return lines
 }
 
-// entryRenderSignature captures everything that affects an entry's rendered
-// output: content width and the entry's own fields (including per-node state
-// like a tool/thinking block's Expanded flag). Using %#v rather than
-// hand-picking fields keeps this correct as Node kinds gain new fields.
-func entryRenderSignature(entry Entry, ctx RenderContext) string {
-	return fmt.Sprintf("%d|%d|%#v", ctx.ContentWidth, entry.Role, entry.Nodes)
+// markdownRendererForWidth memoizes markdownRenderer by content width so
+// buildTranscript doesn't reconstruct a glamour.TermRenderer (style config +
+// chroma lexer setup) on every redraw.
+func (m *Model) markdownRendererForWidth(width int) *glamour.TermRenderer {
+	if r, ok := m.markdownRenderers[width]; ok {
+		return r
+	}
+	r := markdownRenderer(width)
+	m.markdownRenderers[width] = r
+	return r
 }
 
 func (m *Model) render() string {
