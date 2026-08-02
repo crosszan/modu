@@ -45,16 +45,8 @@ func (b moduTUIEventBindings) Subscribe() func() {
 				}
 			}
 		case types.EventTypeMessageEnd:
-			entries := b.presenter.AgentEvent(ev, b.session.Cwd())
-			liveIdx := moduTUIClaimLiveTextEntry(entries, liveTextID)
+			moduTUIFinalizeStreamedMessage(b.client, liveTextID, b.presenter.AgentEvent(ev, b.session.Cwd()))
 			liveTextID = ""
-			for i, entry := range entries {
-				if i == liveIdx {
-					b.client.UpsertEntry(entry)
-				} else {
-					b.client.AppendEntry(entry)
-				}
-			}
 		default:
 			for _, entry := range b.presenter.AgentEvent(ev, b.session.Cwd()) {
 				b.client.AppendEntry(entry)
@@ -118,8 +110,7 @@ func moduTUIAssistantMessage(msg types.AgentMessage) (types.AssistantMessage, bo
 // entry is marked Streaming so the render cache never holds onto it and
 // Model throttles how often it actually re-parses (see
 // streamRenderThrottle in pkg/modu-tui) rather than reparsing on every
-// delta. message_end swaps it for the final entry via
-// moduTUIClaimLiveTextEntry.
+// delta. message_end removes it and appends the final entry set fresh.
 func moduTUILiveAssistantTextEntry(message types.AssistantMessage) (modutui.Entry, bool) {
 	var parts []string
 	for _, block := range message.Content {
@@ -138,23 +129,22 @@ func moduTUILiveAssistantTextEntry(message types.AssistantMessage) (modutui.Entr
 	}, true
 }
 
-// moduTUIClaimLiveTextEntry stamps liveID onto the first finalized text
-// entry in entries so upserting it (instead of appending) replaces the live
-// placeholder in place. Returns -1 (nothing to claim) when liveID is empty
-// or entries has no plain markdown-text entry, in which case the caller
-// falls back to appending every entry exactly as before streaming existed.
-func moduTUIClaimLiveTextEntry(entries []modutui.Entry, liveID string) int {
-	if liveID == "" {
-		return -1
+// moduTUIFinalizeStreamedMessage replaces the live-streaming placeholder (if
+// any) with entries, the message's finalized transcript entries in their
+// correct order (assistantEntries always orders thinking before text).
+//
+// The placeholder's position was fixed as soon as text started streaming —
+// right after whatever preceded it — before the message's thinking content
+// was known. Upserting only the text back into that now-too-early position
+// while appending everything else (thinking included) would leave thinking
+// stranded after the text it's supposed to precede, so instead this removes
+// the placeholder and appends the whole, correctly-ordered entry set fresh,
+// exactly like a non-streamed message.
+func moduTUIFinalizeStreamedMessage(client modutui.Client, liveTextID string, entries []modutui.Entry) {
+	if liveTextID != "" {
+		client.RemoveEntry(liveTextID)
 	}
-	for i := range entries {
-		if len(entries[i].Nodes) != 1 {
-			continue
-		}
-		if _, ok := entries[i].Nodes[0].(modutui.MarkdownNode); ok {
-			entries[i].ID = liveID
-			return i
-		}
+	for _, entry := range entries {
+		client.AppendEntry(entry)
 	}
-	return -1
 }

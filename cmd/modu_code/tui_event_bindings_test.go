@@ -99,40 +99,51 @@ func TestModuTUILiveAssistantTextEntry(t *testing.T) {
 	})
 }
 
-func TestModuTUIClaimLiveTextEntry(t *testing.T) {
-	t.Run("stamps the first markdown text entry", func(t *testing.T) {
-		entries := []modutui.Entry{
-			{Role: modutui.RoleAssistant, Nodes: []modutui.Node{modutui.ThinkingNode{Text: "thinking"}}},
-			{Role: modutui.RoleAssistant, Nodes: []modutui.Node{modutui.MarkdownNode{Text: "final reply"}}},
-			{Role: modutui.RoleAssistant, Nodes: []modutui.Node{modutui.ToolNode{}}},
+func TestModuTUIFinalizeStreamedMessage(t *testing.T) {
+	t.Run("removes the placeholder before appending, so thinking lands before text", func(t *testing.T) {
+		var dispatched []any
+		client := modutui.NewClient(func(msg any) { dispatched = append(dispatched, msg) })
+
+		thinking := modutui.Entry{Role: modutui.RoleAssistant, Nodes: []modutui.Node{modutui.ThinkingNode{Text: "reasoning"}}}
+		text := modutui.Entry{Role: modutui.RoleAssistant, Nodes: []modutui.Node{modutui.MarkdownNode{Text: "final reply"}}}
+		moduTUIFinalizeStreamedMessage(client, "live-1", []modutui.Entry{thinking, text})
+
+		if len(dispatched) != 3 {
+			t.Fatalf("expected remove + 2 appends, got %d dispatched updates: %#v", len(dispatched), dispatched)
 		}
-		idx := moduTUIClaimLiveTextEntry(entries, "live-1")
-		if idx != 1 {
-			t.Fatalf("idx = %d, want 1", idx)
+		remove, ok := dispatched[0].(modutui.UpdateMsg).Update.(modutui.RemoveEntryUpdate)
+		if !ok || remove.ID != "live-1" {
+			t.Fatalf("first update should remove the live placeholder, got %#v", dispatched[0])
 		}
-		if entries[1].ID != "live-1" {
-			t.Fatalf("claimed entry ID = %q, want live-1", entries[1].ID)
+		firstAppend, ok := dispatched[1].(modutui.UpdateMsg).Update.(modutui.AppendEntryUpdate)
+		if !ok || len(firstAppend.Entry.Nodes) == 0 {
+			t.Fatalf("second update should be an append, got %#v", dispatched[1])
 		}
-		if entries[0].ID != "" || entries[2].ID != "" {
-			t.Fatalf("only the text entry should be stamped, got %#v", entries)
+		if _, ok := firstAppend.Entry.Nodes[0].(modutui.ThinkingNode); !ok {
+			t.Fatalf("thinking must be appended before text, got node %T first", firstAppend.Entry.Nodes[0])
+		}
+		secondAppend, ok := dispatched[2].(modutui.UpdateMsg).Update.(modutui.AppendEntryUpdate)
+		if !ok {
+			t.Fatalf("third update should be an append, got %#v", dispatched[2])
+		}
+		if _, ok := secondAppend.Entry.Nodes[0].(modutui.MarkdownNode); !ok {
+			t.Fatalf("text must be appended after thinking, got node %T second", secondAppend.Entry.Nodes[0])
 		}
 	})
 
-	t.Run("empty liveID claims nothing", func(t *testing.T) {
-		entries := []modutui.Entry{
-			{Role: modutui.RoleAssistant, Nodes: []modutui.Node{modutui.MarkdownNode{Text: "final reply"}}},
-		}
-		if idx := moduTUIClaimLiveTextEntry(entries, ""); idx != -1 {
-			t.Fatalf("idx = %d, want -1 when liveID is empty", idx)
-		}
-	})
+	t.Run("no placeholder to remove when the message never streamed text", func(t *testing.T) {
+		var dispatched []any
+		client := modutui.NewClient(func(msg any) { dispatched = append(dispatched, msg) })
 
-	t.Run("no markdown text entry claims nothing", func(t *testing.T) {
-		entries := []modutui.Entry{
+		moduTUIFinalizeStreamedMessage(client, "", []modutui.Entry{
 			{Role: modutui.RoleAssistant, Nodes: []modutui.Node{modutui.ToolNode{}}},
+		})
+
+		if len(dispatched) != 1 {
+			t.Fatalf("expected exactly one append (no remove), got %d: %#v", len(dispatched), dispatched)
 		}
-		if idx := moduTUIClaimLiveTextEntry(entries, "live-1"); idx != -1 {
-			t.Fatalf("idx = %d, want -1 when no entry matches", idx)
+		if _, ok := dispatched[0].(modutui.UpdateMsg).Update.(modutui.RemoveEntryUpdate); ok {
+			t.Fatal("should not dispatch a remove when liveTextID is empty")
 		}
 	})
 }
