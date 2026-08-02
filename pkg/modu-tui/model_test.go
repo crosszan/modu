@@ -2554,7 +2554,7 @@ func TestRenderEntryLinesReusesCacheForUnchangedEntry(t *testing.T) {
 	// Poison the cached lines directly: if rebuild() actually re-rendered the
 	// entry (instead of reusing the cache), it would overwrite this with the
 	// real render and the assertion below would fail.
-	m.blockRenderCache["msg-1"] = blockRenderCacheEntry{signature: first.signature, lines: []RenderedLine{{Text: "POISONED"}}}
+	m.blockRenderCache["msg-1"] = blockRenderCacheEntry{entries: first.entries, width: first.width, lines: []RenderedLine{{Text: "POISONED"}}}
 	m.rebuild()
 
 	rendered := ansi.Strip(m.render())
@@ -2617,5 +2617,85 @@ func TestUpsertEntryFinalizesStreamingEntryInPlace(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "reply") {
 		t.Fatalf("finalized transcript missing the final reply:\n%s", rendered)
+	}
+}
+
+func TestRenderGroupLinesReusesCacheForUnchangedBatch(t *testing.T) {
+	mv := NewModel(Options{Width: 80, Height: 24})
+	m := &mv
+	m.blockGap = 0
+	batch := "batch-x"
+	for _, call := range []ToolCall{
+		{ID: "1", Name: "read", Summary: "Read a.txt", Done: true, BatchSize: 2, BatchID: batch},
+		{ID: "2", Name: "read", Summary: "Read b.txt", Done: true, BatchSize: 2, BatchID: batch},
+	} {
+		m.appendEntry(Entry{Role: RoleAssistant, Nodes: []Node{ToolNode{Call: call}}})
+	}
+	m.rebuild()
+
+	cached, ok := m.blockRenderCache["group:1"]
+	if !ok {
+		t.Fatal("batched group should populate the render cache under its first entry's id")
+	}
+
+	// Poison the cached lines: if rebuild() actually re-rendered the group
+	// (instead of reusing the cache), it would overwrite this with the real
+	// render and the assertion below would fail.
+	m.blockRenderCache["group:1"] = blockRenderCacheEntry{entries: cached.entries, width: cached.width, lines: []RenderedLine{{Text: "POISONED"}}}
+	m.rebuild()
+
+	rendered := ansi.Strip(m.render())
+	if !strings.Contains(rendered, "POISONED") {
+		t.Fatalf("rebuild should have reused the cached lines for an unchanged batch, got:\n%s", rendered)
+	}
+}
+
+func TestRenderGroupLinesInvalidatesOnExpandToggle(t *testing.T) {
+	// Regression test: cachedRenderLines' snapshot must be a deep clone
+	// (cloneEntry), not a shallow slice copy. setEntryExpanded mutates
+	// Entry.Nodes in place (entry.Nodes[index] = tool); a shallow copy would
+	// keep sharing that backing array, so the cached "old" snapshot would
+	// silently pick up the mutation too and never appear to differ.
+	mv := NewModel(Options{Width: 80, Height: 24})
+	m := &mv
+	m.blockGap = 0
+	batch := "batch-x"
+	for _, call := range []ToolCall{
+		{ID: "1", Name: "read", Summary: "Read a.txt", Done: true, BatchSize: 2, BatchID: batch},
+		{ID: "2", Name: "read", Summary: "Read b.txt", Done: true, BatchSize: 2, BatchID: batch},
+	} {
+		m.appendEntry(Entry{Role: RoleAssistant, Nodes: []Node{ToolNode{Call: call}}})
+	}
+	m.rebuild()
+	if rendered := ansi.Strip(m.render()); strings.Contains(rendered, "Read b.txt") {
+		t.Fatalf("collapsed batch should not show child rows:\n%s", rendered)
+	}
+
+	if !m.toggleLatestToolExpansion() {
+		t.Fatal("toggleLatestToolExpansion returned false")
+	}
+	m.rebuild()
+
+	rendered := ansi.Strip(m.render())
+	for _, want := range []string{"Read a.txt", "Read b.txt"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expanded batch missing %q (stale cache?):\n%s", want, rendered)
+		}
+	}
+}
+
+func TestMarkdownRendererForWidthMemoizes(t *testing.T) {
+	var tm tea.Model = NewModel(Options{Width: 72, Height: 12})
+	m := tm.(Model)
+
+	r1 := m.markdownRendererForWidth(72)
+	r2 := m.markdownRendererForWidth(72)
+	if r1 != r2 {
+		t.Fatal("same width should return the memoized renderer, not a new one")
+	}
+
+	r3 := m.markdownRendererForWidth(40)
+	if r3 == r1 {
+		t.Fatal("a different width should not reuse another width's renderer")
 	}
 }

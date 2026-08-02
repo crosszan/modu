@@ -1,6 +1,10 @@
 package modutui
 
-import "time"
+import (
+	"time"
+
+	"github.com/charmbracelet/glamour"
+)
 
 // transcriptModel owns the conversation viewport and its rendered/copyable
 // representation. It does not own input, overlays, or host callbacks.
@@ -32,18 +36,30 @@ type transcriptModel struct {
 	toolArtifactLoading map[string]bool
 	loadToolArtifact    func(string) (string, error)
 
-	// blockRenderCache holds each finalized entry's last rendered lines,
-	// keyed by entry ID (or "idx:N" for entries without one). buildTranscript
-	// reuses a cached entry instead of re-running Block.Render (and, for
-	// markdown, glamour's full parse) when its signature hasn't changed, so
-	// redraws only pay for the entry that actually changed rather than
-	// re-rendering the whole transcript every time.
+	// blockRenderCache holds the last rendered lines for each finalized entry
+	// (or contiguous batched-tool-call group), keyed by entry ID (or "idx:N"
+	// / "group:..." for entries without one). buildTranscript reuses a cached
+	// render instead of re-running Block.Render (and, for markdown, glamour's
+	// full parse) when the source entries and content width are unchanged
+	// (reflect.DeepEqual against the snapshot taken at cache time — cheaper
+	// than re-serializing the entries to a string on every check, and, being
+	// a structural comparison rather than hand-picked fields, automatically
+	// stays correct as Node kinds gain new fields), so redraws only pay for
+	// the entry that actually changed rather than re-rendering the whole
+	// transcript every time.
 	blockRenderCache map[string]blockRenderCacheEntry
+
+	// markdownRenderers caches glamour.TermRenderer by content width so
+	// buildTranscript doesn't reconstruct one (style config + chroma lexer
+	// setup) on every redraw — terminal width rarely changes within a
+	// session.
+	markdownRenderers map[int]*glamour.TermRenderer
 }
 
 type blockRenderCacheEntry struct {
-	signature string
-	lines     []RenderedLine
+	entries []Entry
+	width   int
+	lines   []RenderedLine
 }
 
 // composerModel owns editable input and command completion state.
