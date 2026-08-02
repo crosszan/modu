@@ -16,6 +16,7 @@ import (
 
 type streamTickMsg struct{}
 type spinnerTickMsg struct{}
+type streamRenderTickMsg struct{}
 type autoScrollTickMsg struct{}
 type statusExpireMsg struct {
 	status string
@@ -52,6 +53,15 @@ const bottomFixedRowsBase = 5
 const maxInputRows = 5
 const minViewportRows = 1
 const maxAutoScrollTicksWithoutDrag = 80
+
+// streamRenderThrottle bounds how often a live-streaming entry (an
+// in-progress assistant reply, rendered as markdown so it looks the same
+// mid-stream as it will once finished) actually triggers a full rebuild.
+// Deltas arrive far more often than this during a fast token stream;
+// batching them keeps re-parsing markdown proportional to wall-clock time
+// spent generating rather than to token count, while 100ms is far under
+// the threshold a human would perceive as lag.
+const streamRenderThrottle = 100 * time.Millisecond
 
 type pendingApproval struct {
 	request ToolApprovalRequest
@@ -572,6 +582,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinnerFrame++
 		return m, m.spinnerTick()
 
+	case streamRenderTickMsg:
+		if m.streamRenderPending {
+			wasAtBottom := m.atBottom()
+			m.rebuild()
+			m.streamRenderPending = false
+			if wasAtBottom {
+				m.follow = true
+				m.unseen = 0
+			}
+			m.clampScroll()
+		}
+		if !m.busy {
+			m.streamRenderTicking = false
+			return m, nil
+		}
+		return m, m.streamRenderTick()
+
 	case UpdateMsg:
 		return m.applyHostUpdate(msg.Update)
 
@@ -675,6 +702,16 @@ func (m Model) applyHostUpdate(update Update) (tea.Model, tea.Cmd) {
 	case AppendEntryUpdate:
 		return m.appendHostEntry(update.Entry)
 	case UpsertEntryUpdate:
+		if update.Entry.Streaming {
+			// Update the data now (cheap) but defer the rebuild (which for a
+			// markdown entry means a full glamour parse) to the next
+			// streamRenderTickMsg, so a fast token stream doesn't reparse the
+			// growing reply on every single delta. The final, non-streaming
+			// upsert at message_end always takes the immediate path below.
+			m.upsertEntry(update.Entry)
+			m.streamRenderPending = true
+			return m, m.ensureStreamRenderRunning()
+		}
 		wasAtBottom := m.atBottom()
 		added := m.upsertEntry(update.Entry)
 		m.rebuild()
@@ -2621,4 +2658,20 @@ func (m *Model) ensureSpinnerRunning() tea.Cmd {
 	}
 	m.spinnerRunning = true
 	return m.spinnerTick()
+}
+
+func (m Model) streamRenderTick() tea.Cmd {
+	return tea.Tick(streamRenderThrottle, func(time.Time) tea.Msg { return streamRenderTickMsg{} })
+}
+
+// ensureStreamRenderRunning arms the streamRenderTickMsg loop that flushes
+// throttled streaming-entry rebuilds (see streamRenderThrottle) if not
+// already running. streamRenderTicking prevents a second concurrent chain
+// from halving the effective throttle interval.
+func (m *Model) ensureStreamRenderRunning() tea.Cmd {
+	if m.streamRenderTicking {
+		return nil
+	}
+	m.streamRenderTicking = true
+	return m.streamRenderTick()
 }

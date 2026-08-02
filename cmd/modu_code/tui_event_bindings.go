@@ -112,9 +112,13 @@ func moduTUIAssistantMessage(msg types.AgentMessage) (types.AssistantMessage, bo
 }
 
 // moduTUILiveAssistantTextEntry builds a transcript entry for the assistant
-// reply's text so far. It renders as plain text (TextNode, not MarkdownNode)
-// so redrawing it on every delta never re-runs glamour's markdown parse;
-// message_end swaps it for a fully markdown-rendered entry via
+// reply's text so far. It renders as markdown (MarkdownNode) so the reply
+// looks the same while streaming as it will once finished, instead of
+// showing raw markdown syntax that suddenly formats at message_end. The
+// entry is marked Streaming so the render cache never holds onto it and
+// Model throttles how often it actually re-parses (see
+// streamRenderThrottle in pkg/modu-tui) rather than reparsing on every
+// delta. message_end swaps it for the final entry via
 // moduTUIClaimLiveTextEntry.
 func moduTUILiveAssistantTextEntry(message types.AssistantMessage) (modutui.Entry, bool) {
 	var parts []string
@@ -129,7 +133,7 @@ func moduTUILiveAssistantTextEntry(message types.AssistantMessage) (modutui.Entr
 	}
 	return modutui.Entry{
 		Role:      modutui.RoleAssistant,
-		Nodes:     []modutui.Node{modutui.TextNode{Text: joined}},
+		Nodes:     []modutui.Node{modutui.MarkdownNode{Text: joined}},
 		Streaming: true,
 	}, true
 }
