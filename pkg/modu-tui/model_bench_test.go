@@ -90,3 +90,57 @@ func BenchmarkStreamingDeltaRenderCost(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkStreamRenderThrottle quantifies streamRenderThrottle's effect:
+// the live assistant reply is a MarkdownNode (so it looks formatted while
+// streaming, not raw-then-formatted at message_end — see
+// moduTUILiveAssistantTextEntry), which means without throttling, every
+// delta would re-run glamour's full markdown parse via Update(). "unthrottled"
+// simulates that (bypasses the throttle to call rebuild after every delta,
+// i.e. what this codebase did for the few minutes between "make streaming
+// look formatted" and "add the throttle" — never shipped, but the
+// regression this benchmark guards against). "throttled" simulates 40
+// deltas landing within one streamRenderThrottle window followed by a
+// single flush, which is what actually ships: Update() marks the entry
+// dirty on every delta (cheap) and one streamRenderTickMsg does the one
+// real rebuild.
+func BenchmarkStreamRenderThrottle(b *testing.B) {
+	b.Run("unthrottled_rebuild_per_delta", func(b *testing.B) {
+		var model tea.Model = NewModel(Options{Width: 100, Height: 30})
+		b.ResetTimer()
+		for n := 0; n < b.N; n++ {
+			var text strings.Builder
+			for delta := 0; delta < 40; delta++ {
+				text.WriteString("token ")
+				next, _ := model.Update(UpdateMsg{Update: UpsertEntryUpdate{Entry: Entry{
+					ID:    "streaming-reply",
+					Role:  RoleAssistant,
+					Nodes: []Node{MarkdownNode{Text: text.String()}},
+					// Streaming deliberately omitted: this arm exists to show
+					// what unthrottled MarkdownNode streaming would have cost.
+				}}})
+				model = next
+			}
+		}
+	})
+
+	b.Run("throttled_one_flush_per_40_deltas", func(b *testing.B) {
+		var model tea.Model = NewModel(Options{Width: 100, Height: 30})
+		b.ResetTimer()
+		for n := 0; n < b.N; n++ {
+			var text strings.Builder
+			for delta := 0; delta < 40; delta++ {
+				text.WriteString("token ")
+				next, _ := model.Update(UpdateMsg{Update: UpsertEntryUpdate{Entry: Entry{
+					ID:        "streaming-reply",
+					Role:      RoleAssistant,
+					Nodes:     []Node{MarkdownNode{Text: text.String()}},
+					Streaming: true,
+				}}})
+				model = next
+			}
+			next, _ := model.Update(streamRenderTickMsg{})
+			model = next
+		}
+	})
+}

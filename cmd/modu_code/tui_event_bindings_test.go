@@ -80,9 +80,9 @@ func TestModuTUILiveAssistantTextEntry(t *testing.T) {
 		if len(entry.Nodes) != 1 {
 			t.Fatalf("expected a single node, got %d", len(entry.Nodes))
 		}
-		node, ok := entry.Nodes[0].(modutui.TextNode)
+		node, ok := entry.Nodes[0].(modutui.MarkdownNode)
 		if !ok {
-			t.Fatalf("expected a TextNode (plain, no markdown parse), got %T", entry.Nodes[0])
+			t.Fatalf("expected a MarkdownNode (so it renders the same mid-stream as it will once finished), got %T", entry.Nodes[0])
 		}
 		if node.Text != "hello\n\nworld" {
 			t.Fatalf("Text = %q, want joined text blocks only", node.Text)

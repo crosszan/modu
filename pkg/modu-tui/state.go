@@ -54,6 +54,14 @@ type transcriptModel struct {
 	// setup) on every redraw — terminal width rarely changes within a
 	// session.
 	markdownRenderers map[int]*glamour.TermRenderer
+
+	// streamRenderPending/streamRenderTicking implement streamRenderThrottle:
+	// a live-streaming entry update sets streamRenderPending instead of
+	// rebuilding immediately, and a streamRenderTickMsg loop (armed by
+	// ensureStreamRenderRunning, guarded from double-arming by
+	// streamRenderTicking) flushes it on a schedule.
+	streamRenderPending bool
+	streamRenderTicking bool
 }
 
 type blockRenderCacheEntry struct {

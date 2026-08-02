@@ -2522,21 +2522,83 @@ func TestReplaceEntriesUpdateReplacesTranscript(t *testing.T) {
 	}
 }
 
-func TestStreamingEntryRendersAsPlainText(t *testing.T) {
+func TestStreamingTextNodeEntryRendersLiteralSource(t *testing.T) {
+	// Model doesn't force a rendering mode onto Streaming entries — whichever
+	// Node kind the host builds it from is respected. Exercised at the
+	// render level (entries + rebuild directly) rather than through
+	// Update(UpsertEntryUpdate{...}), since that path now throttles
+	// streaming rebuilds (see TestUpsertEntryUpdateThrottlesStreamingRebuild)
+	// and this test is about rendering, not scheduling.
+	var tm tea.Model = NewModel(Options{Width: 72, Height: 12})
+	m := tm.(Model)
+	m.entries = append(m.entries, Entry{
+		ID:        "live-1",
+		Role:      RoleAssistant,
+		Nodes:     []Node{TextNode{Text: "**bold** stays literal as TextNode"}},
+		Streaming: true,
+	})
+	m.rebuild()
+
+	rendered := ansi.Strip(m.render())
+	if !strings.Contains(rendered, "**bold** stays literal as TextNode") {
+		t.Fatalf("a Streaming TextNode entry should render its source verbatim (no glamour pass), got:\n%s", rendered)
+	}
+}
+
+func TestStreamingMarkdownNodeEntryRendersStyled(t *testing.T) {
+	// The live assistant reply is built as a MarkdownNode (see
+	// moduTUILiveAssistantTextEntry in cmd/modu_code) specifically so it
+	// looks the same mid-stream as it will once finished, instead of
+	// showing raw markdown syntax that suddenly formats at message_end.
+	// This confirms Model actually renders a Streaming MarkdownNode entry
+	// through glamour, not just literally.
+	var tm tea.Model = NewModel(Options{Width: 72, Height: 12})
+	m := tm.(Model)
+	m.entries = append(m.entries, Entry{
+		ID:        "live-1",
+		Role:      RoleAssistant,
+		Nodes:     []Node{MarkdownNode{Text: "**bold**"}},
+		Streaming: true,
+	})
+	m.rebuild()
+
+	rendered := m.render()
+	if strings.Contains(ansi.Strip(rendered), "**bold**") {
+		t.Fatalf("a Streaming MarkdownNode entry should be glamour-rendered, not shown as literal source:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "\x1b[") {
+		t.Fatalf("expected glamour's styling (ANSI escapes) in the streamed markdown render:\n%q", rendered)
+	}
+}
+
+func TestUpsertEntryUpdateThrottlesStreamingRebuild(t *testing.T) {
 	var tm tea.Model = NewModel(Options{Width: 72, Height: 12})
 	m := tm.(Model)
 
-	tm, _ = m.Update(UpdateMsg{Update: UpsertEntryUpdate{Entry: Entry{
+	tm, cmd := m.Update(UpdateMsg{Update: UpsertEntryUpdate{Entry: Entry{
 		ID:        "live-1",
 		Role:      RoleAssistant,
-		Nodes:     []Node{TextNode{Text: "**bold** should stay literal while streaming"}},
+		Nodes:     []Node{MarkdownNode{Text: "partial reply"}},
 		Streaming: true,
 	}}})
 	m = tm.(Model)
+	if cmd == nil {
+		t.Fatal("a streaming upsert should arm the throttled render tick")
+	}
+	if !m.streamRenderPending {
+		t.Fatal("streaming upsert should mark a render pending rather than rebuilding immediately")
+	}
+	if strings.Contains(ansi.Strip(m.render()), "partial reply") {
+		t.Fatal("the transcript should not show the new content before the throttle tick flushes it")
+	}
 
-	rendered := ansi.Strip(m.render())
-	if !strings.Contains(rendered, "**bold** should stay literal while streaming") {
-		t.Fatalf("streaming entry should render its markdown source verbatim (no glamour pass), got:\n%s", rendered)
+	tm, _ = m.Update(streamRenderTickMsg{})
+	m = tm.(Model)
+	if m.streamRenderPending {
+		t.Fatal("the tick should have cleared the pending flag")
+	}
+	if !strings.Contains(ansi.Strip(m.render()), "partial reply") {
+		t.Fatal("the transcript should show the streamed content once the throttle tick flushes it")
 	}
 }
 
