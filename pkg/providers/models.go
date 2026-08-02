@@ -137,15 +137,6 @@ func GetModels(provider string) []*types.Model {
 	return nil
 }
 
-// CalculateCost computes the cost fields on an AgentUsage based on the model's pricing.
-func CalculateCost(model *types.Model, usage *types.AgentUsage) {
-	usage.Cost.Input = (model.Cost.Input / 1000000) * float64(usage.Input)
-	usage.Cost.Output = (model.Cost.Output / 1000000) * float64(usage.Output)
-	usage.Cost.CacheRead = (model.Cost.CacheRead / 1000000) * float64(usage.CacheRead)
-	usage.Cost.CacheWrite = (model.Cost.CacheWrite / 1000000) * float64(usage.CacheWrite)
-	usage.Cost.Total = usage.Cost.Input + usage.Cost.Output + usage.Cost.CacheRead + usage.Cost.CacheWrite
-}
-
 // SupportsXHigh returns true if the model supports xhigh thinking level.
 func SupportsXHigh(model *types.Model) bool {
 	if model == nil {
@@ -158,12 +149,4 @@ func SupportsXHigh(model *types.Model) bool {
 		return strings.Contains(model.ID, "opus-4-6") || strings.Contains(model.ID, "opus-4.6")
 	}
 	return false
-}
-
-// ModelsAreEqual returns true if both models refer to the same model.
-func ModelsAreEqual(a *types.Model, b *types.Model) bool {
-	if a == nil || b == nil {
-		return false
-	}
-	return a.ID == b.ID && a.ProviderID == b.ProviderID
 }

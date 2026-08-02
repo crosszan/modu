@@ -7,48 +7,6 @@ import (
 	"github.com/openmodu/modu/pkg/types"
 )
 
-// BashExecutionMessage represents a `!command` inline execution result.
-type BashExecutionMessage struct {
-	Command  string `json:"command"`
-	Output   string `json:"output"`
-	ExitCode int    `json:"exitCode"`
-}
-
-// ToLlmMessage converts a BashExecutionMessage to a UserMessage.
-func (m *BashExecutionMessage) ToLlmMessage() types.UserMessage {
-	text := "$ " + m.Command + "\n" + m.Output
-	return types.UserMessage{
-		Role: "user",
-		Content: []types.ContentBlock{
-			&types.TextContent{
-				Type: "text",
-				Text: text,
-			},
-		},
-		Timestamp: time.Now().UnixMilli(),
-	}
-}
-
-// CompactionSummaryMessage represents a context compaction summary.
-type CompactionSummaryMessage struct {
-	Summary       string `json:"summary"`
-	OriginalCount int    `json:"originalCount"`
-}
-
-// ToLlmMessage converts a CompactionSummaryMessage to a UserMessage.
-func (m *CompactionSummaryMessage) ToLlmMessage() types.UserMessage {
-	return types.UserMessage{
-		Role: "user",
-		Content: []types.ContentBlock{
-			&types.TextContent{
-				Type: "text",
-				Text: "[Context Compaction Summary]\n\n" + m.Summary,
-			},
-		},
-		Timestamp: time.Now().UnixMilli(),
-	}
-}
-
 // BranchSummaryMessage represents a summary generated when navigating branches.
 type BranchSummaryMessage struct {
 	Summary string `json:"summary"`

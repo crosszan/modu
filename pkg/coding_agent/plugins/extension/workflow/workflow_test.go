@@ -182,21 +182,6 @@ func (f *fakeAPI) maxConcurrency() int {
 	return f.maxActive
 }
 
-func (f *fakeAPI) confirmCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.confirms)
-}
-
-func (f *fakeAPI) lastConfirm() workflowConfirmCall {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.confirms) == 0 {
-		return workflowConfirmCall{}
-	}
-	return f.confirms[len(f.confirms)-1]
-}
-
 func (f *fakeAPI) selectCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
