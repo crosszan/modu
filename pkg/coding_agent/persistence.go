@@ -204,7 +204,10 @@ func unmarshalSingleAgentMessage(raw json.RawMessage) (types.AgentMessage, error
 func agentMessageFromSessionData(data any) (types.AgentMessage, bool) {
 	switch v := data.(type) {
 	case session.MessageData:
-		if msg, ok := v.Content.(types.AgentMessage); ok {
+		switch msg := v.Content.(type) {
+		case types.UserMessage, *types.UserMessage,
+			types.AssistantMessage, *types.AssistantMessage,
+			types.ToolResultMessage, *types.ToolResultMessage:
 			return msg, true
 		}
 		switch v.Role {

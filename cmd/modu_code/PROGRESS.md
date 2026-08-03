@@ -5,6 +5,13 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-08-03: fixed resumed context-compaction dividers appearing at the bottom
+  of the TUI transcript. Resume replay now consumes the persisted current-path
+  transcript as one ordered stream instead of pairing the full session tree
+  with compacted live messages by index. Startup resume and `/resume` regression
+  tests both require `before messages -> context compact -> after messages`;
+  restored parallel tool grouping remains covered.
+
 - 2026-07-30: fixed stale plan todos reappearing in the next TUI run. Agent
   event bindings now refresh the fixed todo card only after successful
   `exit_plan_mode` or `todo_write` calls, instead of after every completed

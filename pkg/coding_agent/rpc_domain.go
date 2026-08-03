@@ -1,6 +1,9 @@
 package coding_agent
 
-import "github.com/openmodu/modu/pkg/coding_agent/services/session"
+import (
+	"github.com/openmodu/modu/pkg/coding_agent/services/session"
+	"github.com/openmodu/modu/pkg/types"
+)
 
 // ForkMessage represents a user message available for forking.
 type ForkMessage struct {
@@ -32,6 +35,14 @@ type SessionTreeNode struct {
 	Current       bool   `json:"current"`
 	InCurrentPath bool   `json:"inCurrentPath"`
 	Timestamp     int64  `json:"timestamp"`
+}
+
+// SessionTranscriptEntry is one displayable item from the persisted current
+// path. Message is set only when Type is "message".
+type SessionTranscriptEntry struct {
+	Type      string             `json:"type"`
+	Message   types.AgentMessage `json:"message,omitempty"`
+	Timestamp int64              `json:"timestamp"`
 }
 
 // SessionStats contains aggregate statistics for the current session.

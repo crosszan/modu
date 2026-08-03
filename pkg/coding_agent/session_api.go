@@ -100,6 +100,37 @@ func (s *CodingSession) GetSessionTreeNodes() []SessionTreeNode {
 	return out
 }
 
+// GetSessionTranscript returns the persisted messages and compaction markers
+// on the current path in causal order. It intentionally reads the append-only
+// session path instead of the agent's compacted replacement history.
+func (s *CodingSession) GetSessionTranscript() []SessionTranscriptEntry {
+	if s.sessionTree == nil {
+		return nil
+	}
+	path := s.sessionTree.GetCurrentPath()
+	out := make([]SessionTranscriptEntry, 0, len(path))
+	for _, entry := range path {
+		switch entry.Type {
+		case session.EntryTypeMessage:
+			message, ok := agentMessageFromSessionData(entry.Data)
+			if !ok || message == nil {
+				continue
+			}
+			out = append(out, SessionTranscriptEntry{
+				Type:      string(entry.Type),
+				Message:   message,
+				Timestamp: entry.Timestamp,
+			})
+		case session.EntryTypeCompaction:
+			out = append(out, SessionTranscriptEntry{
+				Type:      string(entry.Type),
+				Timestamp: entry.Timestamp,
+			})
+		}
+	}
+	return out
+}
+
 // CreateBranchedSession creates a new session file from the path to entryID.
 func (s *CodingSession) CreateBranchedSession(entryID string) (string, error) {
 	if s.sessionManager == nil {
