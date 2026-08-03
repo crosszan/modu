@@ -12,6 +12,10 @@ type transcriptModel struct {
 	entries []Entry
 	lines   []string
 	gutters []int
+	// copyBlocks parallels lines. Repeated non-empty values identify one
+	// contiguous rendered block with a semantic whole-block representation.
+	copyBlocks []string
+
 	headers map[int]int
 	yOffset int
 	follow  bool

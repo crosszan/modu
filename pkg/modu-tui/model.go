@@ -1187,7 +1187,7 @@ func (m *Model) jumpToBottom() {
 }
 
 func (m *Model) rebuild() {
-	m.lines, m.gutters, m.headers = m.buildTranscript()
+	m.lines, m.gutters, m.copyBlocks, m.headers = m.buildTranscript()
 	m.panelLines = m.buildPanelLines()
 	m.clampSelection()
 	m.clampScroll()
@@ -1212,17 +1212,19 @@ func (m *Model) clampScroll() {
 	}
 }
 
-func (m *Model) buildTranscript() ([]string, []int, map[int]int) {
+func (m *Model) buildTranscript() ([]string, []int, []string, map[int]int) {
 	width := max(m.width, 1)
 	contentWidth := max(1, width-2)
 	ctx := RenderContext{ContentWidth: contentWidth, Markdown: m.markdownRendererForWidth(contentWidth)}
 	var lines []string
 	var gutters []int
+	var copyBlocks []string
 	headers := map[int]int{}
 	addGap := func() {
 		for range m.blockGap {
 			lines = append(lines, "")
 			gutters = append(gutters, 0)
+			copyBlocks = append(copyBlocks, "")
 		}
 	}
 
@@ -1230,6 +1232,7 @@ func (m *Model) buildTranscript() ([]string, []int, map[int]int) {
 		for _, line := range (CardBlock{Lines: m.infoCardLines}).RenderWidth(width) {
 			lines = append(lines, line)
 			gutters = append(gutters, 0)
+			copyBlocks = append(copyBlocks, "")
 		}
 		if len(m.entries) > 0 || m.streaming {
 			addGap()
@@ -1249,6 +1252,7 @@ func (m *Model) buildTranscript() ([]string, []int, map[int]int) {
 				}
 				lines = append(lines, line.Text)
 				gutters = append(gutters, line.Gutter)
+				copyBlocks = append(copyBlocks, line.CopyBlock)
 			}
 			idx += groupLen
 			if idx < len(m.entries) {
@@ -1267,6 +1271,7 @@ func (m *Model) buildTranscript() ([]string, []int, map[int]int) {
 			}
 			lines = append(lines, line.Text)
 			gutters = append(gutters, line.Gutter)
+			copyBlocks = append(copyBlocks, line.CopyBlock)
 		}
 		idx++
 		if idx < len(m.entries) {
@@ -1284,13 +1289,16 @@ func (m *Model) buildTranscript() ([]string, []int, map[int]int) {
 		for _, line := range block.Lines {
 			lines = append(lines, line.Text)
 			gutters = append(gutters, line.Gutter)
+			copyBlocks = append(copyBlocks, line.CopyBlock)
 		}
 		lines, gutters = append(lines, "  "+dimStyle.Render("┄ streaming…")), append(gutters, 2)
+		copyBlocks = append(copyBlocks, "")
 	}
 	for len(lines) > 0 && strings.TrimSpace(ansi.Strip(lines[len(lines)-1])) == "" {
 		lines, gutters = lines[:len(lines)-1], gutters[:len(gutters)-1]
+		copyBlocks = copyBlocks[:len(copyBlocks)-1]
 	}
-	return lines, gutters, headers
+	return lines, gutters, copyBlocks, headers
 }
 
 func (m *Model) buildPanelLines() []string {

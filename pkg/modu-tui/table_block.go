@@ -15,7 +15,12 @@ type TableBlock struct {
 
 func (b TableBlock) Render(ctx RenderContext) BlockRender {
 	body := b.renderBody(max(1, ctx.ContentWidth))
-	return bodyLines(b.Marker, body, max(1, ctx.ContentWidth), func(s string) string { return s })
+	rendered := bodyLines(b.Marker, body, max(1, ctx.ContentWidth), func(s string) string { return s })
+	copyBlock := markdownTableSource(b.Rows, b.Aligns)
+	for i := range rendered.Lines {
+		rendered.Lines[i].CopyBlock = copyBlock
+	}
+	return rendered
 }
 
 func (b TableBlock) renderBody(maxWidth int) string {
