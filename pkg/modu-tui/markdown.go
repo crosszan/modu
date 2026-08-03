@@ -7,6 +7,12 @@ import (
 	"github.com/charmbracelet/glamour"
 	glamouransi "github.com/charmbracelet/glamour/ansi"
 	glamourstyles "github.com/charmbracelet/glamour/styles"
+	"github.com/charmbracelet/x/ansi"
+)
+
+const (
+	orderedListMarker  = "\u2063"
+	markdownBreakSpace = "\u2009"
 )
 
 // markdownRenderer builds a glamour renderer with the document Margin zeroed, so
@@ -28,6 +34,7 @@ func markdownStyleConfig() glamouransi.StyleConfig {
 		Margin:         &noMargin,
 	}
 	style.Code = glamouransi.StyleBlock{}
+	style.Enumeration.BlockPrefix = ". " + orderedListMarker
 	return style
 }
 
@@ -76,6 +83,65 @@ func markdownWithPlaintextFences(markdown string) string {
 		out.WriteString(ending)
 	}
 	return out.String()
+}
+
+// markdownWithHangingOrderedLists aligns wrapped list content after its numeric
+// marker. Glamour wraps ordered-list continuations at the list's left edge.
+func markdownWithHangingOrderedLists(rendered string, width int) string {
+	lines := strings.Split(rendered, "\n")
+	out := make([]string, 0, len(lines))
+	indent := 0
+	for _, line := range lines {
+		if clean, prefixWidth, ok := orderedListPrefix(line); ok {
+			indent = prefixWidth
+			out = append(out, trimRightANSIWhitespace(clean))
+			continue
+		}
+		if strings.TrimSpace(ansi.Strip(line)) == "" {
+			indent = 0
+			out = append(out, line)
+			continue
+		}
+		if indent == 0 {
+			out = append(out, line)
+			continue
+		}
+
+		wrapped := ansi.Wrap(trimANSIWhitespace(line), max(1, width-indent), "")
+		chunks := strings.Split(strings.TrimSuffix(wrapped, "\n"), "\n")
+		for _, chunk := range chunks {
+			out = append(out, strings.Repeat(" ", indent)+chunk)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func orderedListPrefix(line string) (string, int, bool) {
+	marker := strings.Index(line, orderedListMarker)
+	if marker < 0 {
+		return line, 0, false
+	}
+	prefixWidth := ansi.StringWidth(line[:marker])
+	return strings.Replace(line, orderedListMarker, "", 1), prefixWidth, true
+}
+
+func trimRightANSIWhitespace(line string) string {
+	plain := ansi.Strip(line)
+	trimmed := strings.TrimRight(plain, " \t")
+	if trimmed == plain {
+		return line
+	}
+	return ansi.Cut(line, 0, ansi.StringWidth(trimmed))
+}
+
+func trimANSIWhitespace(line string) string {
+	plain := ansi.Strip(line)
+	trimmed := strings.TrimSpace(plain)
+	if trimmed == plain {
+		return line
+	}
+	left := ansi.StringWidth(plain) - ansi.StringWidth(strings.TrimLeft(plain, " \t"))
+	return ansi.Cut(line, left, left+ansi.StringWidth(trimmed))
 }
 
 // glamourStyle picks dark/light WITHOUT querying the terminal (no OSC leak).

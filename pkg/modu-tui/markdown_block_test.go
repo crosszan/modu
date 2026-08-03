@@ -14,6 +14,133 @@ func TestMarkdownBlockRendersMarkdown(t *testing.T) {
 	}
 }
 
+func TestMarkdownBlockReflowsSoftLineBreaks(t *testing.T) {
+	block := MarkdownBlock{
+		Marker: botStyle.Render("● "),
+		Text: "1. Blitz 使用的\n" +
+			"   API (GetTool, CreateSession, GetSession, ListSessions) 的输入输出 struct 在两种接口中完全一致\n" +
+			"2. 第二项",
+	}
+	lines := renderedTexts(block.Render(RenderContext{
+		ContentWidth: 72,
+		Markdown:     markdownRenderer(72),
+	}))
+
+	firstItem := ""
+	for _, line := range lines {
+		if strings.Contains(line, "1. Blitz") {
+			firstItem = line
+			break
+		}
+	}
+	if !strings.Contains(firstItem, "API") {
+		t.Fatalf("soft line break should reflow within the first list item:\n%s", strings.Join(lines, "\n"))
+	}
+	if strings.Contains(strings.Join(lines, "\n"), orderedListMarker) {
+		t.Fatalf("internal ordered-list marker leaked into rendered output:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestMarkdownBlockCanWrapAPINamesAtChinesePunctuation(t *testing.T) {
+	block := MarkdownBlock{
+		Marker: botStyle.Render("● "),
+		Text: "1. Blitz 使用的\n" +
+			"   API（GetTool、CreateSession、GetSession、ListSessions、InnerGetPrivateLinkEndpoint）的输入输出一致",
+	}
+	lines := renderedTexts(block.Render(RenderContext{
+		ContentWidth: 72,
+		Markdown:     markdownRenderer(72),
+	}))
+
+	var compact strings.Builder
+	firstLineUsesRemainingWidth := false
+	for _, line := range lines {
+		compact.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "1. ")))
+		if strings.Contains(line, "1. Blitz") {
+			if !strings.Contains(line, "API（") {
+				t.Fatalf("API name group should use the remaining width before wrapping:\n%s", strings.Join(lines, "\n"))
+			}
+			firstLineUsesRemainingWidth = true
+		}
+	}
+	if !firstLineUsesRemainingWidth {
+		t.Fatalf("first ordered-list line missing:\n%s", strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(compact.String(), "API（GetTool、CreateSession、GetSession、ListSessions、InnerGetPrivateLinkEndpoint）") {
+		t.Fatalf("wrapping should not add spaces inside the API name group:\n%s", strings.Join(lines, "\n"))
+	}
+	if strings.Contains(compact.String(), markdownBreakSpace) {
+		t.Fatalf("internal CJK break marker leaked into rendered output:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestMarkdownBlockUsesHangingIndentForWrappedOrderedListItem(t *testing.T) {
+	block := MarkdownBlock{
+		Marker: botStyle.Render("● "),
+		Text:   "1. alpha beta gamma delta epsilon zeta eta theta",
+	}
+	lines := renderedTexts(block.Render(RenderContext{
+		ContentWidth: 24,
+		Markdown:     markdownRenderer(24),
+	}))
+
+	if len(lines) < 2 {
+		t.Fatalf("expected ordered list item to wrap:\n%s", strings.Join(lines, "\n"))
+	}
+	itemLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "1. alpha") {
+			itemLine = i
+			break
+		}
+	}
+	if itemLine < 0 || itemLine+1 >= len(lines) || !strings.HasPrefix(lines[itemLine+1], "     ") {
+		t.Fatalf("ordered list continuation should align after the list marker:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestMarkdownOrderedListIndentDoesNotChangeCodeLines(t *testing.T) {
+	source := "1. code-shaped text\nplain continuation"
+	if got := markdownWithHangingOrderedLists(source, 24); got != source {
+		t.Fatalf("ordered-list indentation should only process renderer-marked list items:\n%s", got)
+	}
+}
+
+func TestMarkdownCJKBreakOpportunitiesSkipCode(t *testing.T) {
+	source := "甲、乙，丙；丁：戊。己！庚？！”辛）壬】癸《末》 and `code、value`\n\n```\nfenced，code\n```"
+	want := "甲、" + markdownBreakSpace +
+		"乙，" + markdownBreakSpace +
+		"丙；" + markdownBreakSpace +
+		"丁：" + markdownBreakSpace +
+		"戊。" + markdownBreakSpace +
+		"己！" + markdownBreakSpace +
+		"庚？！”" + markdownBreakSpace +
+		"辛）" + markdownBreakSpace +
+		"壬】" + markdownBreakSpace +
+		"癸《末》" + markdownBreakSpace +
+		" and `code、value`\n\n```\nfenced，code\n```"
+	if got := markdownWithCJKBreakOpportunities(source); got != want {
+		t.Fatalf("CJK break opportunities should only be added to prose:\nwant:\n%q\n\ngot:\n%q", want, got)
+	}
+}
+
+func TestMarkdownSoftLineBreaksPreserveStructuralAndHardBreaks(t *testing.T) {
+	source := "paragraph\ncontinued\n\n" +
+		"1. first\n" +
+		"2. second\n\n" +
+		"hard break  \nkept\n\n" +
+		"```\ncode\nlines\n```"
+	want := "paragraph continued\n\n" +
+		"1. first\n" +
+		"2. second\n\n" +
+		"hard break  \nkept\n\n" +
+		"```\ncode\nlines\n```"
+
+	if got := markdownSoftBreaksAsSpaces(source); got != want {
+		t.Fatalf("soft line break normalization changed structural or hard breaks:\nwant:\n%s\n\ngot:\n%s", want, got)
+	}
+}
+
 func TestMarkdownInlineCodeDoesNotRenderAsRedBackgroundBlock(t *testing.T) {
 	style := markdownStyleConfig()
 	if style.Code.BackgroundColor != nil {
