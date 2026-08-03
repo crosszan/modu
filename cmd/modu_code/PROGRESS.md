@@ -12,6 +12,14 @@ enough to implement, verify, and commit independently.
   tests both require `before messages -> context compact -> after messages`;
   restored parallel tool grouping remains covered.
 
+- 2026-08-03: made table copy semantic without changing terminal rendering.
+  Dragging across a complete bordered Markdown or `TableNode` table now places
+  Markdown table source on the local/OSC52 clipboard instead of box-drawing
+  borders. Partial row or cell selections retain the visible terminal text.
+  Copy metadata stays attached to rendered lines through transcript caching;
+  tests cover actual clipboard dispatch, right/center alignment, escaped pipes,
+  multiline cells, and the partial-selection boundary.
+
 - 2026-07-30: fixed stale plan todos reappearing in the next TUI run. Agent
   event bindings now refresh the fixed todo card only after successful
   `exit_plan_mode` or `todo_write` calls, instead of after every completed

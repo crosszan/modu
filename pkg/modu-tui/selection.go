@@ -250,15 +250,60 @@ func (m *Model) selectedText() string {
 	hi.line = clamp(hi.line, 0, len(m.lines)-1)
 	lo.col = clamp(lo.col, 0, m.lineWidth(lo.line))
 	hi.col = clamp(hi.col, 0, m.lineWidth(hi.line))
-	start := func(li, col int) int { return max(col, m.gutterAt(li)) }
-	if lo.line == hi.line {
-		return cellSlice(ansi.Strip(m.lines[lo.line]), start(lo.line, lo.col), hi.col)
-	}
 	var parts []string
-	parts = append(parts, cellSlice(ansi.Strip(m.lines[lo.line]), start(lo.line, lo.col), 1<<30))
-	for i := lo.line + 1; i < hi.line; i++ {
-		parts = append(parts, cellSlice(ansi.Strip(m.lines[i]), m.gutterAt(i), 1<<30))
+	for line := lo.line; line <= hi.line; {
+		if copyBlock := m.copyBlockAt(line); copyBlock != "" {
+			start, stop := m.copyBlockBounds(line)
+			if line == start && m.selectionCoversCopyBlock(lo, hi, start, stop) {
+				parts = append(parts, copyBlock)
+				line = stop + 1
+				continue
+			}
+		}
+		from := m.gutterAt(line)
+		to := m.lineWidth(line)
+		if line == lo.line {
+			from = max(from, lo.col)
+		}
+		if line == hi.line {
+			to = hi.col
+		}
+		parts = append(parts, cellSlice(ansi.Strip(m.lines[line]), from, to))
+		line++
 	}
-	parts = append(parts, cellSlice(ansi.Strip(m.lines[hi.line]), m.gutterAt(hi.line), hi.col))
 	return strings.Join(parts, "\n")
+}
+
+func (m *Model) copyBlockAt(line int) string {
+	if line < 0 || line >= len(m.copyBlocks) {
+		return ""
+	}
+	return m.copyBlocks[line]
+}
+
+func (m *Model) copyBlockBounds(line int) (int, int) {
+	copyBlock := m.copyBlockAt(line)
+	if copyBlock == "" {
+		return line, line
+	}
+	start, stop := line, line
+	for start > 0 && m.copyBlockAt(start-1) == copyBlock {
+		start--
+	}
+	for stop+1 < len(m.copyBlocks) && m.copyBlockAt(stop+1) == copyBlock {
+		stop++
+	}
+	return start, stop
+}
+
+func (m *Model) selectionCoversCopyBlock(lo, hi cell, start, stop int) bool {
+	startCovered := lo.line < start ||
+		(lo.line == start && lo.col <= m.gutterAt(start))
+	// A mouse coordinate points at a terminal cell, while selection slicing
+	// uses an exclusive end column. Reaching the final visible cell therefore
+	// counts as selecting the complete semantic block.
+	lastCell := max(m.gutterAt(stop), m.lineWidth(stop)-1)
+	stopCovered := hi.line > stop ||
+		(hi.line == stop && hi.col >= lastCell)
+	return startCovered && stopCovered
 }

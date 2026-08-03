@@ -2,6 +2,7 @@ package modutui
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yuin/goldmark"
@@ -20,45 +21,69 @@ type markdownTableRenderSegment struct {
 	aligns []lipgloss.Position
 }
 
-func renderMarkdownWithBorderedTables(renderer MarkdownRenderer, content string, width int) (string, error) {
+type renderedMarkdownSegment struct {
+	body      string
+	copyBlock string
+}
+
+func renderMarkdownSegments(renderer MarkdownRenderer, content string, width int) ([]renderedMarkdownSegment, error) {
 	source := []byte(content)
 	tables := extractMarkdownTables(source)
 	if len(tables) == 0 {
-		return renderMarkdownText(renderer, content)
+		rendered, err := renderMarkdownText(renderer, content, width)
+		if err != nil || strings.TrimSpace(rendered) == "" {
+			return nil, err
+		}
+		return []renderedMarkdownSegment{{body: rendered}}, nil
 	}
 
-	parts := make([]string, 0, len(tables)*2+1)
+	segments := make([]renderedMarkdownSegment, 0, len(tables)*2+1)
 	offset := 0
 	for _, table := range tables {
 		if table.start > offset {
-			rendered, err := renderMarkdownText(renderer, string(source[offset:table.start]))
+			rendered, err := renderMarkdownText(renderer, string(source[offset:table.start]), width)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			if strings.TrimSpace(rendered) != "" {
-				parts = append(parts, rendered)
+				segments = append(segments, renderedMarkdownSegment{body: rendered})
 			}
 		}
 
 		rendered := TableBlock{Rows: table.rows, Aligns: table.aligns}.renderBody(width)
 		if rendered != "" {
-			parts = append(parts, rendered)
+			segments = append(segments, renderedMarkdownSegment{
+				body:      rendered,
+				copyBlock: strings.TrimSpace(string(source[table.start:table.stop])),
+			})
 		}
 		offset = table.stop
 	}
 	if offset < len(source) {
-		rendered, err := renderMarkdownText(renderer, string(source[offset:]))
+		rendered, err := renderMarkdownText(renderer, string(source[offset:]), width)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if strings.TrimSpace(rendered) != "" {
-			parts = append(parts, rendered)
+			segments = append(segments, renderedMarkdownSegment{body: rendered})
 		}
+	}
+	return segments, nil
+}
+
+func renderMarkdownWithBorderedTables(renderer MarkdownRenderer, content string, width int) (string, error) {
+	segments, err := renderMarkdownSegments(renderer, content, width)
+	if err != nil {
+		return "", err
+	}
+	parts := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		parts = append(parts, segment.body)
 	}
 	return strings.Join(parts, "\n\n"), nil
 }
 
-func renderMarkdownText(renderer MarkdownRenderer, text string) (string, error) {
+func renderMarkdownText(renderer MarkdownRenderer, text string, width int) (string, error) {
 	text = strings.Trim(text, "\n")
 	if text == "" {
 		return "", nil
@@ -66,11 +91,112 @@ func renderMarkdownText(renderer MarkdownRenderer, text string) (string, error) 
 	if renderer == nil {
 		return text, nil
 	}
-	out, err := renderer.Render(markdownWithPlaintextFences(text))
+	normalized := markdownSoftBreaksAsSpaces(text)
+	normalized = markdownWithCJKBreakOpportunities(normalized)
+	out, err := renderer.Render(markdownWithPlaintextFences(normalized))
 	if err != nil {
 		return "", err
 	}
-	return strings.Trim(out, "\n"), nil
+	out = markdownWithHangingOrderedLists(strings.Trim(out, "\n"), width)
+	return strings.ReplaceAll(out, markdownBreakSpace, ""), nil
+}
+
+// markdownWithCJKBreakOpportunities adds removable thin spaces after Chinese
+// separator, sentence-ending, and closing punctuation. Consecutive punctuation
+// stays together so a continuation line does not begin with a closing mark.
+func markdownWithCJKBreakOpportunities(markdown string) string {
+	const breakPunctuation = "、，；：。！？）】》」』”’"
+	if !strings.ContainsAny(markdown, breakPunctuation) {
+		return markdown
+	}
+
+	source := []byte(markdown)
+	doc := markdownTableParser.Parser().Parse(text.NewReader(source))
+	var positions []int
+	_ = goldast.Walk(doc, func(node goldast.Node, entering bool) (goldast.WalkStatus, error) {
+		textNode, ok := node.(*goldast.Text)
+		if !entering || !ok || textNode.Parent().Kind() == goldast.KindCodeSpan {
+			return goldast.WalkContinue, nil
+		}
+
+		value := textNode.Segment.Value(source)
+		for offset := 0; offset < len(value); {
+			r, size := utf8.DecodeRune(value[offset:])
+			offset += size
+			if !strings.ContainsRune(breakPunctuation, r) {
+				continue
+			}
+			next, _ := utf8.DecodeRune(value[offset:])
+			if !strings.ContainsRune(breakPunctuation, next) {
+				positions = append(positions, textNode.Segment.Start+offset)
+			}
+		}
+		return goldast.WalkContinue, nil
+	})
+	if len(positions) == 0 {
+		return markdown
+	}
+
+	var out strings.Builder
+	offset := 0
+	for _, position := range positions {
+		out.Write(source[offset:position])
+		out.WriteString(markdownBreakSpace)
+		offset = position
+	}
+	out.Write(source[offset:])
+	return out.String()
+}
+
+func markdownSoftBreaksAsSpaces(markdown string) string {
+	source := []byte(markdown)
+	doc := markdownTableParser.Parser().Parse(text.NewReader(source))
+	type replacement struct {
+		start int
+		stop  int
+	}
+	var replacements []replacement
+	_ = goldast.Walk(doc, func(node goldast.Node, entering bool) (goldast.WalkStatus, error) {
+		textNode, ok := node.(*goldast.Text)
+		if !entering || !ok || !textNode.SoftLineBreak() || textNode.HardLineBreak() {
+			return goldast.WalkContinue, nil
+		}
+
+		start := textNode.Segment.Stop
+		stop := start
+		for stop < len(source) && source[stop] != '\n' && source[stop] != '\r' {
+			stop++
+		}
+		if stop >= len(source) {
+			return goldast.WalkContinue, nil
+		}
+		if source[stop] == '\r' {
+			stop++
+			if stop < len(source) && source[stop] == '\n' {
+				stop++
+			}
+		} else {
+			stop++
+		}
+		for stop < len(source) && (source[stop] == ' ' || source[stop] == '\t') {
+			stop++
+		}
+		replacements = append(replacements, replacement{start: start, stop: stop})
+		return goldast.WalkContinue, nil
+	})
+	if len(replacements) == 0 {
+		return markdown
+	}
+
+	var out strings.Builder
+	offset := 0
+	for _, replacement := range replacements {
+		out.Write(source[offset:replacement.start])
+		out.WriteByte(' ')
+		offset = replacement.stop
+	}
+	out.Write(source[offset:])
+	return out.String()
 }
 
 func extractMarkdownTables(source []byte) []markdownTableRenderSegment {
@@ -177,4 +303,63 @@ func tableAlignmentToLipgloss(alignment tableast.Alignment) lipgloss.Position {
 	default:
 		return lipgloss.Left
 	}
+}
+
+func markdownTableSource(rows [][]string, aligns []lipgloss.Position) string {
+	columnCount := markdownTableColumnCount(rows)
+	if columnCount == 0 {
+		return ""
+	}
+	normalize := func(row []string) []string {
+		out := make([]string, columnCount)
+		for i := range out {
+			if i < len(row) {
+				out[i] = markdownTableCell(row[i])
+			}
+		}
+		return out
+	}
+
+	lines := make([]string, 0, len(rows)+1)
+	lines = append(lines, markdownTableRow(normalize(rows[0])))
+	delimiter := make([]string, columnCount)
+	for column := range delimiter {
+		switch {
+		case column < len(aligns) && aligns[column] == lipgloss.Right:
+			delimiter[column] = "---:"
+		case column < len(aligns) && aligns[column] == lipgloss.Center:
+			delimiter[column] = ":---:"
+		default:
+			delimiter[column] = "---"
+		}
+	}
+	lines = append(lines, markdownTableRow(delimiter))
+	for _, row := range rows[1:] {
+		lines = append(lines, markdownTableRow(normalize(row)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func markdownTableRow(cells []string) string {
+	return "| " + strings.Join(cells, " | ") + " |"
+}
+
+func markdownTableCell(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\r", "\n"))
+	value = strings.ReplaceAll(value, "\n", "<br>")
+	var out strings.Builder
+	out.Grow(len(value))
+	backslashes := 0
+	for _, r := range value {
+		if r == '|' && backslashes%2 == 0 {
+			out.WriteByte('\\')
+		}
+		out.WriteRune(r)
+		if r == '\\' {
+			backslashes++
+		} else {
+			backslashes = 0
+		}
+	}
+	return out.String()
 }

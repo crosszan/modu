@@ -42,6 +42,7 @@ artifact-loading queries.
 - A single jump-to-bottom hint appears in the Agent status row when new content arrives off-screen.
 - Every rendered row is padded to the current width, preventing shorter frames from leaving stale terminal content.
 - Drag selection copies through the local clipboard and OSC52. SSH, tmux, and screen sessions use passthrough OSC52.
+- Selecting a complete bordered table copies Markdown table source rather than terminal border glyphs. Partial table selections still copy the visible cells and borders.
 - `DisableMouse` turns off terminal mouse reporting. `ArrowKeysScroll` lets Up/Down scroll when input and history navigation are both empty.
 
 ### Input and host intents
@@ -62,6 +63,7 @@ artifact-loading queries.
 - A stable `Entry.ID` supports upsert and removal without rebuilding or parsing
   rendered text.
 - Text, Markdown, tables, fenced code, thinking, Tool Calls, and host-defined blocks render independently.
+- Markdown paragraph source lines reflow to the available terminal width, including break opportunities after Chinese separator, sentence-ending, and closing punctuation; wrapped ordered-list items use a hanging indent aligned after the numeric marker.
 - Unlabelled fenced code defaults to plaintext; explicit languages such as `go`, `json`, and `diff` keep syntax highlighting.
 - Tool entries with the same `ToolCall.ID` merge into one block. Expanded blocks wrap input, output, code, and diffs instead of truncating them.
 - Consecutive tool entries with the same non-empty `BatchID` render as one collapsible parallel group.

@@ -47,6 +47,36 @@ func testEntryText(entry Entry) string {
 	}
 }
 
+func TestPOC2MarkdownOrderedListReflowsAndUsesHangingIndent(t *testing.T) {
+	m := NewModel(Options{
+		Width:  44,
+		Height: 14,
+		InitialEntries: []Entry{testMarkdownEntry(RoleAssistant,
+			"1. Blitz 使用的\n"+
+				"   API（GetTool、CreateSession、GetSession、ListSessions、InnerGetPrivateLinkEndpoint）的输入输出一致\n"+
+				"2. second item",
+		)},
+	})
+	lines := strings.Split(ansi.Strip(strings.Join(m.Lines(), "\n")), "\n")
+
+	itemLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "1. Blitz") {
+			itemLine = i
+			if !strings.Contains(line, "API") {
+				t.Fatalf("soft line break should reflow in the transcript:\n%s", strings.Join(lines, "\n"))
+			}
+			break
+		}
+	}
+	if itemLine < 0 || itemLine+1 >= len(lines) || !strings.HasPrefix(lines[itemLine+1], "     ") {
+		t.Fatalf("ordered-list continuation should use a hanging indent in the transcript:\n%s", strings.Join(lines, "\n"))
+	}
+	if strings.Contains(strings.Join(lines, "\n"), orderedListMarker) {
+		t.Fatalf("internal ordered-list marker leaked into the transcript:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 type testIntentCallbacks struct {
 	submit       func(SubmitEvent)
 	interrupt    func()
@@ -249,6 +279,70 @@ func TestPOC2CopyingToolBlockExcludesLeftDecoration(t *testing.T) {
 	}
 	if !strings.Contains(got, "go test ./pkg/modu-tui") {
 		t.Fatalf("copied text should keep the invocation, got:\n%s", got)
+	}
+}
+
+func TestPOC2CopyingCompleteMarkdownTableUsesMarkdownSource(t *testing.T) {
+	const source = "| Name | Count |\n| --- | ---: |\n| apple | 12 |\n| banana | 3 |"
+	m := NewModel(Options{
+		Width:          60,
+		Height:         16,
+		InitialEntries: []Entry{testMarkdownEntry(RoleAssistant, source)},
+	})
+	if len(m.lines) == 0 {
+		t.Fatal("expected rendered table lines")
+	}
+
+	last := len(m.lines) - 1
+	m.selStart = cell{line: 0, col: m.gutterAt(0)}
+	m.selEnd = cell{line: last, col: m.lineWidth(last) - 1}
+
+	if got := m.selectedText(); got != source {
+		t.Fatalf("complete table copy = %q, want markdown source %q", got, source)
+	}
+	oldWrite := writeLocalClipboard
+	var copied string
+	writeLocalClipboard = func(text string) error {
+		copied = text
+		return nil
+	}
+	t.Cleanup(func() { writeLocalClipboard = oldWrite })
+	cmd := m.copySelection()
+	if cmd == nil {
+		t.Fatal("complete table selection should produce a clipboard command")
+	}
+	result, ok := cmd().(clipboardCopyResultMsg)
+	if !ok || !result.copied || copied != source {
+		t.Fatalf("clipboard result = %#v, copied %q, want %q", result, copied, source)
+	}
+}
+
+func TestPOC2CopyingPartialMarkdownTableKeepsVisibleSelection(t *testing.T) {
+	const source = "| Name | Count |\n| --- | ---: |\n| apple | 12 |\n| banana | 3 |"
+	m := NewModel(Options{
+		Width:          60,
+		Height:         16,
+		InitialEntries: []Entry{testMarkdownEntry(RoleAssistant, source)},
+	})
+	contentLine := -1
+	for index, line := range m.lines {
+		if strings.Contains(ansi.Strip(line), "apple") {
+			contentLine = index
+			break
+		}
+	}
+	if contentLine < 0 {
+		t.Fatal("expected rendered apple row")
+	}
+
+	m.selStart = cell{line: contentLine, col: m.gutterAt(contentLine)}
+	m.selEnd = cell{line: contentLine, col: m.lineWidth(contentLine)}
+	got := m.selectedText()
+	if !strings.Contains(got, "apple") || !strings.Contains(got, "│") {
+		t.Fatalf("partial table selection should keep visible row text, got %q", got)
+	}
+	if strings.Contains(got, "| --- |") {
+		t.Fatalf("partial table selection unexpectedly expanded to markdown table: %q", got)
 	}
 }
 
