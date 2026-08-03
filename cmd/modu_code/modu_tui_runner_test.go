@@ -959,47 +959,37 @@ func TestModuTUISlashCommandsIncludeBaseAndSessionCommands(t *testing.T) {
 	}
 }
 
-func TestMessagesFromSessionTranscriptRestoresCompactionDivider(t *testing.T) {
-	streamFn := func(ctx context.Context, _ *types.Model, _ *types.LLMContext, _ *types.SimpleStreamOptions) (types.EventStream, error) {
-		stream := types.NewEventStream()
-		go func() {
-			stream.Resolve(&types.AssistantMessage{
-				Role:       types.RoleAssistant,
-				StopReason: "stop",
-				Content:    []types.ContentBlock{&types.TextContent{Type: "text", Text: "compact summary"}},
-				Timestamp:  time.Now().UnixMilli(),
-			}, nil)
-			stream.Close()
-		}()
-		return stream, nil
-	}
-	session, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
-		Cwd:       t.TempDir(),
-		AgentDir:  t.TempDir(),
-		Model:     &types.Model{ID: "test", Name: "Test", ProviderID: "test", ContextWindow: 32768},
-		GetAPIKey: func(string) (string, error) { return "", nil },
-		StreamFn:  streamFn,
+func TestMessagesFromResumedSessionKeepsCompactionDividerInTimelineOrder(t *testing.T) {
+	cwd := t.TempDir()
+	agentDir := t.TempDir()
+	_, sessionID := craftSavedCompactedSession(t, agentDir, cwd)
+
+	resumed, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
+		Cwd:             cwd,
+		AgentDir:        agentDir,
+		ResumeSessionID: sessionID,
+		Model:           &types.Model{ID: "test", Name: "Test", ProviderID: "test", ContextWindow: 32768},
+		GetAPIKey:       func(string) (string, error) { return "", nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 6; i++ {
-		session.GetAgent().AppendMessage(types.UserMessage{Role: types.RoleUser, Content: "msg"})
-	}
-	if err := session.Compact(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() { resumed.Close("test") })
 
-	entries := moduTUITranscriptEntries(session, newModuTUIEventPresenter())
+	entries := presentedMessagesFromEntries(moduTUITranscriptEntries(resumed, newModuTUIEventPresenter()))
+	var texts []string
 	for _, entry := range entries {
-		if len(entry.Nodes) != 1 {
-			continue
-		}
-		if node, ok := entry.Nodes[0].(modutui.TextNode); ok && node.Text == moduTUIContextCompactDivider {
-			return
-		}
+		texts = append(texts, entry.Text)
 	}
-	t.Fatalf("expected compact divider in transcript: %#v", entries)
+	want := []string{
+		"before compact one",
+		"before compact two",
+		moduTUIContextCompactDivider,
+		"after compact",
+	}
+	if !reflect.DeepEqual(texts, want) {
+		t.Fatalf("resumed transcript order = %#v, want %#v", texts, want)
+	}
 }
 
 func TestModuTUIInputHistoryPersistenceTrimsTo100(t *testing.T) {
@@ -3671,6 +3661,39 @@ func craftSavedSession(t *testing.T, agentDir, cwd, name, userText string) (stri
 	return mgr.FilePath(), mgr.SessionID()
 }
 
+func craftSavedCompactedSession(t *testing.T, agentDir, cwd string) (string, string) {
+	t.Helper()
+	mgr, err := session.NewFreshManager(agentDir, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"before compact one", "before compact two"} {
+		if err := mgr.Append(session.NewEntry(session.EntryTypeMessage, "", session.MessageData{
+			Role:    types.RoleUser,
+			Content: text,
+		})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := mgr.Append(session.NewEntry(session.EntryTypeCompaction, "", session.CompactionData{
+		Summary:       "compact summary",
+		OriginalCount: 2,
+		NewCount:      1,
+		ReplacementMessages: []types.AgentMessage{
+			types.UserMessage{Role: types.RoleUser, Content: "compact summary"},
+		},
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Append(session.NewEntry(session.EntryTypeMessage, "", session.MessageData{
+		Role:    types.RoleUser,
+		Content: "after compact",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	return mgr.FilePath(), mgr.SessionID()
+}
+
 func TestRunModuTUISlashResumeReplaysTargetHistory(t *testing.T) {
 	cwd := t.TempDir()
 	agentDir := t.TempDir()
@@ -3730,6 +3753,48 @@ func TestRunModuTUISlashResumeReplaysTargetHistory(t *testing.T) {
 	}
 	if !confirmed {
 		t.Fatalf("missing resumed-session confirmation in %#v", sent)
+	}
+}
+
+func TestRunModuTUISlashResumeReplaysCompactionInTimelineOrder(t *testing.T) {
+	cwd := t.TempDir()
+	agentDir := t.TempDir()
+	oldPath, _ := craftSavedCompactedSession(t, agentDir, cwd)
+
+	current, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
+		Cwd:       cwd,
+		AgentDir:  agentDir,
+		Model:     &types.Model{ID: "test", Name: "Test", ProviderID: "test"},
+		GetAPIKey: func(string) (string, error) { return "", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { current.Close("test") })
+
+	var replay []modutui.Entry
+	executeModuTUITestCommand(t, context.Background(), "/resume "+oldPath, current, current.GetModel(), CommandHooks{}, newModuTUIClient(func(msg tea.Msg) {
+		update, ok := moduTUIStandardUpdate(msg)
+		if !ok {
+			return
+		}
+		if replacement, ok := update.(modutui.ReplaceEntriesUpdate); ok {
+			replay = replacement.Entries
+		}
+	}), nil, nil, nil)
+
+	var got []string
+	for _, entry := range presentedMessagesFromEntries(replay) {
+		got = append(got, entry.Text)
+	}
+	want := []string{
+		"before compact one",
+		"before compact two",
+		moduTUIContextCompactDivider,
+		"after compact",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("/resume transcript order = %#v, want %#v", got, want)
 	}
 }
 

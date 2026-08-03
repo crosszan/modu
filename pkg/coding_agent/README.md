@@ -60,6 +60,9 @@ err := session.PromptWithImages(context.Background(), "Explain this screenshot",
 ```
 
 Persisted tool results include parallel batch metadata, allowing resumed transcript UIs to restore grouped tool calls.
+For timeline replay, use `GetSessionTranscript`; it returns persisted messages
+and compaction markers from the current session path in causal order.
+`GetMessages` instead returns the compacted context currently sent to the model.
 
 Use `FollowUpWithImages` or `SteerWithImages` while a task is active. These methods reject images when the model explicitly lacks image input support or configuration enables `blockImages`.
 

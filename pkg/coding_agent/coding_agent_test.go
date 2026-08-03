@@ -3617,6 +3617,44 @@ func TestResumeRestoresCompactedReplacementHistory(t *testing.T) {
 	}
 }
 
+func TestGetSessionTranscriptPreservesCompactionTimelineOrder(t *testing.T) {
+	session := newTestSession(t, newTestModel())
+	for _, text := range []string{"before compact one", "before compact two"} {
+		if err := session.sessionManager.Append(sessionpkg.NewEntry(sessionpkg.EntryTypeMessage, "", sessionpkg.MessageData{
+			Role:    types.RoleUser,
+			Content: text,
+		})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := session.sessionManager.Append(sessionpkg.NewEntry(
+		sessionpkg.EntryTypeCompaction,
+		"",
+		sessionpkg.CompactionData{Summary: "compact summary", OriginalCount: 2, NewCount: 1},
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.sessionManager.Append(sessionpkg.NewEntry(sessionpkg.EntryTypeMessage, "", sessionpkg.MessageData{
+		Role:    types.RoleUser,
+		Content: "after compact",
+	})); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, entry := range session.GetSessionTranscript() {
+		if entry.Message == nil {
+			got = append(got, entry.Type)
+			continue
+		}
+		got = append(got, agentMessageText(entry.Message))
+	}
+	want := []string{"before compact one", "before compact two", "compaction", "after compact"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("session transcript = %#v, want %#v", got, want)
+	}
+}
+
 func TestContextRemainingToolUsesSessionTokenBudget(t *testing.T) {
 	session := newTestSession(t, newTestModelWithContext(10000))
 	session.config.AutoCompaction = true

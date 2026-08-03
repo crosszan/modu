@@ -5,6 +5,13 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-08-03: fixed resumed context-compaction dividers appearing at the bottom
+  of the TUI transcript. Resume replay now consumes the persisted current-path
+  transcript as one ordered stream instead of pairing the full session tree
+  with compacted live messages by index. Startup resume and `/resume` regression
+  tests both require `before messages -> context compact -> after messages`;
+  restored parallel tool grouping remains covered.
+
 - 2026-08-03: made table copy semantic without changing terminal rendering.
   Dragging across a complete bordered Markdown or `TableNode` table now places
   Markdown table source on the local/OSC52 clipboard instead of box-drawing

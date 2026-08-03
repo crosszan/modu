@@ -16,6 +16,13 @@ High-priority gaps identified before this round:
 
 ## Completed In This Round
 
+- 2026-08-03: separated persisted transcript replay from the compacted live
+  model context. `GetSessionTranscript()` now returns current-path messages and
+  compaction markers in causal order, while `GetMessages()` retains replacement
+  history semantics for model requests. In-memory `MessageData` conversion now
+  accepts only concrete agent message types before falling back to role-based
+  decoding, avoiding the previous empty-interface assertion that treated plain
+  strings as messages. Unit coverage verifies the persisted timeline order.
 - 2026-07-28: renamed the Goal state root from `extensions/pi-goal` to
   `extensions/goal`. Session-backed stores now use
   `<session-dir>/extensions/goal/<escaped-thread-id>.json`; no-session stores

@@ -298,6 +298,7 @@ LLM 调用失败 → 瞬态错误？→ 是 → 等待(指数退避 + 抖动) �
 - **Flush 方法**：`Flush()` 确保 session header 写入磁盘，即使还没有任何 entry 追加；退出时可保证空 session 也能被恢复
 - 9 种条目类型：`message`、`model_change`、`thinking_level_change`、`compaction`、`branch_summary`、`session_info` 等
 - **压缩恢复**：`compaction` entry 保存 summary/count 以及 replacement messages；恢复会用 replacement messages 重置当前上下文，再继续回放压缩后的消息
+- **时间轴恢复**：`GetSessionTranscript()` 按 current path 的因果顺序返回持久化消息与 `compaction` marker，供 TUI 在 resume 后重建完整时间轴；`GetMessages()` 仍只返回实际发给模型的压缩后上下文
 - **消息序列化**：`messagePayload` 通过类型列表正确处理 `UserMessage` / `AssistantMessage` / `ToolResultMessage` 及其指针类型，恢复时识别持久化的 `toolResult` role，不丢失工具结果消息类型信息；resume 后会从最后一条已恢复 assistant usage 重建 session token window stats，避免 footer 和 `/session` 的 ctx/tokens 回到 0，同时不把历史轮次 usage 重复累加
 
 ### 10. 扩展系统

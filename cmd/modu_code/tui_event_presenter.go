@@ -16,31 +16,30 @@ func moduTUITranscriptEntries(session *coding_agent.CodingSession, presenter cod
 		return nil
 	}
 	state := session.GetAgent().GetState()
-	messages := moduTUIRestoreToolBatchMetadata(session.GetMessages(), state.Tools)
-	nodes := session.GetSessionTreeNodes()
-	if len(nodes) == 0 {
+	transcript := session.GetSessionTranscript()
+	if len(transcript) == 0 {
+		messages := moduTUIRestoreToolBatchMetadata(session.GetMessages(), state.Tools)
 		return presenter.AgentMessages(messages, session.Cwd())
 	}
-	out := make([]modutui.Entry, 0, len(messages))
-	messageIndex := 0
-	for _, node := range nodes {
-		if !node.InCurrentPath {
-			continue
+
+	messages := make([]types.AgentMessage, 0, len(transcript))
+	for _, entry := range transcript {
+		if entry.Message != nil {
+			messages = append(messages, entry.Message)
 		}
-		switch node.Type {
+	}
+	messages = moduTUIRestoreToolBatchMetadata(messages, state.Tools)
+
+	out := make([]modutui.Entry, 0, len(transcript))
+	messageIndex := 0
+	for _, entry := range transcript {
+		switch entry.Type {
 		case "message":
-			if messageIndex >= len(messages) {
-				continue
-			}
 			out = append(out, presenter.AgentMessage(messages[messageIndex], session.Cwd())...)
 			messageIndex++
 		case "compaction":
 			out = append(out, presenter.ContextCompactEntry())
 		}
-	}
-	for messageIndex < len(messages) {
-		out = append(out, presenter.AgentMessage(messages[messageIndex], session.Cwd())...)
-		messageIndex++
 	}
 	return out
 }
