@@ -47,6 +47,36 @@ func testEntryText(entry Entry) string {
 	}
 }
 
+func TestPOC2MarkdownOrderedListReflowsAndUsesHangingIndent(t *testing.T) {
+	m := NewModel(Options{
+		Width:  44,
+		Height: 14,
+		InitialEntries: []Entry{testMarkdownEntry(RoleAssistant,
+			"1. Blitz 使用的\n"+
+				"   API（GetTool、CreateSession、GetSession、ListSessions、InnerGetPrivateLinkEndpoint）的输入输出一致\n"+
+				"2. second item",
+		)},
+	})
+	lines := strings.Split(ansi.Strip(strings.Join(m.Lines(), "\n")), "\n")
+
+	itemLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "1. Blitz") {
+			itemLine = i
+			if !strings.Contains(line, "API") {
+				t.Fatalf("soft line break should reflow in the transcript:\n%s", strings.Join(lines, "\n"))
+			}
+			break
+		}
+	}
+	if itemLine < 0 || itemLine+1 >= len(lines) || !strings.HasPrefix(lines[itemLine+1], "     ") {
+		t.Fatalf("ordered-list continuation should use a hanging indent in the transcript:\n%s", strings.Join(lines, "\n"))
+	}
+	if strings.Contains(strings.Join(lines, "\n"), orderedListMarker) {
+		t.Fatalf("internal ordered-list marker leaked into the transcript:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 type testIntentCallbacks struct {
 	submit       func(SubmitEvent)
 	interrupt    func()
