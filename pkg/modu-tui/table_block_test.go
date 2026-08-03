@@ -24,3 +24,26 @@ func TestTableBlockRendersBorders(t *testing.T) {
 		}
 	}
 }
+
+func TestTableBlockCarriesMarkdownCopySource(t *testing.T) {
+	block := TableBlock{
+		Rows: [][]string{
+			{"Name", "Note", "Count"},
+			{"a|b", "line one\nline two", "12"},
+		},
+		Aligns: []lipgloss.Position{lipgloss.Left, lipgloss.Center, lipgloss.Right},
+	}
+	rendered := block.Render(RenderContext{ContentWidth: 60})
+	want := "| Name | Note | Count |\n" +
+		"| --- | :---: | ---: |\n" +
+		"| a\\|b | line one<br>line two | 12 |"
+
+	if len(rendered.Lines) == 0 {
+		t.Fatal("expected rendered table lines")
+	}
+	for index, line := range rendered.Lines {
+		if line.CopyBlock != want {
+			t.Fatalf("line %d copy source = %q, want %q", index, line.CopyBlock, want)
+		}
+	}
+}
