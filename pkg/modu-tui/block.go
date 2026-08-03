@@ -1,8 +1,12 @@
 package modutui
 
 type RenderedLine struct {
-	Text   string
-	Gutter int
+	Text string
+	// CopyBlock carries a semantic replacement for a contiguous rendered
+	// block. When the user selects the whole block, copy uses this text
+	// instead of terminal-only decoration such as table borders.
+	CopyBlock string
+	Gutter    int
 }
 
 type BlockRender struct {

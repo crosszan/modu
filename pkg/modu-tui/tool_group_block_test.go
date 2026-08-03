@@ -74,7 +74,7 @@ func TestBuildTranscriptFoldsBatchIntoOneLine(t *testing.T) {
 		m.appendEntry(Entry{Role: RoleAssistant, Nodes: []Node{ToolNode{Call: call}}})
 	}
 
-	lines, _, _ := m.buildTranscript()
+	lines, _, _, _ := m.buildTranscript()
 	joined := ansi.Strip(strings.Join(lines, "\n"))
 	if !strings.Contains(joined, "3 tools · parallel") {
 		t.Fatalf("batch not folded:\n%s", joined)
@@ -87,7 +87,7 @@ func TestBuildTranscriptFoldsBatchIntoOneLine(t *testing.T) {
 	if !m.toggleLatestToolExpansion() {
 		t.Fatal("toggleLatestToolExpansion returned false")
 	}
-	lines, _, _ = m.buildTranscript()
+	lines, _, _, _ = m.buildTranscript()
 	joined = ansi.Strip(strings.Join(lines, "\n"))
 	for _, want := range []string{"Read a.txt", "Read b.txt", "Read c.txt"} {
 		if !strings.Contains(joined, want) {

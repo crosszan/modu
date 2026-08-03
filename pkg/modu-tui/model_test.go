@@ -282,6 +282,70 @@ func TestPOC2CopyingToolBlockExcludesLeftDecoration(t *testing.T) {
 	}
 }
 
+func TestPOC2CopyingCompleteMarkdownTableUsesMarkdownSource(t *testing.T) {
+	const source = "| Name | Count |\n| --- | ---: |\n| apple | 12 |\n| banana | 3 |"
+	m := NewModel(Options{
+		Width:          60,
+		Height:         16,
+		InitialEntries: []Entry{testMarkdownEntry(RoleAssistant, source)},
+	})
+	if len(m.lines) == 0 {
+		t.Fatal("expected rendered table lines")
+	}
+
+	last := len(m.lines) - 1
+	m.selStart = cell{line: 0, col: m.gutterAt(0)}
+	m.selEnd = cell{line: last, col: m.lineWidth(last) - 1}
+
+	if got := m.selectedText(); got != source {
+		t.Fatalf("complete table copy = %q, want markdown source %q", got, source)
+	}
+	oldWrite := writeLocalClipboard
+	var copied string
+	writeLocalClipboard = func(text string) error {
+		copied = text
+		return nil
+	}
+	t.Cleanup(func() { writeLocalClipboard = oldWrite })
+	cmd := m.copySelection()
+	if cmd == nil {
+		t.Fatal("complete table selection should produce a clipboard command")
+	}
+	result, ok := cmd().(clipboardCopyResultMsg)
+	if !ok || !result.copied || copied != source {
+		t.Fatalf("clipboard result = %#v, copied %q, want %q", result, copied, source)
+	}
+}
+
+func TestPOC2CopyingPartialMarkdownTableKeepsVisibleSelection(t *testing.T) {
+	const source = "| Name | Count |\n| --- | ---: |\n| apple | 12 |\n| banana | 3 |"
+	m := NewModel(Options{
+		Width:          60,
+		Height:         16,
+		InitialEntries: []Entry{testMarkdownEntry(RoleAssistant, source)},
+	})
+	contentLine := -1
+	for index, line := range m.lines {
+		if strings.Contains(ansi.Strip(line), "apple") {
+			contentLine = index
+			break
+		}
+	}
+	if contentLine < 0 {
+		t.Fatal("expected rendered apple row")
+	}
+
+	m.selStart = cell{line: contentLine, col: m.gutterAt(contentLine)}
+	m.selEnd = cell{line: contentLine, col: m.lineWidth(contentLine)}
+	got := m.selectedText()
+	if !strings.Contains(got, "apple") || !strings.Contains(got, "│") {
+		t.Fatalf("partial table selection should keep visible row text, got %q", got)
+	}
+	if strings.Contains(got, "| --- |") {
+		t.Fatalf("partial table selection unexpectedly expanded to markdown table: %q", got)
+	}
+}
+
 func TestPOC2CopySelectionUsesOSC52OverSSH(t *testing.T) {
 	t.Setenv("SSH_TTY", "/dev/pts/1")
 	// Isolate multiplexer env so the sequence is plain OSC52, not screen/tmux

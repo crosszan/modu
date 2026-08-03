@@ -42,6 +42,7 @@ artifact-loading queries.
 - A single jump-to-bottom hint appears in the Agent status row when new content arrives off-screen.
 - Every rendered row is padded to the current width, preventing shorter frames from leaving stale terminal content.
 - Drag selection copies through the local clipboard and OSC52. SSH, tmux, and screen sessions use passthrough OSC52.
+- Selecting a complete bordered table copies Markdown table source rather than terminal border glyphs. Partial table selections still copy the visible cells and borders.
 - `DisableMouse` turns off terminal mouse reporting. `ArrowKeysScroll` lets Up/Down scroll when input and history navigation are both empty.
 
 ### Input and host intents
