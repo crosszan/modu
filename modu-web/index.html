@@ -1,360 +1,290 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Modu 是用于构建 Agent 应用的 Go 工具箱，提供 Agent Loop、工具执行、多 Agent 协作、消息渠道、定时任务与终端 UI。"
+    />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="stylesheet" href="/site.css" />
+    <title>Modu · Go Agent 应用工具箱</title>
+  </head>
+  <body class="site-page">
+    <a class="skip-link" href="#main">跳到正文</a>
 
-<head>
-  <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/logo.png" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description"
-    content="Modu - A Fast and Efficient Go Infrastructure Toolkit for Building Agent Applications" />
-  <title>Modu - Agent Build Toolkit</title>
-
-  <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap"
-    rel="stylesheet">
-
-  <link rel="stylesheet" href="/style.css">
-</head>
-
-<body>
-  <!-- Background Elements -->
-  <div class="glow-bg glow-bg-1"></div>
-  <div class="glow-bg glow-bg-2"></div>
-  <div class="grid-overlay"></div>
-
-  <!-- Navigation -->
-  <nav class="navbar">
-    <div class="nav-content">
-      <a href="#" class="logo-container">
-        <img src="/logo.png" alt="Modu Logo" class="logo">
-        <span class="logo-text">Modu</span>
-      </a>
-      <div class="nav-links">
-        <a href="#features">Features</a>
-        <a href="#teams">Teams</a>
-        <a href="#providers">Providers</a>
-        <a href="https://github.com/openmodu/modu" target="_blank" class="github-btn">
-          <!-- Github Icon -->
-          <svg height="20" width="20" viewBox="0 0 16 16" fill="currentColor">
-            <path
-              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-          </svg>
-          Star on GitHub
+    <header class="site-header">
+      <nav class="nav-shell" aria-label="主导航">
+        <a class="brand" href="/" aria-label="Modu 首页">
+          <img src="/logo.png" alt="" />
+          <span>Modu</span>
         </a>
-      </div>
-    </div>
-  </nav>
 
-  <!-- Hero Section -->
-  <header class="hero">
-    <div class="hero-content">
+        <button class="icon-button mobile-menu-button" type="button" aria-label="打开导航" aria-expanded="false">
+          <i class="ti ti-menu-2" aria-hidden="true"></i>
+        </button>
 
-      <h1 class="hero-title fade-up delay-1">
-        Building Agent Applications,<br>
-        <span class="gradient-text">Fast and Efficient.</span>
-      </h1>
-      <p class="hero-subtitle fade-up delay-2">
-        Modular, Event-Driven Multi-Agent Collaboration Framework written in Go. Design complex business logic with
-        highly concurrent and unified abstraction layers.
-      </p>
-
-      <div class="install-card fade-up delay-3">
-        <div class="install-header">
-          <span class="dot red"></span>
-          <span class="dot yellow"></span>
-          <span class="dot green"></span>
-          <span class="terminal-title">bash</span>
-        </div>
-        <div class="install-body">
-          <code id="code-block">go get github.com/openmodu/modu</code>
-          <button class="copy-btn" id="copy-btn" title="Copy to clipboard">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      <div class="hero-cta fade-up delay-4">
-        <a href="https://github.com/openmodu/modu/tree/main/examples" class="btn primary-btn" target="_blank">View
-          Examples</a>
-        <a href="#features" class="btn secondary-btn">Explore Features</a>
-      </div>
-    </div>
-  </header>
-
-  <!-- Features Section -->
-  <section id="features" class="features-section">
-    <h2 class="section-title fade-up">Core Infrastructure</h2>
-    <p class="section-subtitle fade-up">Everything you need to orchestrate complex agent behaviors and integrations.</p>
-
-    <div class="features-grid">
-      <div class="feature-card fade-up">
-        <div class="feature-icon glow-blue">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-            <polyline points="2 17 12 22 22 17"></polyline>
-            <polyline points="2 12 12 17 22 12"></polyline>
-          </svg>
-        </div>
-        <h3>Agent Engine</h3>
-        <p>Generic, stateful Agent core with powerful tool calling and event streaming capabilities.</p>
-      </div>
-
-      <div class="feature-card fade-up delay-1">
-        <div class="feature-icon glow-purple">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 11a9 9 0 0 1 9 9"></path>
-            <path d="M4 4a16 16 0 0 1 16 16"></path>
-            <circle cx="5" cy="19" r="1"></circle>
-          </svg>
-        </div>
-        <h3>Mailbox Teams</h3>
-        <p>Complete communication layer for multi-agent collaboration: message passing, task registry and status
-          tracking.</p>
-      </div>
-
-      <div class="feature-card fade-up delay-2">
-        <div class="feature-icon glow-cyan">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="16 18 22 12 16 6"></polyline>
-            <polyline points="8 6 2 12 8 18"></polyline>
-          </svg>
-        </div>
-        <h3>Coding Agent</h3>
-        <p>Advanced programming Agent building on core with session management, skill loading, and context compression.
-        </p>
-      </div>
-
-      <div class="feature-card fade-up">
-        <div class="feature-icon glow-pink">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="10" rx="2"></rect>
-            <circle cx="12" cy="5" r="2"></circle>
-            <path d="M12 7v4"></path>
-            <line x1="8" y1="16" x2="8" y2="16"></line>
-            <line x1="16" y1="16" x2="16" y2="16"></line>
-          </svg>
-        </div>
-        <h3>Moms Telegram Bot</h3>
-        <p>Go/Telegram port of the pi-mono mom Slack bot. Supports bash execution, file operations, and cross-session
-          memory.</p>
-      </div>
-
-      <div class="feature-card fade-up delay-1">
-        <div class="feature-icon glow-orange">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
-          </svg>
-        </div>
-        <h3>Unified Providers</h3>
-        <p>Multi-provider streaming LLM interface abstracting away the differences between OpenAI, Anthropic, DeepSeek,
-          etc.</p>
-      </div>
-
-      <div class="feature-card fade-up delay-2">
-        <div class="feature-icon glow-green">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
-            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
-          </svg>
-        </div>
-        <h3>Business Repos</h3>
-        <p>Includes focused repository adapters such as Gen Image Repos without browser automation dependencies.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Agent Teams Section -->
-  <section id="teams" class="solo-section">
-    <h2 class="section-title fade-up">Agent Teams</h2>
-    <p class="section-subtitle fade-up">Hub-and-spoke multi-agent coordination with asynchronous mailboxes, task registries, and real-time dashboards.</p>
-
-    <div class="arch-diagram fade-up">
-      <!-- Architecture SVG -->
-      <svg class="arch-svg" viewBox="0 0 780 390" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-            <path d="M0,0 L0,6 L8,3 z" fill="rgba(139,92,246,0.7)"/>
-          </marker>
-          <filter id="glow-filter">
-            <feGaussianBlur stdDeviation="3" result="blur"/>
-            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
-
-        <!-- Hub center (center of diagram) -->
-        <rect x="285" y="135" width="210" height="110" rx="16" fill="rgba(139,92,246,0.12)" stroke="rgba(139,92,246,0.5)" stroke-width="1.5"/>
-        <text x="390" y="177" text-anchor="middle" fill="#C4B5FD" font-size="13" font-weight="700" font-family="Inter,sans-serif">Mailbox Hub</text>
-        <text x="390" y="198" text-anchor="middle" fill="rgba(196,181,253,0.6)" font-size="11" font-family="Fira Code,monospace">Task Registry · Event Bus</text>
-        <text x="390" y="216" text-anchor="middle" fill="rgba(52,211,153,0.55)" font-size="10" font-family="Fira Code,monospace">SQLite Store</text>
-
-        <!-- Planner Agent (top) -->
-        <rect x="310" y="20" width="160" height="60" rx="12" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.4)" stroke-width="1.5"/>
-        <text x="390" y="46" text-anchor="middle" fill="#93C5FD" font-size="12" font-weight="600" font-family="Inter,sans-serif">Planner Agent</text>
-        <text x="390" y="63" text-anchor="middle" fill="rgba(147,197,253,0.55)" font-size="10" font-family="Fira Code,monospace">inbox / outbox</text>
-        <line x1="390" y1="80" x2="390" y2="133" stroke="rgba(139,92,246,0.6)" stroke-width="1.5" marker-end="url(#arr)" stroke-dasharray="5,3"/>
-
-        <!-- Worker Agent (bottom) -->
-        <rect x="310" y="300" width="160" height="60" rx="12" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.4)" stroke-width="1.5"/>
-        <text x="390" y="327" text-anchor="middle" fill="#93C5FD" font-size="12" font-weight="600" font-family="Inter,sans-serif">Worker Agent</text>
-        <text x="390" y="344" text-anchor="middle" fill="rgba(147,197,253,0.55)" font-size="10" font-family="Fira Code,monospace">inbox / outbox</text>
-        <line x1="390" y1="247" x2="390" y2="298" stroke="rgba(139,92,246,0.6)" stroke-width="1.5" marker-end="url(#arr)" stroke-dasharray="5,3"/>
-
-        <!-- Coding Agent (left) -->
-        <rect x="55" y="155" width="165" height="60" rx="12" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.4)" stroke-width="1.5"/>
-        <text x="137" y="181" text-anchor="middle" fill="#93C5FD" font-size="12" font-weight="600" font-family="Inter,sans-serif">Coding Agent</text>
-        <text x="137" y="198" text-anchor="middle" fill="rgba(147,197,253,0.55)" font-size="10" font-family="Fira Code,monospace">inbox / outbox</text>
-        <line x1="222" y1="185" x2="283" y2="185" stroke="rgba(139,92,246,0.6)" stroke-width="1.5" marker-end="url(#arr)" stroke-dasharray="5,3"/>
-
-        <!-- Reviewer Agent (right) -->
-        <rect x="560" y="155" width="165" height="60" rx="12" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.4)" stroke-width="1.5"/>
-        <text x="643" y="181" text-anchor="middle" fill="#93C5FD" font-size="12" font-weight="600" font-family="Inter,sans-serif">Reviewer Agent</text>
-        <text x="643" y="198" text-anchor="middle" fill="rgba(147,197,253,0.55)" font-size="10" font-family="Fira Code,monospace">inbox / outbox</text>
-        <line x1="497" y1="185" x2="558" y2="185" stroke="rgba(139,92,246,0.6)" stroke-width="1.5" marker-end="url(#arr)" stroke-dasharray="5,3"/>
-      </svg>
-
-      <div class="arch-legend">
-        <div class="legend-item">
-          <span class="legend-dot" style="background:rgba(59,130,246,0.6)"></span>
-          <span>Independent Agents with typed Mailboxes</span>
-        </div>
-        <div class="legend-item">
-          <span class="legend-dot" style="background:rgba(139,92,246,0.7)"></span>
-          <span>Hub routes messages, tracks tasks &amp; events</span>
-        </div>
-        <div class="legend-item">
-          <span class="legend-dot" style="background:rgba(16,185,129,0.7)"></span>
-          <span>SQLite-backed persistence, zero external dependencies</span>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Coding Agent Section -->
-  <section id="coding-agent" class="solo-section">
-    <h2 class="section-title fade-up">Coding Agent</h2>
-    <p class="section-subtitle fade-up">AI-native tools designed around how LLMs think — not wrappers around CLI commands.</p>
-
-    <div class="ca-layout fade-up">
-      <div class="ca-intro">
-        <div class="ca-badge">pkg/coding_agent</div>
-        <p>Every tool is designed around how a large language model thinks and reads: structured context windows, LLM-friendly output truncation, and semantic memory — not raw shell output.</p>
-        <ul class="team-features" style="margin-top:1.5rem">
-          <li>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            Persistent sessions with context compaction
-          </li>
-          <li>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            Dynamic skill injection from SKILL.md files
-          </li>
-          <li>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            Spawn sub-agents for parallel task decomposition
-          </li>
-          <li>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            Human-in-the-loop approval &amp; slash commands
-          </li>
-        </ul>
-      </div>
-
-      <div class="ca-tools-grid">
-        <div class="ca-tool-card">
-          <div class="ca-tool-icon" style="color:#60A5FA">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <div class="nav-menu">
+          <div class="nav-links">
+            <a href="/docs.html" data-en="Docs">文档</a>
+            <a href="#runtime">Agent Runtime</a>
+            <a href="#teams" data-en="Multi-agent">多 Agent 协作</a>
+            <a href="https://github.com/openmodu/modu/tree/main/examples" target="_blank" rel="noreferrer" data-en="Examples">示例</a>
+            <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
           </div>
-          <div class="ca-tool-name">read_file</div>
-          <div class="ca-tool-desc">Chunked reads with line numbers — LLM sees exactly what it needs</div>
-        </div>
-        <div class="ca-tool-card">
-          <div class="ca-tool-icon" style="color:#A78BFA">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          <div class="nav-actions">
+            <button class="icon-button theme-toggle" type="button" aria-label="切换深色模式">
+              <i class="ti ti-moon" aria-hidden="true"></i>
+            </button>
+            <button class="language-toggle" type="button" aria-label="Switch language">中 / EN</button>
           </div>
-          <div class="ca-tool-name">edit_file</div>
-          <div class="ca-tool-desc">Surgical line-range edits — no full rewrites, preserves token budget</div>
         </div>
-        <div class="ca-tool-card">
-          <div class="ca-tool-icon" style="color:#22D3EE">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          </div>
-          <div class="ca-tool-name">grep_search</div>
-          <div class="ca-tool-desc">Ripgrep-powered semantic search returning structured JSON results</div>
-        </div>
-        <div class="ca-tool-card">
-          <div class="ca-tool-icon" style="color:#34D399">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
-          </div>
-          <div class="ca-tool-name">memory_write</div>
-          <div class="ca-tool-desc">Typed key-value memory store persisted across sessions</div>
-        </div>
-        <div class="ca-tool-card">
-          <div class="ca-tool-icon" style="color:#FB923C">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-          </div>
-          <div class="ca-tool-name">bash</div>
-          <div class="ca-tool-desc">Sandboxed execution with smart output truncation built-in</div>
-        </div>
-        <div class="ca-tool-card">
-          <div class="ca-tool-icon" style="color:#F472B6">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-          </div>
-          <div class="ca-tool-name">spawn_subagent</div>
-          <div class="ca-tool-desc">Delegate subtasks to child agents — parallel, isolated, composable</div>
-        </div>
-      </div>
-    </div>
-  </section>
+      </nav>
+    </header>
 
-  <!-- Providers Section -->
-  <section id="providers" class="providers-section">
-    <div class="providers-container fade-up">
-      <h2 class="section-title">One Interface. Unlimited Models.</h2>
-      <p class="section-subtitle">Switch seamlessly across ecosystem leaders with zero codebase changes.</p>
+    <main id="main">
+      <section class="hero shell">
+        <div class="hero-copy">
+          <p class="eyebrow" data-en="Open source · Go 1.26.2+">开源 · Go 1.26.2+</p>
+          <h1 data-en="Build agent applications on a dependable Go runtime">
+            构建 Agent 应用，<br />
+            从<span>可靠的 Go 运行时</span>开始
+          </h1>
+          <p
+            class="hero-lede"
+            data-en="Modu provides an agent loop, tool execution, multi-agent coordination, channels, scheduling, and terminal UI — while your application keeps ownership of prompts, tools, and deployment."
+          >
+            Modu 提供 Agent Loop、工具执行、多 Agent 协作、消息渠道、定时任务与终端 UI，让应用保留自己的
+            Prompt、工具与部署边界。
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/docs.html#quickstart">
+              <span data-en="Quickstart">快速开始</span>
+              <i class="ti ti-arrow-right" aria-hidden="true"></i>
+            </a>
+            <a class="button button-secondary" href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">
+              <span data-en="View on GitHub">查看 GitHub</span>
+              <i class="ti ti-brand-github" aria-hidden="true"></i>
+            </a>
+          </div>
+          <div class="install-command">
+            <code>go get github.com/openmodu/modu</code>
+            <button class="copy-button" type="button" data-copy="go get github.com/openmodu/modu" aria-label="复制安装命令">
+              <span data-copy-label>复制</span>
+              <i class="ti ti-copy" aria-hidden="true"></i>
+            </button>
+          </div>
+        </div>
 
-      <div class="providers-logos">
-        <div class="brand-tag">Anthropic (Claude)</div>
-        <div class="brand-tag">OpenAI (GPT / o-series)</div>
-        <div class="brand-tag">DeepSeek</div>
-        <div class="brand-tag">Ollama (Local)</div>
-        <div class="brand-tag">LM Studio</div>
-      </div>
-    </div>
-  </section>
+        <div class="code-window hero-code" aria-label="Go 代码示例">
+          <div class="code-window-bar">
+            <div class="window-controls" aria-hidden="true">
+              <i class="ti ti-circle-filled control-red"></i>
+              <i class="ti ti-circle-filled control-yellow"></i>
+              <i class="ti ti-circle-filled control-green"></i>
+            </div>
+            <span>main.go</span>
+            <span>Go</span>
+          </div>
+          <pre><code><span class="syntax-pink">package</span> main
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="footer-content">
-      <div class="footer-brand">
-        <img src="/logo.png" alt="Modu Logo" class="footer-logo">
-        <span>Modu</span>
-      </div>
-      <div class="footer-legal" aria-label="Legal links">
-        <span class="footer-legal-title">Legal</span>
+<span class="syntax-pink">import</span> (
+  <span class="syntax-green">"context"</span>
+  <span class="syntax-green">"github.com/openmodu/modu/pkg/agent"</span>
+  <span class="syntax-green">"github.com/openmodu/modu/pkg/types"</span>
+)
+
+<span class="syntax-pink">func</span> <span class="syntax-blue">main</span>() {
+  ctx := context.Background()
+  a := agent.NewAgent(types.Config{
+    InitialState: &amp;types.State{
+      SystemPrompt: <span class="syntax-green">"你是一个有帮助的助手。"</span>,
+      Model: model,
+      Tools: []types.Tool{weatherTool},
+    },
+  })
+
+  <span class="syntax-pink">if</span> err := a.Prompt(ctx, <span class="syntax-green">"分析今天的天气"</span>); err != nil {
+    panic(err)
+  }
+}</code></pre>
+          <div class="code-status" aria-hidden="true">
+            <span>NORMAL</span>
+            <span>main.go</span>
+            <span>Go</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="capability-intro shell" aria-labelledby="capabilities-title">
+        <div class="section-heading">
+          <span data-en="Core capabilities">核心能力</span>
+          <h2 id="capabilities-title" data-en="A concise, Go-native agent runtime">一套简洁的 Go 原生 Agent 运行时</h2>
+          <p data-en="Composable primitives, explicit boundaries, production-ready behavior.">
+            模块化、可组合、边界清晰，面向真实应用。
+          </p>
+        </div>
+
+        <div class="capability-list">
+          <article class="capability-row" id="runtime">
+            <div class="capability-copy">
+              <span class="index-number">01</span>
+              <h3>Agent Runtime</h3>
+              <p data-en="A stable agent loop with tools, state, event streaming, interruption, and checkpoint recovery.">
+                稳定的 Agent Loop，内置工具执行、状态管理、流式事件、中断与检查点恢复。
+              </p>
+              <a class="text-link" href="/docs.html#runtime">
+                <span data-en="Learn more">了解更多</span>
+                <i class="ti ti-arrow-right" aria-hidden="true"></i>
+              </a>
+            </div>
+            <div class="code-card">
+              <span class="code-file">runtime.go</span>
+              <pre><code>store, _ := runtime.NewFileStore(<span class="syntax-green">"./data"</span>)
+rt := runtime.New(agent.NewAgent(cfg), store, <span class="syntax-green">"session-123"</span>)
+
+<span class="syntax-pink">if</span> err := rt.Run(ctx, <span class="syntax-green">"完成这项任务"</span>); err != nil {
+  log.Fatal(err)
+}
+
+resumed, err := rt.Resume(ctx)</code></pre>
+            </div>
+          </article>
+
+          <article class="capability-row capability-row-reverse" id="teams">
+            <div class="capability-copy">
+              <span class="index-number">02</span>
+              <h3>Mailbox Teams</h3>
+              <p data-en="Typed messaging, task assignment, validation, and durable coordination for multiple agents.">
+                基于主题的消息、任务分派、独立验收与持久化状态，让多个 Agent 有序协作。
+              </p>
+              <a class="text-link" href="/docs.html#mailbox">
+                <span data-en="Learn more">了解更多</span>
+                <i class="ti ti-arrow-right" aria-hidden="true"></i>
+              </a>
+            </div>
+            <div class="code-card">
+              <span class="code-file">mailbox.go</span>
+              <pre><code>hub := mailbox.NewHub()
+hub.Register(<span class="syntax-green">"director"</span>)
+hub.Register(<span class="syntax-green">"writer"</span>)
+
+msg, _ := mailbox.NewTaskAssignMessage(
+  <span class="syntax-green">"director"</span>, <span class="syntax-green">"task-1"</span>, <span class="syntax-green">"编写产品文案"</span>,
+)
+hub.Send(<span class="syntax-green">"writer"</span>, msg)</code></pre>
+            </div>
+          </article>
+
+          <article class="capability-row" id="coding-agent">
+            <div class="capability-copy">
+              <span class="index-number">03</span>
+              <h3>Coding Agent</h3>
+              <p data-en="Sessions, context compaction, skills, approvals, and code-native tools for terminal workflows.">
+                内置代码工具、持久会话、上下文压缩、技能与审批，适合终端里的真实开发流程。
+              </p>
+              <a class="text-link" href="/docs.html#coding-agent">
+                <span data-en="Learn more">了解更多</span>
+                <i class="ti ti-arrow-right" aria-hidden="true"></i>
+              </a>
+            </div>
+            <div class="code-card">
+              <span class="code-file">modu_code</span>
+              <pre><code><span class="syntax-muted">$</span> go run ./cmd/modu_code
+
+<span class="syntax-muted">›</span> 帮我定位失败测试并给出最小修复
+<span class="syntax-blue">read</span>    pkg/agent/loop.go
+<span class="syntax-blue">grep</span>    <span class="syntax-green">"TestLoop"</span>      12 hits
+<span class="syntax-blue">bash</span>    go test ./pkg/agent/...  <span class="syntax-green">✓ ok</span></code></pre>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="docs-showcase shell" aria-labelledby="docs-title">
+        <div class="section-heading">
+          <span data-en="Documentation">文档预览</span>
+          <h2 id="docs-title" data-en="Clear, practical, and runnable">清晰、实用、可操作的文档</h2>
+          <p data-en="From quickstart to architecture, every example maps to working code.">
+            从快速开始到架构说明，每个示例都对应仓库中的可运行代码。
+          </p>
+        </div>
+
+        <div class="docs-preview">
+          <aside aria-label="文档预览导航">
+            <div class="preview-brand">
+              <img src="/logo.png" alt="" />
+              <strong>Modu 文档</strong>
+            </div>
+            <div class="preview-search">
+              <i class="ti ti-search" aria-hidden="true"></i>
+              <span>搜索文档</span>
+              <kbd>⌘ K</kbd>
+            </div>
+            <small>开始</small>
+            <a class="active" href="/docs.html#quickstart">快速开始</a>
+            <a href="/docs.html#install">安装</a>
+            <small>核心</small>
+            <a href="/docs.html#runtime">Agent Runtime</a>
+            <a href="/docs.html#mailbox">Mailbox Teams</a>
+            <a href="/docs.html#coding-agent">Coding Agent</a>
+          </aside>
+          <article>
+            <p class="breadcrumb">开始 <i class="ti ti-chevron-right"></i> 快速开始</p>
+            <h3>快速开始</h3>
+            <p>从零到运行第一个 Modu Agent，只需几分钟。</p>
+            <h4>1. 安装</h4>
+            <div class="preview-code">
+              <code>go get github.com/openmodu/modu</code>
+              <i class="ti ti-copy" aria-hidden="true"></i>
+            </div>
+            <h4>2. 运行示例</h4>
+            <div class="preview-code multiline">
+              <code><span class="syntax-pink">package</span> main<br /><br /><span class="syntax-pink">import</span> <span class="syntax-green">"github.com/openmodu/modu/pkg/agent"</span></code>
+              <i class="ti ti-copy" aria-hidden="true"></i>
+            </div>
+          </article>
+          <nav class="preview-toc" aria-label="本页目录">
+            <strong>本页目录</strong>
+            <a href="/docs.html#install">安装</a>
+            <a href="/docs.html#first-agent">最小 Agent</a>
+            <a href="/docs.html#examples">运行示例</a>
+          </nav>
+        </div>
+        <div class="docs-cta">
+          <h3 data-en="Ready to build your first agent application?">准备好构建你的第一个 Agent 应用了吗？</h3>
+          <p data-en="Read the complete docs, run an example, then grow from there.">
+            阅读完整文档，运行一个示例，再按自己的边界逐步扩展。
+          </p>
+          <a class="button button-primary" href="/docs.html">
+            <span data-en="Read the docs">阅读文档</span>
+            <i class="ti ti-arrow-right" aria-hidden="true"></i>
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-content">
+        <div class="footer-brand">
+          <a class="brand" href="/">
+            <img src="/logo.png" alt="" />
+            <span>Modu</span>
+          </a>
+          <p>© 2026 OpenModu. MIT Licensed.</p>
+        </div>
         <div class="footer-links">
-          <a href="/terms.html">服务条款</a>
+          <a href="/docs.html">文档</a>
+          <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
           <a href="/privacy.html">隐私协议</a>
+          <a href="/terms.html">服务条款</a>
           <a href="/pricing.html">定价说明</a>
-          <span class="footer-contact"><span>dev</span><span>@</span><span>crosszan.com</span></span>
         </div>
       </div>
-      <p class="copyright">© 2026 OpenModu. MIT Licensed. A Fast and Efficient Go Agent Kit.</p>
-    </div>
-  </footer>
+    </footer>
 
-  <script type="module" src="/main.js"></script>
-</body>
-
+    <div class="copy-toast" role="status" aria-live="polite">已复制到剪贴板</div>
+    <script type="module" src="/main.js"></script>
+  </body>
 </html>

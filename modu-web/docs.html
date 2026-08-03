@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Modu 文档：安装、构建第一个 Agent、运行时恢复、多 Agent 协作与 Coding Agent。"
+    />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="stylesheet" href="/site.css" />
+    <title>Modu 文档 · 快速开始</title>
+  </head>
+  <body class="site-page docs-page">
+    <a class="skip-link" href="#docs-content">跳到文档正文</a>
+
+    <header class="site-header">
+      <nav class="nav-shell" aria-label="文档导航">
+        <a class="brand" href="/">
+          <img src="/logo.png" alt="" />
+          <span>Modu</span>
+          <em>文档</em>
+        </a>
+
+        <button class="icon-button mobile-menu-button" type="button" aria-label="打开导航" aria-expanded="false">
+          <i class="ti ti-menu-2" aria-hidden="true"></i>
+        </button>
+
+        <div class="nav-menu">
+          <div class="nav-links">
+            <a class="active" href="/docs.html" data-en="Docs">文档</a>
+            <a href="/#runtime">Agent Runtime</a>
+            <a href="/#teams" data-en="Multi-agent">多 Agent 协作</a>
+            <a href="https://github.com/openmodu/modu/tree/main/examples" target="_blank" rel="noreferrer" data-en="Examples">示例</a>
+            <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
+          </div>
+          <div class="nav-actions">
+            <button class="icon-button theme-toggle" type="button" aria-label="切换深色模式">
+              <i class="ti ti-moon" aria-hidden="true"></i>
+            </button>
+            <button class="language-toggle" type="button" aria-label="Switch language">中 / EN</button>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <div class="docs-layout shell">
+      <aside class="docs-sidebar" aria-label="文档目录">
+        <label class="docs-search">
+          <i class="ti ti-search" aria-hidden="true"></i>
+          <input type="search" placeholder="搜索文档" aria-label="搜索文档" />
+          <kbd>⌘ K</kbd>
+        </label>
+        <nav class="docs-nav">
+          <div>
+            <strong>开始</strong>
+            <a class="active" href="#quickstart">快速开始</a>
+            <a href="#install">安装</a>
+            <a href="#first-agent">第一个 Agent</a>
+            <a href="#examples">运行示例</a>
+          </div>
+          <div>
+            <strong>Agent Runtime</strong>
+            <a href="#runtime">Agent Loop</a>
+            <a href="#recovery">会话恢复</a>
+            <a href="#events">事件与状态</a>
+          </div>
+          <div>
+            <strong>Coding Agent</strong>
+            <a href="#coding-agent">终端编码 Agent</a>
+            <a href="#tools">工具与技能</a>
+          </div>
+          <div>
+            <strong>多 Agent 协作</strong>
+            <a href="#mailbox">Mailbox Teams</a>
+            <a href="#architecture">协作架构</a>
+          </div>
+          <p class="search-empty" hidden>没有匹配的文档</p>
+        </nav>
+      </aside>
+
+      <main class="docs-article" id="docs-content">
+        <p class="breadcrumb">开始 <i class="ti ti-chevron-right" aria-hidden="true"></i> 快速开始</p>
+        <header id="quickstart">
+          <p class="eyebrow">QUICKSTART</p>
+          <h1 data-en="Build your first Modu agent">构建第一个 Modu Agent</h1>
+          <p
+            class="article-lede"
+            data-en="Install Modu, register an LLM provider, and run your first prompt. The smallest path takes about five minutes."
+          >
+            安装 Modu、注册一个 LLM Provider，然后运行第一条 Prompt。最短路径大约需要五分钟。
+          </p>
+        </header>
+
+        <div class="article-note">
+          <i class="ti ti-info-circle" aria-hidden="true"></i>
+          <p>Modu 要求 Go 1.26.2 或更高版本，具体版本以仓库中的 <code>go.mod</code> 为准。</p>
+        </div>
+
+        <section id="install">
+          <h2>1. 安装</h2>
+          <p>在你的 Go 项目中添加 Modu：</p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button class="copy-button" type="button" data-copy="go get github.com/openmodu/modu" aria-label="复制安装命令">
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted">$</span> go get github.com/openmodu/modu</code></pre>
+          </div>
+        </section>
+
+        <section id="first-agent">
+          <h2>2. 构建第一个 Agent</h2>
+          <p>
+            注册一个 OpenAI 兼容端点，创建模型与 Agent，然后调用 <code>Prompt</code>。下面的结构与仓库
+            <a href="https://github.com/openmodu/modu/tree/main/examples/agent_demo" target="_blank" rel="noreferrer">agent_demo</a>
+            一致。
+          </p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>main.go</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy='providers.Register(openai.New("ollama", openai.WithBaseURL("http://localhost:11434/v1")))\na := agent.NewAgent(types.Config{InitialState: &types.State{SystemPrompt: "You are helpful.", Model: model}})\nerr := a.Prompt(context.Background(), "用三句话解释 Modu")'
+                aria-label="复制 Go 示例"
+              >
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-pink">package</span> main
+
+<span class="syntax-pink">import</span> (
+  <span class="syntax-green">"context"</span>
+  <span class="syntax-green">"github.com/openmodu/modu/pkg/agent"</span>
+  <span class="syntax-green">"github.com/openmodu/modu/pkg/providers"</span>
+  <span class="syntax-green">"github.com/openmodu/modu/pkg/providers/openai"</span>
+  <span class="syntax-green">"github.com/openmodu/modu/pkg/types"</span>
+)
+
+<span class="syntax-pink">func</span> <span class="syntax-blue">main</span>() {
+  providers.Register(openai.New(
+    <span class="syntax-green">"ollama"</span>,
+    openai.WithBaseURL(<span class="syntax-green">"http://localhost:11434/v1"</span>),
+  ))
+
+  model := &amp;types.Model{
+    ID: <span class="syntax-green">"llama3.2"</span>, Name: <span class="syntax-green">"Llama 3.2"</span>, ProviderID: <span class="syntax-green">"ollama"</span>,
+  }
+  a := agent.NewAgent(types.Config{
+    InitialState: &amp;types.State{
+      SystemPrompt: <span class="syntax-green">"You are helpful."</span>,
+      Model: model,
+    },
+  })
+
+  _ = a.Prompt(context.Background(), <span class="syntax-green">"用三句话解释 Modu"</span>)
+}</code></pre>
+          </div>
+        </section>
+
+        <section id="examples">
+          <h2>3. 运行示例</h2>
+          <p>仓库里的示例是最短的集成测试。先选一个与你的目标最接近的路径：</p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy="go run ./examples/agent_demo&#10;go run ./examples/runtime_demo&#10;go run ./examples/agent_teams"
+                aria-label="复制运行命令"
+              >
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted"># 基础 Agent 与工具调用</span>
+go run ./examples/agent_demo
+
+<span class="syntax-muted"># 检查点、恢复与回退</span>
+go run ./examples/runtime_demo
+
+<span class="syntax-muted"># 多 Agent 协作</span>
+go run ./examples/agent_teams</code></pre>
+          </div>
+        </section>
+
+        <section id="runtime">
+          <p class="section-label">AGENT RUNTIME</p>
+          <h2>Agent Loop 与状态边界</h2>
+          <p>
+            <code>pkg/agent</code> 负责 ReAct 风格的执行循环、工具调用、队列、事件与中断。你的应用仍然拥有
+            Prompt、工具目录、持久化策略与部署方式。
+          </p>
+          <div class="runtime-flow" aria-label="Agent Runtime 执行流程">
+            <div>
+              <i class="ti ti-message-circle" aria-hidden="true"></i>
+              <strong>Prompt</strong>
+              <span>用户输入</span>
+            </div>
+            <i class="ti ti-arrow-right" aria-hidden="true"></i>
+            <div>
+              <i class="ti ti-refresh" aria-hidden="true"></i>
+              <strong>Agent Loop</strong>
+              <span>规划与执行</span>
+            </div>
+            <i class="ti ti-arrow-right" aria-hidden="true"></i>
+            <div>
+              <i class="ti ti-tool" aria-hidden="true"></i>
+              <strong>Tools</strong>
+              <span>真实动作</span>
+            </div>
+            <i class="ti ti-arrow-right" aria-hidden="true"></i>
+            <div>
+              <i class="ti ti-wave-sine" aria-hidden="true"></i>
+              <strong>Events</strong>
+              <span>可观测输出</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="recovery">
+          <h2>检查点与会话恢复</h2>
+          <p>
+            <code>pkg/runtime</code> 在每条已提交消息后记录检查点。进程重启后可以继续未完成会话，也可以把历史检查点恢复成新的分支头。
+          </p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>runtime.go</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy='store, err := runtime.NewFileStore("./checkpoints")&#10;rt := runtime.New(agent.NewAgent(cfg), store, "session-123")&#10;err = rt.Run(ctx, "do the thing")&#10;resumed, err := rt.Resume(ctx)'
+                aria-label="复制 Runtime 示例"
+              >
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code>store, err := runtime.NewFileStore(<span class="syntax-green">"./checkpoints"</span>)
+rt := runtime.New(agent.NewAgent(cfg), store, <span class="syntax-green">"session-123"</span>)
+
+err = rt.Run(ctx, <span class="syntax-green">"do the thing"</span>)
+resumed, err := rt.Resume(ctx)</code></pre>
+          </div>
+        </section>
+
+        <section id="events">
+          <h2>事件与状态</h2>
+          <p>
+            通过 <code>Subscribe</code> 接收 Agent、Turn、Message 与 Tool Execution 事件。订阅者适合驱动日志、TUI、指标与外部状态同步。
+          </p>
+        </section>
+
+        <section id="coding-agent">
+          <p class="section-label">CODING AGENT</p>
+          <h2>终端里的完整编码流程</h2>
+          <p>
+            <code>pkg/coding_agent</code> 在 Agent 内核之上提供会话、上下文压缩、技能、审批和面向代码的工具。要直接体验完整 TUI：
+          </p>
+          <div class="article-code compact">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button class="copy-button" type="button" data-copy="go run ./cmd/modu_code" aria-label="复制启动命令">
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted">$</span> go run ./cmd/modu_code</code></pre>
+          </div>
+        </section>
+
+        <section id="tools">
+          <h2>工具与技能</h2>
+          <p>
+            工具实现公共 <code>types.Tool</code> 契约；技能通过 <code>SKILL.md</code> 注入可复用工作流。宿主应用可以只选择需要的能力，不必接受一套固定产品形态。
+          </p>
+        </section>
+
+        <section id="mailbox">
+          <p class="section-label">MULTI-AGENT</p>
+          <h2>Mailbox Teams</h2>
+          <p>
+            Mailbox 提供 Agent 注册、独立收件箱、任务与项目状态、能力队列、结果验证、流水线和对话记录。它只解决协作，不负责调用 LLM。
+          </p>
+          <div class="module-table">
+            <div><strong>Hub</strong><span>路由消息并维护 Agent、任务与项目状态</span></div>
+            <div><strong>Client</strong><span>跨进程注册、收发消息与认领任务</span></div>
+            <div><strong>SQLite Store</strong><span>为协作状态提供跨重启恢复</span></div>
+            <div><strong>Dashboard</strong><span>查看任务、状态与对话记录</span></div>
+          </div>
+        </section>
+
+        <section id="architecture">
+          <h2>协作架构</h2>
+          <p>
+            Agent Teams 适合由一个协调者拆分任务、多个 Worker 并行执行；Adversarial Validation
+            适合结果必须经过独立验收的队列。两种模式共享 Mailbox 与任务模型。
+          </p>
+          <div class="article-links">
+            <a href="https://github.com/openmodu/modu/blob/main/docs/architecture/coding-agent.md" target="_blank" rel="noreferrer">
+              <span><strong>Coding Agent 架构</strong><small>包结构、依赖方向与执行路径</small></span>
+              <i class="ti ti-external-link" aria-hidden="true"></i>
+            </a>
+            <a href="https://github.com/openmodu/modu/blob/main/docs/architecture/mailbox-agent-system.md" target="_blank" rel="noreferrer">
+              <span><strong>Mailbox Agent System</strong><small>协议、持久化与失败场景</small></span>
+              <i class="ti ti-external-link" aria-hidden="true"></i>
+            </a>
+            <a href="https://github.com/openmodu/modu/blob/main/docs/README.md" target="_blank" rel="noreferrer">
+              <span><strong>完整文档索引</strong><small>指南、参考、架构与技术文章</small></span>
+              <i class="ti ti-external-link" aria-hidden="true"></i>
+            </a>
+          </div>
+        </section>
+
+        <nav class="article-pagination" aria-label="文档翻页">
+          <a href="/">
+            <span>上一页</span>
+            <strong>← 项目首页</strong>
+          </a>
+          <a href="https://github.com/openmodu/modu/tree/main/examples" target="_blank" rel="noreferrer">
+            <span>下一步</span>
+            <strong>运行示例 →</strong>
+          </a>
+        </nav>
+      </main>
+
+      <aside class="docs-toc" aria-label="本页目录">
+        <strong>本页目录</strong>
+        <a class="active" href="#quickstart">快速开始</a>
+        <a href="#install">安装</a>
+        <a href="#first-agent">第一个 Agent</a>
+        <a href="#runtime">Agent Runtime</a>
+        <a href="#coding-agent">Coding Agent</a>
+        <a href="#mailbox">Mailbox Teams</a>
+      </aside>
+    </div>
+
+    <footer class="site-footer docs-footer">
+      <div class="shell footer-content">
+        <div class="footer-brand">
+          <a class="brand" href="/">
+            <img src="/logo.png" alt="" />
+            <span>Modu</span>
+          </a>
+          <p>Go-native building blocks for agent applications.</p>
+        </div>
+        <div class="footer-links">
+          <a href="/">首页</a>
+          <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="/privacy.html">隐私协议</a>
+          <a href="/terms.html">服务条款</a>
+        </div>
+      </div>
+    </footer>
+
+    <div class="copy-toast" role="status" aria-live="polite">已复制到剪贴板</div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

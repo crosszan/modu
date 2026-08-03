@@ -4,6 +4,10 @@ This file tracks small user-facing website changes for `modu-web`.
 
 ## Done
 
+- 2026-08-03: redesigned the public landing page around a warm editorial
+  developer-docs system, added a searchable interactive documentation page,
+  responsive navigation, code-copy actions, light/dark themes, bilingual
+  primary marketing copy, and Vite multi-page output for `docs.html`.
 - 2026-06-30: added footer entry links for 服务条款 and 隐私协议, plus matching
   static legal pages with shared Modu navigation, footer, and legal document
   styles. Configured Vite multi-page build output so the legal pages are
