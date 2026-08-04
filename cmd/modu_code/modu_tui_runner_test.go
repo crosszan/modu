@@ -3459,12 +3459,27 @@ func TestRunModuTUISlashExactWorkflowsShowsCockpit(t *testing.T) {
 	}
 }
 
-func TestRunModuTUIModelSelectSwitchesModel(t *testing.T) {
+func TestRunModuTUIModelSelectIncludesMoreThanNineModels(t *testing.T) {
+	const providerID = "model-selector-test"
+	modelIDs := make([]string, 12)
+	for i := range modelIDs {
+		modelIDs[i] = fmt.Sprintf("model-%02d", i+1)
+		providers.RegisterModel(providerID, &types.Model{
+			ID:         modelIDs[i],
+			Name:       fmt.Sprintf("Model %02d", i+1),
+			ProviderID: providerID,
+		})
+		t.Cleanup(func() {
+			providers.UnregisterModel(providerID, modelIDs[i])
+		})
+	}
+
 	session, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
-		Cwd:       t.TempDir(),
-		AgentDir:  t.TempDir(),
-		Model:     providers.GetModel("deepseek", "deepseek-chat"),
-		GetAPIKey: func(string) (string, error) { return "", nil },
+		Cwd:          t.TempDir(),
+		AgentDir:     t.TempDir(),
+		Model:        providers.GetModel(providerID, modelIDs[0]),
+		ScopedModels: modelIDs,
+		GetAPIKey:    func(string) (string, error) { return "", nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -3476,7 +3491,7 @@ func TestRunModuTUIModelSelectSwitchesModel(t *testing.T) {
 		runModuTUIModelSelect(context.Background(), session, newModuTUIClient(func(msg tea.Msg) {
 			messages = append(messages, msg)
 			if prompt, ok := msg.(modutui.RequestHumanPromptMsg); ok {
-				prompt.Respond <- "openai/gpt-4o"
+				prompt.Respond <- providerID + "/" + modelIDs[11]
 			}
 		}))
 		close(done)
@@ -3486,8 +3501,8 @@ func TestRunModuTUIModelSelectSwitchesModel(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("model selector did not finish")
 	}
-	if got := session.GetModel(); got == nil || got.ProviderID != "openai" || got.ID != "gpt-4o" {
-		t.Fatalf("expected selected model openai/gpt-4o, got %#v", got)
+	if got := session.GetModel(); got == nil || got.ProviderID != providerID || got.ID != modelIDs[11] {
+		t.Fatalf("expected selected model %s/%s, got %#v", providerID, modelIDs[11], got)
 	}
 	var sawPrompt bool
 	for _, msg := range messages {
@@ -3495,6 +3510,12 @@ func TestRunModuTUIModelSelectSwitchesModel(t *testing.T) {
 			sawPrompt = true
 			if prompt.Request.Title != "Model" || !strings.Contains(prompt.Request.Body, "Choose active model") {
 				t.Fatalf("unexpected model prompt: %#v", prompt.Request)
+			}
+			if len(prompt.Request.Options) != len(modelIDs) {
+				t.Fatalf("model prompt has %d options, want %d", len(prompt.Request.Options), len(modelIDs))
+			}
+			if got := prompt.Request.Options[11].Value; got != providerID+"/"+modelIDs[11] {
+				t.Fatalf("last model option = %q, want %q", got, providerID+"/"+modelIDs[11])
 			}
 		}
 	}

@@ -1609,3 +1609,11 @@ enough to implement, verify, and commit independently.
   New-file writes now tint every numbered source row with the added green
   background while retaining syntax foreground colors. Existing idempotent
   full-file previews remain untinted, and existing diffs keep per-row colors.
+- 2026-08-04: fixed the `/model` TUI selector truncating available models after
+  the ninth entry. The selector now passes every model to the shared human
+  prompt card; choice cards keep a nine-row visible window, page that window as
+  up/down or j/k navigation moves beyond it, and show the current range and
+  total. Added regressions for rendering/selecting the tenth option and for
+  forwarding a 12-model session without truncation. `go test ./...`,
+  `go test ./pkg/modu-tui ./cmd/modu_code`, and
+  `go run ./cmd/modu_code -h` passed.

@@ -2030,7 +2030,7 @@ func (m *Model) humanPromptPanelLines() []string {
 		body = append(body, "")
 		body = append(body, humanPromptOptionLines(req, m.humanPrompt.selected, innerWidth)...)
 		body = append(body, "")
-		body = append(body, humanPromptActionsLine(req))
+		body = append(body, humanPromptActionsLine(req, m.humanPrompt.selected))
 	}
 	lines := CardBlock{Lines: body, BorderStyle: approvalBorderStyle}.RenderWidth(width)
 	budget := m.humanPromptPanelBudget()
@@ -2050,7 +2050,7 @@ func (m *Model) humanPromptPanelLines() []string {
 		if len(options) > 0 {
 			compact = append(compact, options[0])
 		}
-		compact = append(compact, humanPromptActionsLine(req))
+		compact = append(compact, humanPromptActionsLine(req, m.humanPrompt.selected))
 	}
 	for len(compact) > bodyCap {
 		compact = compact[:len(compact)-1]
@@ -2112,22 +2112,28 @@ func (m *Model) humanTextPanelLines() []string {
 	return CardBlock{Lines: compact, BorderStyle: approvalBorderStyle}.RenderWidth(width)
 }
 
-func humanPromptActionsLine(req HumanPromptRequest) string {
+const humanPromptMaxVisibleOptions = 9
+
+func humanPromptActionsLine(req HumanPromptRequest, selected int) string {
 	if len(req.Options) == 0 {
 		return dimStyle.Render("[enter] continue  [esc] cancel")
 	}
-	return dimStyle.Render("[up/down] select  [enter] choose  [1-9] quick  [esc] cancel")
+	actions := "[up/down] select  [enter] choose  [1-9] quick  [esc] cancel"
+	if len(req.Options) > humanPromptMaxVisibleOptions {
+		start, end := humanPromptOptionWindow(len(req.Options), selected)
+		actions = fmt.Sprintf("%d-%d of %d  %s", start+1, end, len(req.Options), actions)
+	}
+	return dimStyle.Render(actions)
 }
 
 func humanPromptOptionLines(req HumanPromptRequest, selected int, width int) []string {
 	if len(req.Options) == 0 {
 		return nil
 	}
-	lines := make([]string, 0, len(req.Options))
-	for i, option := range req.Options {
-		if i >= 9 {
-			break
-		}
+	start, end := humanPromptOptionWindow(len(req.Options), selected)
+	lines := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		option := req.Options[i]
 		label := strings.TrimSpace(option.Label)
 		if label == "" {
 			label = strings.TrimSpace(option.Value)
@@ -2148,6 +2154,15 @@ func humanPromptOptionLines(req HumanPromptRequest, selected int, width int) []s
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func humanPromptOptionWindow(optionCount, selected int) (int, int) {
+	if optionCount <= 0 {
+		return 0, 0
+	}
+	selected = clamp(selected, 0, optionCount-1)
+	start := selected / humanPromptMaxVisibleOptions * humanPromptMaxVisibleOptions
+	return start, min(start+humanPromptMaxVisibleOptions, optionCount)
 }
 
 func normalizeHumanPromptRequest(req HumanPromptRequest) HumanPromptRequest {
@@ -2465,7 +2480,7 @@ func (m Model) moveHumanPromptSelection(delta int) Model {
 	if m.humanPrompt == nil || len(m.humanPrompt.request.Options) == 0 {
 		return m
 	}
-	n := min(len(m.humanPrompt.request.Options), 9)
+	n := len(m.humanPrompt.request.Options)
 	if n <= 0 {
 		return m
 	}
