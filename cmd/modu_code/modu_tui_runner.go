@@ -106,8 +106,12 @@ func runModuTUI(ctx context.Context, session *coding_agent.CodingSession, model 
 		tuiRuntime.Run(run)
 		return true
 	})
+	sideThreadController := newModuTUISideThreadController(session, tuiRuntime, uiClient, eventPresenter)
 	submit := func(ev modutui.SubmitEvent) {
 		images := moduTUIImages(ev.Images)
+		if sideThreadController.Submit(ev.Text, images) {
+			return
+		}
 		switch ev.Kind {
 		case modutui.SubmitKindFollowUp:
 			tuiRuntime.QueueFollowUp(ev.Text, images, false)
@@ -138,6 +142,7 @@ func runModuTUI(ctx context.Context, session *coding_agent.CodingSession, model 
 		QueueSteer: func(text string, requireActive bool) {
 			tuiRuntime.QueueSteer(text, nil, requireActive)
 		},
+		SideThread: sideThreadController,
 	})
 	if err != nil {
 		return err

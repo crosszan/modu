@@ -5,6 +5,18 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-08-04: added interactive `/btw <question>` temporary side threads.
+  Each side thread forks the current in-memory model context but uses a private
+  agent with no session persistence or compaction wiring. Plain input continues
+  the side conversation, `/exit` and `/quit` return to the main conversation,
+  and bare `/btw` resumes the latest in-process side thread. Tests require side
+  turns to retain both inherited and side-only context without changing main
+  messages, transcript entries, session leaf, session file, or main event
+  subscribers. Tool side effects remain real and are documented explicitly.
+  Focused race tests, repository-wide tests, `go vet ./...`,
+  `go mod tidy -diff`, `go run ./cmd/modu_code --help`, and
+  `git diff --check` pass.
+
 - 2026-08-04: replaced the keyless `web_search` default with Bing RSS after
   reproducing DuckDuckGo TLS failures in the target network. Credentialed
   providers still take priority, custom HTML endpoints remain supported, and

@@ -16,6 +16,16 @@ High-priority gaps identified before this round:
 
 ## Completed In This Round
 
+- 2026-08-04: added an isolated, in-process side-thread API for interactive
+  hosts. `BeginSideThread` snapshots the main agent's messages, prompt, model,
+  thinking level, and tools into a private agent; `PromptSideThread` exposes
+  only side events, while snapshot, abort, and clear APIs manage its temporary
+  lifecycle. Side turns do not enter the main session manager, context manager,
+  event subscribers, compaction, or token accounting. Session switches,
+  conversation clears, and shutdown discard the temporary thread. Unit and
+  session-level integration tests cover inherited context, side follow-ups,
+  event isolation, persistence isolation, explicit clear, and conversation
+  reset.
 - 2026-08-04: completed two bounded coding-agent runtime slices. Prompt templates now
   tokenize arguments with shell quoting and support `$@`, `$ARGUMENTS`,
   positional defaults, argument defaults, and `${@:start:length}` slices while

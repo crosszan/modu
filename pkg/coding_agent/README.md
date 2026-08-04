@@ -66,6 +66,8 @@ and compaction markers from the current session path in causal order.
 
 Use `FollowUpWithImages` or `SteerWithImages` while a task is active. These methods reject images when the model explicitly lacks image input support or configuration enables `blockImages`.
 
+Interactive hosts can build a non-persistent side conversation with `BeginSideThread`, `PromptSideThread`, and `GetSideThreadSnapshot`. The side thread inherits a copy of the current messages, model, thinking level, system prompt, and tools, but it has no session manager or context manager. Its messages therefore do not change the main transcript, session tree, token accounting, or compaction state. `AbortSideThread` cancels its active turn; `ClearSideThread` discards it. Tool side effects remain real.
+
 ## Operational controls
 
 - Background Bash calls return a `bash_id`; the default coding tool provider also registers `bash_output` and `kill_bash`.

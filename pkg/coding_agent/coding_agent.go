@@ -141,6 +141,12 @@ type engine struct {
 	bgPromptDriver   func(run func(context.Context) error) bool
 	bgPromptDriverMu sync.RWMutex
 
+	// sideThread is an in-process conversation fork used by interactive hosts.
+	// It deliberately has no session manager, context manager, or persistence
+	// wiring, so its messages cannot change the main conversation.
+	sideThread   *sideThread
+	sideThreadMu sync.Mutex
+
 	// startupEventDeferred records that the constructor skipped the startup
 	// session_start event (DeferStartupEvent); EmitStartupEvent emits it once.
 	startupEventDeferred bool
@@ -892,6 +898,7 @@ func (s *engine) Continue(ctx context.Context) error {
 }
 
 func (s *engine) Close(reason string) {
+	s.ClearSideThread()
 	if s.extensions != nil {
 		s.extensions.EmitEvent(types.Event{Type: types.EventType("session_shutdown")})
 	}

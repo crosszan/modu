@@ -3584,6 +3584,148 @@ func TestPromptWithImagesRejectsModelWithoutImageInput(t *testing.T) {
 	}
 }
 
+func TestSideThreadUsesMainContextWithoutMutatingOrPersistingMainConversation(t *testing.T) {
+	dir := t.TempDir()
+	model := newTestModel()
+	var contextsMu sync.Mutex
+	var contexts [][]types.AgentMessage
+	call := 0
+	streamFn := func(_ context.Context, _ *types.Model, llmCtx *types.LLMContext, _ *types.SimpleStreamOptions) (types.EventStream, error) {
+		contextsMu.Lock()
+		contexts = append(contexts, append([]types.AgentMessage(nil), llmCtx.Messages...))
+		call++
+		replyText := fmt.Sprintf("reply-%d", call)
+		contextsMu.Unlock()
+
+		stream := types.NewEventStream()
+		go func() {
+			defer stream.Close()
+			reply := &types.AssistantMessage{
+				Role:       types.RoleAssistant,
+				Content:    []types.ContentBlock{&types.TextContent{Type: "text", Text: replyText}},
+				StopReason: "stop",
+				Timestamp:  time.Now().UnixMilli(),
+			}
+			stream.Push(types.StreamEvent{Type: types.EventDone, Reason: "stop", Message: reply})
+			stream.Resolve(reply, nil)
+		}()
+		return stream, nil
+	}
+	session, err := NewCodingSession(CodingSessionOptions{
+		Cwd:       dir,
+		AgentDir:  filepath.Join(dir, ".coding_agent"),
+		Model:     model,
+		GetAPIKey: func(string) (string, error) { return "", nil },
+		StreamFn:  streamFn,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close("test")
+
+	if err := session.Prompt(context.Background(), "main question"); err != nil {
+		t.Fatal(err)
+	}
+	mainMessages := append([]types.AgentMessage(nil), session.GetMessages()...)
+	mainTranscript := session.GetSessionTranscript()
+	mainLeaf := session.GetSessionLeafID()
+	sessionFileBefore, err := os.ReadFile(session.GetSessionFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mainEventCount int
+	unsubscribeMain := session.Subscribe(func(types.Event) {
+		mainEventCount++
+	})
+	defer unsubscribeMain()
+
+	if err := session.BeginSideThread(); err != nil {
+		t.Fatal(err)
+	}
+	var sideEvents []types.Event
+	if err := session.PromptSideThread(context.Background(), "side question", nil, func(event types.Event) {
+		sideEvents = append(sideEvents, event)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.PromptSideThread(context.Background(), "side follow-up", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if mainEventCount != 0 {
+		t.Fatalf("main subscribers received %d side-thread events", mainEventCount)
+	}
+	if !hasAgentEnd(sideEvents) {
+		t.Fatalf("side-thread listener did not receive a complete turn: %#v", sideEvents)
+	}
+	if !reflect.DeepEqual(session.GetMessages(), mainMessages) {
+		t.Fatalf("main messages changed:\n got %#v\nwant %#v", session.GetMessages(), mainMessages)
+	}
+	if !reflect.DeepEqual(session.GetSessionTranscript(), mainTranscript) {
+		t.Fatalf("main persisted transcript changed")
+	}
+	if got := session.GetSessionLeafID(); got != mainLeaf {
+		t.Fatalf("main session leaf = %q, want %q", got, mainLeaf)
+	}
+	sessionFileAfter, err := os.ReadFile(session.GetSessionFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(sessionFileAfter, sessionFileBefore) {
+		t.Fatal("side-thread messages were written to the main session file")
+	}
+
+	snapshot, ok := session.GetSideThreadSnapshot()
+	if !ok || len(snapshot.Messages) != 4 {
+		t.Fatalf("side snapshot = %#v, %v", snapshot, ok)
+	}
+	if !messagesContainText(snapshot.Messages, "side question") || !messagesContainText(snapshot.Messages, "side follow-up") {
+		t.Fatalf("side snapshot is missing its user turns: %#v", snapshot.Messages)
+	}
+
+	contextsMu.Lock()
+	defer contextsMu.Unlock()
+	if len(contexts) != 3 {
+		t.Fatalf("LLM contexts = %d, want 3", len(contexts))
+	}
+	if !messagesContainText(contexts[1], "main question") || !messagesContainText(contexts[1], "side question") {
+		t.Fatalf("first side context did not inherit main context: %#v", contexts[1])
+	}
+	if !messagesContainText(contexts[2], "side question") || !messagesContainText(contexts[2], "side follow-up") {
+		t.Fatalf("side follow-up did not retain side history: %#v", contexts[2])
+	}
+}
+
+func TestSideThreadClearAndConversationResetDiscardTemporaryHistory(t *testing.T) {
+	session := newTestSession(t, newTestModel())
+	defer session.Close("test")
+
+	if _, ok := session.GetSideThreadSnapshot(); ok {
+		t.Fatal("unexpected side thread before /btw starts")
+	}
+	if err := session.BeginSideThread(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := session.GetSideThreadSnapshot(); !ok {
+		t.Fatal("expected active empty side thread")
+	}
+	session.ClearSideThread()
+	if _, ok := session.GetSideThreadSnapshot(); ok {
+		t.Fatal("ClearSideThread kept temporary history")
+	}
+
+	if err := session.BeginSideThread(); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.ClearConversation(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := session.GetSideThreadSnapshot(); ok {
+		t.Fatal("ClearConversation kept temporary side thread")
+	}
+}
+
 func TestPromptUsageTracksLatestContextWindowNotCumulativeSpend(t *testing.T) {
 	dir := t.TempDir()
 	model := newTestModelWithContext(10000)

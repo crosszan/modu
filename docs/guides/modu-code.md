@@ -238,6 +238,18 @@ Ollama 或 `Custom OpenAI-Compatible`，再统一填写密钥方式和 base URL�
 
 任务运行中继续输入普通消息并按 Enter，会把消息加入 follow-up 队列，在当前任务结束后自动执行。运行中按 Shift+Enter，或输入 `/steer <message>` / `/s <message>`，把消息加入 steer 队列并中断当前轮，随后按新方向继续。也可以 `/followup <message>` / `/f <message>` 显式排队下一条 follow-up。`/queue` 查看等待队列。
 
+### 临时旁路对话
+
+`/btw <问题>` 从当前主会话复制一份上下文，开启临时旁路对话。它适合追问一个不该进入主任务历史的问题：
+
+```text
+/btw 这个错误更可能是网络问题还是解析问题？
+```
+
+旁路回复完成后，直接输入下一条消息即可继续追问。`/exit` 或 `/quit` 返回主会话；退出后单独输入 `/btw`，可在当前进程内恢复最近一条旁路对话。重启程序、清空主会话或切换 session 后，旁路历史会丢弃。
+
+旁路消息不写入主 session 文件，不改变主会话消息、session tree、token 统计和上下文压缩。它继承当前模型、推理档位和工具；工具对文件、进程、网络及外部系统造成的副作用是真实的，不会因为旁路历史是临时的而回滚。主任务运行时不能开启或恢复 `/btw`。
+
 输入 `!cmd` 在当前工作目录执行 shell 命令，把输出显示在 TUI 中并作为下一条用户消息发送给模型；`!!cmd` 只执行并显示，不发送给模型。
 
 输入 `/tool-output <call-id>` 从当前 session 的工具结果 artifact 读取完整本地输出；没有 artifact 时回退显示模型看到的 preview。
@@ -320,6 +332,7 @@ token = "123456:bot-token"
 
 | 命令 | 说明 |
 |------|------|
+| `/btw <问题>` | 开启临时旁路对话；单独输入可恢复当前进程内最近一条 |
 | `/model [query]` | 打开带搜索的模型选择器 |
 | `/scoped-models [list\|set\|add\|remove\|clear\|edit]` | 配置模型循环范围 |
 | `/config` | 打开模型/provider 配置页面 |

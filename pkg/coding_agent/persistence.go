@@ -176,6 +176,7 @@ func (s *engine) ClearSavedMessages() error {
 
 // ClearConversation clears both in-memory and persisted conversation context.
 func (s *engine) ClearConversation() error {
+	s.ClearSideThread()
 	s.agent.Reset()
 	s.ctxMgr.ResetUsage()
 	if s.rewindRecorder != nil {
