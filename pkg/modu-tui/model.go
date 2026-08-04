@@ -34,6 +34,10 @@ type pastedImagesResolvedMsg struct {
 type slashCommandsLoadedMsg struct {
 	commands []SlashCommand
 }
+type atFilesLoadedMsg struct {
+	query string
+	paths []string
+}
 type toolPermissionResolvedMsg struct {
 	toolID     string
 	permission ToolPermissionState
@@ -153,6 +157,7 @@ func NewModel(options ...Options) Model {
 			arrowKeysScroll:       opts.ArrowKeysScroll,
 			slashCommands:         normalizeSlashCommands(opts.SlashCommands),
 			slashCommandsProvider: opts.Services.SlashCommands,
+			atFilesProvider:       opts.Services.ListFiles,
 			inputHistory:          normalizeInputHistory(opts.InputHistory),
 		},
 		chromeModel: chromeModel{
@@ -215,7 +220,7 @@ func (m *Model) submitInput(steer bool) tea.Cmd {
 	m.input.Reset()
 	m.historyIdx = len(m.inputHistory)
 	m.historyHold = ""
-	m.clearSlashMatches()
+	m.clearCompletions()
 	m.clearSelection()
 	m.follow = true
 	m.unseen = 0
@@ -328,7 +333,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resetIMEState()
 				m.input.Reset()
 				m.clearHistorySelection()
-				m.clearSlashMatches()
+				m.clearCompletions()
 				m.rebuild()
 				return m, nil
 			}
@@ -360,6 +365,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resetIMEState()
 			if len(m.slashMatches) > 0 {
 				m.clearSlashMatches()
+			} else if len(m.atMatches) > 0 {
+				m.clearAtMatches()
 			} else if m.streaming || m.busy {
 				m.status = "interrupting"
 				return m, m.emitIntent(InterruptIntent{})
@@ -377,7 +384,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resetIMEState()
 			m.input.InsertNewline()
 			m.clearHistorySelection()
-			return m, m.refreshSlashMatches()
+			return m, m.refreshCompletions()
 		case msg.String() == "shift+enter":
 			m.resetIMEState()
 			if cmd := m.submitInput(true); cmd != nil {
@@ -385,6 +392,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case msg.Code == tea.KeyEnter:
 			m.resetIMEState()
+			// With the file popup open, Enter accepts the highlighted path
+			// rather than submitting a half-typed "@que" to the agent.
+			// (Slash commands submit on Enter instead — submitInput already
+			// substitutes the highlighted command.)
+			if len(m.atMatches) > 0 && m.completeAtMatch() {
+				m.rebuild()
+				return m, nil
+			}
 			if cmd := m.submitInput(false); cmd != nil {
 				return m, cmd
 			}
@@ -404,24 +419,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resetIMEState()
 			m.input.Backspace()
 			m.clearHistorySelection()
-			return m, m.refreshSlashMatches()
+			return m, m.refreshCompletions()
 		case isCtrlWKey(msg):
 			m.resetIMEState()
 			m.input.DeleteWordBackward()
 			m.clearHistorySelection()
-			return m, m.refreshSlashMatches()
+			return m, m.refreshCompletions()
 		case msg.Code == tea.KeyDelete:
 			m.resetIMEState()
 			m.input.DeleteForward()
 			m.clearHistorySelection()
-			return m, m.refreshSlashMatches()
+			return m, m.refreshCompletions()
 		case msg.Code == tea.KeyTab:
 			m.resetIMEState()
-			m.completeSlashMatch()
+			if !m.completeSlashMatch() && m.completeAtMatch() {
+				m.rebuild()
+			}
 		case msg.Code == tea.KeyUp:
 			m.resetIMEState()
 			if len(m.slashMatches) > 0 {
 				m.slashIndex = (m.slashIndex - 1 + len(m.slashMatches)) % len(m.slashMatches)
+			} else if len(m.atMatches) > 0 {
+				m.atIndex = (m.atIndex - 1 + len(m.atMatches)) % len(m.atMatches)
 			} else if m.shouldArrowKeyScroll() {
 				m.scroll(-3)
 			} else {
@@ -431,6 +450,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resetIMEState()
 			if len(m.slashMatches) > 0 {
 				m.slashIndex = (m.slashIndex + 1) % len(m.slashMatches)
+			} else if len(m.atMatches) > 0 {
+				m.atIndex = (m.atIndex + 1) % len(m.atMatches)
 			} else if m.shouldArrowKeyScroll() {
 				m.scroll(3)
 			} else {
@@ -439,7 +460,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Text != "":
 			m.insertKeyText(msg.Text)
 			m.clearHistorySelection()
-			return m, m.refreshSlashMatches()
+			return m, m.refreshCompletions()
 		}
 
 	case tea.PasteMsg:
@@ -472,13 +493,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = fmt.Sprintf("attached %d image(s)", len(msg.images))
 		m.clearHistorySelection()
-		m.clearSlashMatches()
+		m.clearCompletions()
 		m.rebuild()
 		return m, nil
 
 	case slashCommandsLoadedMsg:
 		m.slashCommands = normalizeSlashCommands(msg.commands)
 		m.updateSlashMatches()
+		m.rebuild()
+		return m, nil
+
+	case atFilesLoadedMsg:
+		m.applyAtMatches(msg)
 		m.rebuild()
 		return m, nil
 
@@ -496,7 +522,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = fmt.Sprintf("attached %d image(s)", len(msg.images))
 		m.clearHistorySelection()
-		m.clearSlashMatches()
+		m.clearCompletions()
 		m.rebuild()
 
 	case clipboardCopyResultMsg:
@@ -649,7 +675,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case RequestToolApprovalMsg:
 		m.overlayModel.openApproval(pendingApproval{request: msg.Request, respond: msg.Respond})
-		m.clearSlashMatches()
+		m.clearCompletions()
 		m.follow = true
 		m.unseen = 0
 		m.rebuild()
@@ -666,7 +692,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			selected = 0
 		}
 		m.overlayModel.openHumanPrompt(pendingHumanPrompt{request: req, respond: msg.Respond, selected: selected})
-		m.clearSlashMatches()
+		m.clearCompletions()
 		m.follow = true
 		m.unseen = 0
 		m.rebuild()
@@ -683,7 +709,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			input.Insert(req.Default)
 		}
 		m.overlayModel.openHumanText(pendingHumanText{request: req, respond: msg.Respond, input: input})
-		m.clearSlashMatches()
+		m.clearCompletions()
 		m.follow = true
 		m.unseen = 0
 		m.rebuild()
@@ -817,7 +843,7 @@ func (m *Model) openHostPanel(panel Panel, refresh bool) {
 	} else {
 		m.overlayModel.openPanel(panel)
 	}
-	m.clearSlashMatches()
+	m.clearCompletions()
 	m.clearSelection()
 	m.rebuild()
 	m.ensurePanelSelectionVisible()
@@ -827,7 +853,7 @@ func (m *Model) openHostPanel(panel Panel, refresh bool) {
 func (m *Model) insertPastedText(content string) tea.Cmd {
 	m.input.InsertPaste(content)
 	m.clearHistorySelection()
-	cmd := m.refreshSlashMatches()
+	cmd := m.refreshCompletions()
 	m.rebuild()
 	return cmd
 }
@@ -1094,7 +1120,7 @@ func (m Model) View() tea.View {
 	if m.hasBlockingPrompt() {
 		caretX, cursorRow = 0, 0
 	}
-	v.Cursor = tea.NewCursor(caretX, m.vpHeight()+m.approvalPanelHeight()+m.humanPromptPanelHeight()+m.slashPanelHeight()+m.todoPanelHeight()+3+cursorRow)
+	v.Cursor = tea.NewCursor(caretX, m.vpHeight()+m.approvalPanelHeight()+m.humanPromptPanelHeight()+m.completionPanelHeight()+m.todoPanelHeight()+3+cursorRow)
 	return v
 }
 
@@ -1113,7 +1139,7 @@ func (m *Model) bottomFixedRows() int {
 }
 
 func (m *Model) vpHeight() int {
-	return max(m.minViewportRows(), m.height-m.bottomFixedRows()-m.approvalPanelHeight()-m.humanPromptPanelHeight()-m.slashPanelHeight()-m.todoPanelHeight())
+	return max(m.minViewportRows(), m.height-m.bottomFixedRows()-m.approvalPanelHeight()-m.humanPromptPanelHeight()-m.completionPanelHeight()-m.todoPanelHeight())
 }
 func (m *Model) approvalPanelHeight() int {
 	return len(m.approvalPanelLines())
@@ -1121,8 +1147,8 @@ func (m *Model) approvalPanelHeight() int {
 func (m *Model) humanPromptPanelHeight() int {
 	return len(m.humanPromptPanelLines())
 }
-func (m *Model) slashPanelHeight() int {
-	return len(m.slashPanelLines())
+func (m *Model) completionPanelHeight() int {
+	return len(m.completionPanelLines())
 }
 func (m *Model) todoPanelHeight() int {
 	return len(m.todoPanelLines())
@@ -1682,7 +1708,7 @@ func (m *Model) render() string {
 	if panel := m.humanPromptPanelLines(); len(panel) > 0 {
 		parts = append(parts, panel...)
 	}
-	if panel := m.slashPanelLines(); len(panel) > 0 {
+	if panel := m.completionPanelLines(); len(panel) > 0 {
 		parts = append(parts, panel...)
 	}
 	if panel := m.todoPanelLines(); len(panel) > 0 {
@@ -1790,16 +1816,31 @@ func (m *Model) inputTopRuleLine() string {
 		ruleStyle.Render(strings.Repeat("─", rightWidth))
 }
 
-func (m *Model) slashPanelLines() []string {
-	if m.hasBlockingPrompt() || len(m.slashMatches) == 0 {
+// completionPanelLines renders whichever completion popup is active — slash
+// commands or "@" file mentions. Both use the same card UI and the same
+// layout budget, and only one can be active at a time (an "@" token can't be
+// inside a slash command's own name), so they share one panel.
+func (m *Model) completionPanelLines() []string {
+	if m.hasBlockingPrompt() {
 		return nil
+	}
+	commands := m.slashMatches
+	selected := m.slashIndex
+	if len(commands) == 0 {
+		if len(m.atMatches) == 0 {
+			return nil
+		}
+		commands = make([]SlashCommand, 0, len(m.atMatches))
+		for _, path := range m.atMatches {
+			commands = append(commands, SlashCommand{Name: path})
+		}
+		selected = m.atIndex
 	}
 	available := m.height - m.bottomFixedRows() - m.minViewportRows() - m.approvalPanelHeight() - m.humanPromptPanelHeight()
 	if available < 3 {
 		return nil
 	}
-	commands := m.slashMatches
-	selected := clamp(m.slashIndex, 0, len(commands)-1)
+	selected = clamp(selected, 0, len(commands)-1)
 	maxRows := max(1, available-2)
 	if len(commands) > maxRows {
 		if available == 3 {
@@ -1820,12 +1861,20 @@ func (m *Model) todoPanelLines() []string {
 	if m.hasBlockingPrompt() || (!m.busy && !m.streaming) || !m.todosCurrent {
 		return nil
 	}
-	budget := m.height - m.bottomFixedRows() - m.minViewportRows() - m.approvalPanelHeight() - m.humanPromptPanelHeight() - m.slashPanelHeight()
+	budget := m.height - m.bottomFixedRows() - m.minViewportRows() - m.approvalPanelHeight() - m.humanPromptPanelHeight() - m.completionPanelHeight()
 	if budget < 3 {
 		return nil
 	}
 	maxRows := max(1, min(todoBlockMaxRows, budget-2))
 	return (TodoBlock{Items: m.todos, MaxRows: maxRows}).RenderWidth(m.width)
+}
+
+// refreshCompletions re-resolves both completion popups after the input
+// text or cursor moved. Only one can end up with matches (an "@" token
+// can't sit inside a slash command's name), so they're refreshed together
+// rather than the caller having to decide which applies.
+func (m *Model) refreshCompletions() tea.Cmd {
+	return batchCmds(m.refreshSlashMatches(), m.refreshAtMatches())
 }
 
 func (m *Model) refreshSlashMatches() tea.Cmd {
@@ -1865,7 +1914,76 @@ func (m *Model) completeSlashMatch() bool {
 	chosen := m.slashMatches[clamp(m.slashIndex, 0, len(m.slashMatches)-1)]
 	m.input.Value = chosen.Name + " "
 	m.input.Cursor = m.input.Len()
+	m.clearCompletions()
+	return true
+}
+
+// refreshAtMatches asks the host to resolve the "@query" token under the
+// cursor, if there is one. The query is captured here and echoed back in
+// atFilesLoadedMsg so a slow lookup that resolves after the user kept typing
+// can be discarded rather than replacing newer results.
+func (m *Model) refreshAtMatches() tea.Cmd {
+	if m.atFilesProvider == nil {
+		return nil
+	}
+	_, query, ok := inputAtTokenStart([]rune(m.input.Value), m.input.Cursor)
+	if !ok {
+		m.clearAtMatches()
+		return nil
+	}
+	provider := m.atFilesProvider
+	return func() tea.Msg {
+		return atFilesLoadedMsg{query: query, paths: provider(query)}
+	}
+}
+
+func (m *Model) applyAtMatches(msg atFilesLoadedMsg) {
+	_, query, ok := inputAtTokenStart([]rune(m.input.Value), m.input.Cursor)
+	if !ok || query != msg.query {
+		// The input moved on while the host was resolving; these results
+		// describe a token that no longer exists.
+		return
+	}
+	if len(msg.paths) == 0 {
+		m.clearAtMatches()
+		m.clampScroll()
+		return
+	}
+	m.atMatches = msg.paths
+	if m.atIndex >= len(m.atMatches) {
+		m.atIndex = len(m.atMatches) - 1
+	}
+	m.clampScroll()
+}
+
+func (m *Model) clearAtMatches() {
+	m.atMatches = nil
+	m.atIndex = 0
+}
+
+// clearCompletions dismisses both completion popups. Used wherever the
+// composer is reset or covered outright (submit, clear, overlay opened) —
+// unlike Esc, which dismisses them one at a time.
+func (m *Model) clearCompletions() {
 	m.clearSlashMatches()
+	m.clearAtMatches()
+}
+
+// completeAtMatch replaces the "@query" token under the cursor with the
+// selected path, leaving a trailing space so the next word starts cleanly.
+func (m *Model) completeAtMatch() bool {
+	if len(m.atMatches) == 0 {
+		return false
+	}
+	_, query, ok := inputAtTokenStart([]rune(m.input.Value), m.input.Cursor)
+	if !ok {
+		m.clearAtMatches()
+		return false
+	}
+	chosen := m.atMatches[clamp(m.atIndex, 0, len(m.atMatches)-1)]
+	// +1 for the '@' itself, which is replaced along with the query.
+	m.input.ReplaceBeforeCursor(len([]rune(query))+1, "@"+chosen+" ")
+	m.clearAtMatches()
 	return true
 }
 
@@ -1901,7 +2019,7 @@ func (m *Model) navigateInputHistory(delta int) tea.Cmd {
 		m.input.Pastes = nil
 	}
 	m.input.Cursor = m.input.Len()
-	return m.refreshSlashMatches()
+	return m.refreshCompletions()
 }
 
 func (m *Model) clearHistorySelection() {

@@ -88,6 +88,16 @@ type composerModel struct {
 	slashCommandsProvider func() []SlashCommand
 	slashMatches          []SlashCommand
 	slashIndex            int
+
+	// atFilesProvider resolves an in-progress "@query" token to candidate
+	// paths (see Services.ListFiles). atMatches/atIndex mirror
+	// slashMatches/slashIndex, but the results already come pre-filtered
+	// from the host rather than being filtered client-side from a static
+	// list, since a project's file count doesn't fit the "load everything
+	// once" pattern slash commands use.
+	atFilesProvider func(query string) []string
+	atMatches       []string
+	atIndex         int
 }
 
 // overlayModel owns the single focused surface above the normal composer.

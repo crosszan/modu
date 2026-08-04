@@ -170,6 +170,9 @@ func runModuTUI(ctx context.Context, session *coding_agent.CodingSession, model 
 			SlashCommands: func() []modutui.SlashCommand {
 				return commandExecutor.Suggestions()
 			},
+			ListFiles: func(query string) []string {
+				return listModuTUIFileMentions(session.Cwd(), query)
+			},
 			LoadToolArtifact: func(path string) (string, error) {
 				data, err := os.ReadFile(path)
 				return string(data), err
