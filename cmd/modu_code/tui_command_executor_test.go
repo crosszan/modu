@@ -40,7 +40,7 @@ func TestModuTUICommandExecutorSuggestionsUseRegisteredAliases(t *testing.T) {
 	for _, command := range commands {
 		seen[command.Name] = command
 	}
-	for _, name := range []string{"/steer", "/s", "/followup", "/f", "/config", "/channel", "/clone", "/branch-session", "/new"} {
+	for _, name := range []string{"/btw", "/steer", "/s", "/followup", "/f", "/config", "/channel", "/clone", "/branch-session", "/new"} {
 		if _, ok := seen[name]; !ok {
 			t.Fatalf("missing registered suggestion %q in %#v", name, commands)
 		}

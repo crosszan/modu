@@ -63,6 +63,8 @@ err := session.PromptWithImages(context.Background(), "解释这张截图", []ty
 
 任务运行中使用 `FollowUpWithImages` 或 `SteerWithImages`。模型显式声明不支持图片，或配置启用 `blockImages` 时，这三个入口会返回错误。
 
+交互式宿主可通过 `BeginSideThread`、`PromptSideThread` 和 `GetSideThreadSnapshot` 实现不持久化的旁路对话。旁路会复制当前消息、模型、推理档位、system prompt 和工具，但不挂载 session manager 与 context manager，因此不会改变主 transcript、session tree、token 统计和压缩状态。`AbortSideThread` 取消当前旁路回合，`ClearSideThread` 丢弃旁路历史；工具产生的真实副作用不在丢弃范围内。
+
 ## 运行控制
 
 - 后台 Bash 返回 `bash_id`；默认编码工具集同时注册 `bash_output` 和 `kill_bash`。

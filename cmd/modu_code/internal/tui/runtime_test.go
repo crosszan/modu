@@ -246,6 +246,61 @@ func TestRuntimeRunPanicClearsPromptState(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunWithCompletionReleasesPromptBeforeCallback(t *testing.T) {
+	session := newRuntimeSessionStub()
+	runtime, err := NewRuntime(RuntimeOptions{
+		Context: context.Background(),
+		Session: session,
+		Client:  modutui.NewClient(func(any) {}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	completed := make(chan bool, 1)
+	runtime.RunWithCompletion(func(context.Context) error {
+		return nil
+	}, func(error) {
+		completed <- runtime.IsPromptActive()
+	})
+
+	select {
+	case active := <-completed:
+		if active {
+			t.Fatal("prompt was still active when completion callback ran")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for completion callback")
+	}
+}
+
+func TestRuntimeRunOnceWithCompletionDoesNotConsumeMainQueue(t *testing.T) {
+	session := newRuntimeSessionStub()
+	session.queued = true
+	runtime, err := NewRuntime(RuntimeOptions{
+		Context: context.Background(),
+		Session: session,
+		Client:  modutui.NewClient(func(any) {}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	completed := make(chan struct{}, 1)
+	runtime.RunOnceWithCompletion(func(context.Context) error {
+		return nil
+	}, func(error) {
+		completed <- struct{}{}
+	})
+	waitRuntimeSignal(t, completed)
+
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.continueCalls != 0 || !session.queued {
+		t.Fatalf("isolated run consumed main queue: continueCalls=%d queued=%v", session.continueCalls, session.queued)
+	}
+}
+
 func waitRuntimeSignal(t *testing.T, signal <-chan struct{}) {
 	t.Helper()
 	select {

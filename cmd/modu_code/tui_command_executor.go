@@ -22,6 +22,7 @@ type moduTUICommandExecutorOptions struct {
 	StartModelSelect func()
 	QueueFollowUp    func(string, bool)
 	QueueSteer       func(string, bool)
+	SideThread       *moduTUISideThreadController
 }
 
 type moduTUICommandExecutor struct {
@@ -36,6 +37,7 @@ type moduTUICommandExecutor struct {
 	startModelSelect func()
 	queueFollowUp    func(string, bool)
 	queueSteer       func(string, bool)
+	sideThread       *moduTUISideThreadController
 	builtinCommands  []slash.CommandDefinition
 	modelCommand     slash.CommandDefinition
 	registry         codetui.CommandRegistry
@@ -54,6 +56,7 @@ func newModuTUICommandExecutor(options moduTUICommandExecutorOptions) (*moduTUIC
 		startModelSelect: options.StartModelSelect,
 		queueFollowUp:    options.QueueFollowUp,
 		queueSteer:       options.QueueSteer,
+		sideThread:       options.SideThread,
 		builtinCommands:  slash.CommandDefinitions(),
 	}
 	for _, definition := range executor.builtinCommands {
@@ -72,6 +75,9 @@ func newModuTUICommandExecutor(options moduTUICommandExecutorOptions) (*moduTUIC
 
 func (e *moduTUICommandExecutor) Execute(ctx context.Context, line string) {
 	if e == nil {
+		return
+	}
+	if e.sideThread != nil && e.sideThread.HandleCommand(line) {
 		return
 	}
 	if resolved, ok := e.registry.ResolveDynamic(line, moduTUIDynamicSlashCommands(e.session), e.executeAgentCommand); ok {
@@ -114,6 +120,11 @@ func (e *moduTUICommandExecutor) withActivity(line string, run func()) {
 
 func (e *moduTUICommandExecutor) commandDefinitions() []codetui.Command {
 	product := []codetui.Command{
+		{
+			Name:        "/btw",
+			Description: "Open a temporary side thread",
+			Handler:     e.handleBtw,
+		},
 		{
 			Name:        "/help",
 			Aliases:     []string{"/h"},
@@ -176,6 +187,14 @@ func (e *moduTUICommandExecutor) commandDefinitions() []codetui.Command {
 		})
 	}
 	return product
+}
+
+func (e *moduTUICommandExecutor) handleBtw(_ context.Context, invocation codetui.CommandInvocation) {
+	if e.sideThread == nil {
+		e.presenter.Text(modutui.RoleAssistant, "btw is not available")
+		return
+	}
+	e.sideThread.Open(invocation.Args)
 }
 
 func (e *moduTUICommandExecutor) handleHelp(_ context.Context, _ codetui.CommandInvocation) {

@@ -447,6 +447,7 @@ func (s *CodingSession) SwitchSession(sessionFile string) error {
 }
 
 func (s *CodingSession) switchSessionManager(newMgr *session.Manager) error {
+	s.ClearSideThread()
 	var messages []types.AgentMessage
 	newTree := session.NewTree(newMgr)
 	for _, entry := range newTree.GetCurrentPath() {

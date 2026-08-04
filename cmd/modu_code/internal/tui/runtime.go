@@ -142,6 +142,24 @@ func (r *Runtime) RunPrompt(text string, images []types.ImageContent) {
 // Run takes ownership of one foreground agent turn and any queued continuation
 // turns that follow it.
 func (r *Runtime) Run(run func(context.Context) error) {
+	r.RunWithCompletion(run, nil)
+}
+
+// RunWithCompletion is Run with a callback invoked after the foreground turn
+// has fully released its prompt context. Interactive modes use it to restore
+// their idle status or start queued mode-specific work safely.
+func (r *Runtime) RunWithCompletion(run func(context.Context) error, complete func(error)) {
+	r.run(run, complete, true)
+}
+
+// RunOnceWithCompletion runs one foreground turn without consuming queued
+// messages from the main session. It is intended for isolated host modes whose
+// work must not fall through into the main agent's follow-up queue.
+func (r *Runtime) RunOnceWithCompletion(run func(context.Context) error, complete func(error)) {
+	r.run(run, complete, false)
+}
+
+func (r *Runtime) run(run func(context.Context) error, complete func(error), continueMainQueue bool) {
 	if r == nil || run == nil {
 		return
 	}
@@ -160,13 +178,16 @@ func (r *Runtime) Run(run func(context.Context) error) {
 			started := r.now()
 			err, steeringCancel := r.runTurn(nextRun)
 
-			if r.session.HasQueuedMessages() && (err == nil || steeringCancel) {
+			if continueMainQueue && r.session.HasQueuedMessages() && (err == nil || steeringCancel) {
 				r.client.SetStatus("running", 0)
 				nextRun = r.session.Continue
 				continue
 			}
 
 			r.finishRun(started, err)
+			if complete != nil {
+				complete(err)
+			}
 			return
 		}
 	})
