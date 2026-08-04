@@ -346,6 +346,32 @@ func TestPOC2CopyingPartialMarkdownTableKeepsVisibleSelection(t *testing.T) {
 	}
 }
 
+func TestPOC2CopyingMarkdownOmitsRightPadding(t *testing.T) {
+	m := NewModel(Options{
+		Width:  60,
+		Height: 16,
+		InitialEntries: []Entry{testMarkdownEntry(RoleAssistant,
+			"### Summary\n\n1. first item\n2. second item\n\n```text\n  indented  content\n```",
+		)},
+	})
+	if len(m.lines) == 0 {
+		t.Fatal("expected rendered markdown lines")
+	}
+
+	m.selStart = cell{line: 0, col: 0}
+	last := len(m.lines) - 1
+	m.selEnd = cell{line: last, col: m.lineWidth(last)}
+	got := m.selectedText()
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasSuffix(line, " ") {
+			t.Fatalf("copied markdown line contains right-side render padding: %q\nfull copy:\n%q", line, got)
+		}
+	}
+	if !strings.Contains(got, "  indented  content") {
+		t.Fatalf("copy should preserve meaningful left indentation and internal spaces:\n%q", got)
+	}
+}
+
 func TestPOC2CopySelectionUsesOSC52OverSSH(t *testing.T) {
 	t.Setenv("SSH_TTY", "/dev/pts/1")
 	// Isolate multiplexer env so the sequence is plain OSC52, not screen/tmux
