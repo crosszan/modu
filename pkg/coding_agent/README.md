@@ -66,6 +66,15 @@ and compaction markers from the current session path in causal order.
 
 Use `FollowUpWithImages` or `SteerWithImages` while a task is active. These methods reject images when the model explicitly lacks image input support or configuration enables `blockImages`.
 
+## Operational controls
+
+- Background Bash calls return a `bash_id`; the default coding tool provider also registers `bash_output` and `kill_bash`.
+- `ConfigureProjectTrust` and `GetProjectTrust` manage persistent or process-only cwd trust. Dangerous Bash and explicit deny rules still take precedence.
+- Trusted configuration may define `PreToolUse`, `PostToolUse`, and `UserPromptSubmit` shell hooks.
+- `GetRewindPoints` and `Rewind` restore in-process checkpoints produced by built-in `write` / `edit` turns. Bash, MCP, network, and external changes are outside that boundary.
+- Prompt-template arguments support shell quoting, positional values, defaults, and slices while retaining legacy `{{input}}` / `{{args}}`.
+- Memory above the configured threshold is summarized in the background without changing source notes; `OrganizeMemory` and `/memory` expose manual execution and status.
+
 ## Documentation
 
 - [Detailed reference](../../docs/reference/coding-agent.md) — features, tools, configuration, runtime files, and request flow. This document is currently maintained in Chinese.

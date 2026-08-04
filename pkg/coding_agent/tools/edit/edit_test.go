@@ -571,3 +571,35 @@ func TestGenerateDiffIncludesContextAndChangedLines(t *testing.T) {
 		t.Errorf("diff missing file path header:\n%s", diff)
 	}
 }
+
+type snapshotProbe struct {
+	recorded []string
+}
+
+func (p *snapshotProbe) Record(path string) bool {
+	p.recorded = append(p.recorded, path)
+	return true
+}
+
+func (p *snapshotProbe) Discard(path string) {}
+
+func TestEditRecordsSnapshotBeforeMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "tracked.txt", "before")
+	probe := &snapshotProbe{}
+	tool := &EditTool{cwd: dir, snapshots: probe}
+	result, err := tool.Execute(context.Background(), "id", map[string]any{
+		"path":     "tracked.txt",
+		"old_text": "before",
+		"new_text": "after",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mustText(t, result), "Successfully edited") {
+		t.Fatalf("edit failed: %s", mustText(t, result))
+	}
+	if len(probe.recorded) != 1 || probe.recorded[0] != path {
+		t.Fatalf("recorded snapshots = %#v", probe.recorded)
+	}
+}

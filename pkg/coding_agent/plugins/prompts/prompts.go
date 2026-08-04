@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/openmodu/modu/pkg/coding_agent/foundation/resource"
@@ -14,10 +13,7 @@ import (
 	"github.com/openmodu/modu/pkg/utils"
 )
 
-var (
-	positionalArgRe = regexp.MustCompile(`\$(\d+)`)
-	shellSubRe      = regexp.MustCompile("!`([^`]*)`")
-)
+var shellSubRe = regexp.MustCompile("!`([^`]*)`")
 
 // Template represents a prompt template loaded from disk.
 type Template struct {
@@ -29,70 +25,30 @@ type Template struct {
 	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
-// Expand substitutes a prompt template's argument placeholders with the user
-// input. It supports both the legacy `{{input}}`/`{{args}}` forms and the
-// Claude Code custom-command forms: `$ARGUMENTS` (all args) and positional
-// `$1`, `$2`, ... (whitespace-split). When the template contains no
-// placeholder at all, non-empty input is appended so bare templates still
-// receive the user's text.
+// Expand substitutes prompt-template arguments. Legacy {{input}}/{{args}}
+// placeholders receive the trimmed raw invocation; shell-style placeholders
+// receive quote-aware tokens.
 func (t *Template) Expand(input string) string {
 	input = strings.TrimSpace(input)
 	text := t.Content
 
-	hasPlaceholder := false
-
-	if strings.Contains(text, "$ARGUMENTS") {
-		hasPlaceholder = true
-		text = strings.ReplaceAll(text, "$ARGUMENTS", input)
-	}
-
-	if indices := positionalIndices(text); len(indices) > 0 {
-		hasPlaceholder = true
-		args := strings.Fields(input)
-		// Replace larger indices first so `$1` does not match the prefix of
-		// `$12`.
-		for _, n := range indices {
-			val := ""
-			if n >= 1 && n <= len(args) {
-				val = args[n-1]
-			}
-			text = strings.ReplaceAll(text, "$"+strconv.Itoa(n), val)
-		}
-	}
-
-	if strings.Contains(text, "{{input}}") || strings.Contains(text, "{{args}}") {
-		hasPlaceholder = true
+	hasLegacyPlaceholder := strings.Contains(text, "{{input}}") || strings.Contains(text, "{{args}}")
+	if hasLegacyPlaceholder {
 		text = strings.ReplaceAll(text, "{{input}}", input)
 		text = strings.ReplaceAll(text, "{{args}}", input)
 	}
 
-	if !hasPlaceholder && input != "" {
-		text = strings.TrimSpace(text) + "\n\n" + input
+	args, err := SplitArgs(input)
+	if err != nil {
+		// Keep malformed invocations usable: the raw text becomes one argument.
+		args = []string{input}
+	}
+	if hasTemplatePlaceholder(text) {
+		text = ExpandTemplate(text, args)
+	} else if !hasLegacyPlaceholder {
+		text = ExpandTemplate(text, args)
 	}
 	return strings.TrimSpace(text)
-}
-
-// positionalIndices returns the distinct positional argument numbers ($1, $2,
-// ...) referenced in text, sorted descending so callers can substitute longer
-// tokens before their prefixes.
-func positionalIndices(text string) []int {
-	matches := positionalArgRe.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	seen := make(map[int]bool, len(matches))
-	for _, m := range matches {
-		n, err := strconv.Atoi(m[1])
-		if err == nil {
-			seen[n] = true
-		}
-	}
-	out := make([]int, 0, len(seen))
-	for n := range seen {
-		out = append(out, n)
-	}
-	sort.Sort(sort.Reverse(sort.IntSlice(out)))
-	return out
 }
 
 // SubstituteShell replaces Claude Code-style inline shell substitutions of the

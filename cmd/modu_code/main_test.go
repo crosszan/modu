@@ -49,6 +49,21 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func TestModuCodeToolProviderIncludesWebResearchTools(t *testing.T) {
+	provider := newModuCodeToolProvider()
+	got := provider.Tools(types.ToolContext{Cwd: t.TempDir()})
+
+	counts := make(map[string]int, len(got))
+	for _, tool := range got {
+		counts[tool.Name()]++
+	}
+	for _, name := range []string{"read", "bash", "bash_output", "kill_bash", "edit", "write", "grep", "find", "ls", "web_search", "web_fetch"} {
+		if counts[name] != 1 {
+			t.Fatalf("expected exactly one %s tool, got counts %#v", name, counts)
+		}
+	}
+}
+
 func TestRunConfigCommandExample(t *testing.T) {
 	var out bytes.Buffer
 	if err := runConfigCommand([]string{"example"}, &out, nil); err != nil {

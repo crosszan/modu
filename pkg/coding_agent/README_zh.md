@@ -63,6 +63,15 @@ err := session.PromptWithImages(context.Background(), "解释这张截图", []ty
 
 任务运行中使用 `FollowUpWithImages` 或 `SteerWithImages`。模型显式声明不支持图片，或配置启用 `blockImages` 时，这三个入口会返回错误。
 
+## 运行控制
+
+- 后台 Bash 返回 `bash_id`；默认编码工具集同时注册 `bash_output` 和 `kill_bash`。
+- `ConfigureProjectTrust` / `GetProjectTrust` 管理 cwd 的持久或进程内信任。危险 Bash 和显式 deny 规则仍然优先。
+- 已信任项目可配置 `PreToolUse`、`PostToolUse`、`UserPromptSubmit` shell hooks。
+- `GetRewindPoints` / `Rewind` 恢复本进程内由内置 `write` / `edit` 轮次生成的检查点；Bash、MCP、网络和外部修改不在回退边界内。
+- Prompt template 参数支持 shell 引号、位置参数、默认值和切片；旧 `{{input}}` / `{{args}}` 继续可用。
+- Memory 达到配置阈值后会后台更新 bounded summary，原始记忆不变；`OrganizeMemory` 和 `/memory` 提供手动入口与状态。
+
 ## 文档
 
 - [详细参考](../../docs/reference/coding-agent.md)：功能、工具、配置、运行时文件和请求流程。

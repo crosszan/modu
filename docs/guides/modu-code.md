@@ -174,6 +174,7 @@ Ollama 或 `Custom OpenAI-Compatible`，再统一填写密钥方式和 base URL�
 - **动态工作流（workflow）**：模型可以写 JavaScript 脚本调用 `workflow` 工具做 fan-out / fan-in 编排。`/workflows` 是管理面板（list/show/pause/stop/resume/restart/save 等），保存过的工作流以 `/workflow:<name>` 暴露，`/deep-research <question>` 是内置的多阶段联网研究工作流。可用 `MODU_CODE_DISABLE_WORKFLOWS=1` 或 `/config` 关闭。
 - **定时任务（cron）**：调度器内嵌在 TUI 进程里运行，无独立 daemon。`/cron add <request>` / `/cron list` / `/cron rm <uuid>` / `/cron update <request>` 管理任务，配置在 `~/.modu/cron/`，日志写 `~/.modu/cron/daemon.log`。
 - **MCP 工具**：配置的 stdio 和 Streamable HTTP MCP server 会接入每个新 session，工具对主代理可用，`required` server 启动失败会阻止 session 创建。配置格式（`~/.modu/config.toml` 的 `[mcp_servers.*]` 与项目级 `.coding_agent/settings.json` 的 `mcpServers`）见引擎文档。
+- **Memory 自动整理**：成功回合后按阈值在后台更新 global/project `memory_summary.md`，原始 `MEMORY.md` 和 daily notes 不变。`/memory status` 查看进度，`/memory organize` 强制执行。
 
 哪些扩展启用由 `~/.modu/extensions.yaml` 决定；文件不存在时默认启用全部内置扩展。
 
@@ -329,6 +330,7 @@ token = "123456:bot-token"
 | `/tools` | 列出当前生效的工具 |
 | `/plan` | 计划模式相关 |
 | `/compact` | 手动触发上下文压缩 |
+| `/memory [status\|organize]` | 查看 memory 自动整理状态，或强制生成摘要 |
 | `/tokens` | 查看 token 用量 |
 | `/worktree` | 查看 worktree 状态、diff、列表和 cleanup |
 | `/retry` | 重试上一条失败的 prompt |
@@ -361,6 +363,7 @@ token = "123456:bot-token"
 | `/changelog` | 显示当前 git 仓库最近提交 |
 | `/skills` | 列出已发现 skills |
 | `/prompts` | 列出已发现 prompt templates |
+| `/memory [status\|organize]` | 查看 memory 自动整理状态，或强制生成摘要 |
 | `/settings` | 显示 Bubble Tea 迁移状态 |
 
 命令列表随启用的扩展变化，以 `/help` 或 `/` 选择器实际显示为准。

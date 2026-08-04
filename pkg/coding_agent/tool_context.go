@@ -17,5 +17,8 @@ func (s *engine) toolContext(cwd string) types.ToolContext {
 		values[tools.ValueWebSearch] = s.config.WebSearch
 		values[tools.ValueWebFetch] = s.config.WebFetch
 	}
+	if s != nil && s.rewindRecorder != nil {
+		values[tools.ValueRewind] = s.rewindRecorder
+	}
 	return types.ToolContext{Cwd: cwd, Values: values}
 }

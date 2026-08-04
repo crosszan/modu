@@ -119,6 +119,7 @@ func main() {
 		ModelConfigPath:   provider.ConfigPath(),
 		ResumeSessionID:   *resumeID,
 		Extensions:        exts,
+		ToolProvider:      newModuCodeToolProvider(),
 		DeferStartupEvent: interactiveMode,
 	}
 	session, err := coding_agent.NewCodingSession(sessionOpts)

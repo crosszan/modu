@@ -460,6 +460,9 @@ func (s *CodingSession) switchSessionManager(newMgr *session.Manager) error {
 
 	s.sessionManager = newMgr
 	s.sessionTree = newTree
+	if s.rewindRecorder != nil {
+		s.rewindRecorder.Reset()
+	}
 	s.sessionName = newMgr.SessionName()
 	s.artifactStore = toolcommon.NewArtifactStore(
 		runtimepaths.SessionToolResultsDir(s.agentDir, s.cwd, newMgr.SessionID()),

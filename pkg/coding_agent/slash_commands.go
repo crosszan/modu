@@ -3,8 +3,11 @@ package coding_agent
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/openmodu/modu/pkg/coding_agent/services/memory"
 	"github.com/openmodu/modu/pkg/providers"
 	"github.com/openmodu/modu/pkg/types"
 )
@@ -60,6 +63,11 @@ func BuiltinCommands() []SlashCommand {
 			Handler:     cmdCompact,
 		},
 		{
+			Name:        "memory",
+			Description: "Show status or organize stored memory",
+			Handler:     cmdMemory,
+		},
+		{
 			Name:        "tree",
 			Description: "Show conversation tree structure",
 			Handler:     cmdTree,
@@ -99,6 +107,16 @@ func BuiltinCommands() []SlashCommand {
 			Description: "Show current session information",
 			Handler:     cmdSession,
 		},
+		{
+			Name:        "trust",
+			Description: "Show or set project trust (status, on, off, once)",
+			Handler:     cmdTrust,
+		},
+		{
+			Name:        "rewind",
+			Description: "List or restore write/edit checkpoints",
+			Handler:     cmdRewind,
+		},
 	}
 }
 
@@ -112,6 +130,36 @@ func cmdModel(session *CodingSession, args string) error {
 
 func cmdCompact(session *CodingSession, _ string) error {
 	return session.Compact(nil)
+}
+
+func cmdMemory(session *CodingSession, args string) error {
+	switch strings.ToLower(strings.TrimSpace(args)) {
+	case "", "status":
+		printMemoryOrganizationStatus(session.GetMemoryOrganizationStatus())
+		return nil
+	case "organize":
+		result, err := session.OrganizeMemory(nil)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Memory organization: %s\n", result.Reason)
+		printMemoryOrganizationStatus(result.State)
+		return nil
+	default:
+		return fmt.Errorf("usage: /memory [status|organize]")
+	}
+}
+
+func printMemoryOrganizationStatus(status memory.OrganizationState) {
+	fmt.Printf("Status: %s\n", status.Status)
+	fmt.Printf("Running: %v\n", status.Running)
+	fmt.Printf("Source bytes: %d\n", status.SourceBytes)
+	if !status.LastSuccess.IsZero() {
+		fmt.Printf("Last success: %s\n", status.LastSuccess.Local().Format(time.RFC3339))
+	}
+	if status.LastError != "" {
+		fmt.Printf("Last error: %s\n", status.LastError)
+	}
 }
 
 func cmdTree(session *CodingSession, _ string) error {
@@ -220,6 +268,44 @@ func cmdSession(session *CodingSession, _ string) error {
 	fmt.Printf("Auto Retry: %v\n", session.config.AutoRetry)
 	msgs := session.GetMessages()
 	fmt.Printf("Messages: %d\n", len(msgs))
+	return nil
+}
+
+func cmdTrust(session *CodingSession, args string) error {
+	status, err := session.ConfigureProjectTrust(args)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Project trust: %s\nDirectory: %s\nSource: %s\n", status.Decision, status.Directory, status.Source)
+	return nil
+}
+
+func cmdRewind(session *CodingSession, args string) error {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		points := session.GetRewindPoints()
+		if len(points) == 0 {
+			fmt.Println("No restore points yet; successful write/edit turns create them.")
+			return nil
+		}
+		fmt.Println("Restore points:")
+		for _, point := range points {
+			fmt.Printf("  %d. %s  %d file(s)  %s\n", point.Number, point.Time.Local().Format("3:04PM"), point.FileCount, point.Label)
+		}
+		return nil
+	}
+	number, err := strconv.Atoi(args)
+	if err != nil {
+		return fmt.Errorf("usage: /rewind [point-number]")
+	}
+	result, err := session.Rewind(number)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Rewound to before point %d.\n", number)
+	for _, path := range result.RestoredFiles {
+		fmt.Printf("  %s\n", session.DisplayRewindPath(path))
+	}
 	return nil
 }
 

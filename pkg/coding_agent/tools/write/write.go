@@ -14,6 +14,7 @@ import (
 type WriteTool struct {
 	cwd       string
 	readState *common.FileReadState
+	snapshots common.SnapshotRecorder
 }
 
 func NewTool(cwd string) types.Tool {
@@ -22,6 +23,10 @@ func NewTool(cwd string) types.Tool {
 
 func NewTrackedTool(cwd string, readState *common.FileReadState) types.Tool {
 	return &WriteTool{cwd: cwd, readState: readState}
+}
+
+func NewTrackedToolWithSnapshots(cwd string, readState *common.FileReadState, snapshots common.SnapshotRecorder) types.Tool {
+	return &WriteTool{cwd: cwd, readState: readState, snapshots: snapshots}
 }
 
 func (t *WriteTool) Name() string  { return "write" }
@@ -100,7 +105,11 @@ func (t *WriteTool) Execute(ctx context.Context, toolCallID string, args map[str
 	}
 
 	// Write the file
+	recorded := t.snapshots != nil && t.snapshots.Record(resolved)
 	if err := os.WriteFile(resolved, []byte(content), 0o644); err != nil {
+		if recorded {
+			t.snapshots.Discard(resolved)
+		}
 		return common.ErrorResult(fmt.Sprintf("failed to write file: %v", err)), nil
 	}
 	t.recordWrittenState(resolved, content)

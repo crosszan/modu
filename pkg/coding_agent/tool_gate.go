@@ -68,6 +68,9 @@ func (w *HarnessWrappedTool) Execute(ctx context.Context, toolCallID string, arg
 			Details: map[string]any{"isError": true},
 		}, nil
 	}
+	if w.session != nil && w.session.configHooks != nil {
+		return w.session.configHooks.RunTool(ctx, w.inner, toolCallID, args, onUpdate)
+	}
 	return w.inner.Execute(ctx, toolCallID, args, onUpdate)
 }
 

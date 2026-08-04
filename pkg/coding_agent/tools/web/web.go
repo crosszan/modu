@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	stdhtml "html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,7 +33,8 @@ import (
 const (
 	defaultFetchMaxBytes           = 2 * 1024 * 1024
 	maxFetchBytes                  = 32 * 1024 * 1024
-	defaultSearchEndpoint          = "https://duckduckgo.com/html/?q={query}"
+	defaultSearchEndpoint          = "https://cn.bing.com/search?format=rss"
+	defaultDuckDuckGoEndpoint      = "https://html.duckduckgo.com/html/?q={query}"
 	defaultExaEndpoint             = "https://api.exa.ai/search"
 	defaultTavilyEndpoint          = "https://api.tavily.com/search"
 	defaultBraveEndpoint           = "https://api.search.brave.com/res/v1/web/search"
@@ -86,15 +89,27 @@ type FetchPage struct {
 }
 
 func NewFetchTool() types.Tool {
-	return &FetchTool{client: &http.Client{Timeout: 15 * time.Second}}
+	return &FetchTool{client: newFetchHTTPClient()}
 }
 
 func NewFetchToolWithArtifacts(artifacts *common.ArtifactStore) types.Tool {
-	return &FetchTool{client: &http.Client{Timeout: 15 * time.Second}, artifacts: artifacts}
+	return &FetchTool{client: newFetchHTTPClient(), artifacts: artifacts}
 }
 
 func NewFetchToolWithConfig(artifacts *common.ArtifactStore, cfg FetchConfig) types.Tool {
-	return &FetchTool{client: &http.Client{Timeout: 15 * time.Second}, artifacts: artifacts, config: cfg}
+	return &FetchTool{client: newFetchHTTPClient(), artifacts: artifacts, config: cfg}
+}
+
+func newFetchHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) == 0 || sameOrigin(via[0].URL, req.URL) {
+				return nil
+			}
+			return fmt.Errorf("cross-origin redirect blocked: %s -> %s", via[0].URL, req.URL)
+		},
+	}
 }
 
 func (t *FetchTool) Name() string  { return "web_fetch" }
@@ -511,6 +526,18 @@ type SearchConfig struct {
 func NewSearchToolWithConfig(cfg SearchConfig) types.Tool {
 	provider := strings.ToLower(strings.TrimSpace(firstNonEmpty(cfg.Provider, os.Getenv("MODU_WEB_SEARCH_PROVIDER"))))
 	apiKey := providerAPIKey(cfg.APIKey, cfg.APIKeyEnv, "MODU_EXA_API_KEY", "EXA_API_KEY")
+	if provider == "" && strings.TrimSpace(cfg.APIKey) == "" && strings.TrimSpace(cfg.APIKeyEnv) == "" {
+		switch {
+		case apiKey != "":
+			provider = "exa"
+		case providerAPIKey("", "", "TAVILY_API_KEY", "MODU_TAVILY_API_KEY") != "":
+			provider = "tavily"
+		case providerAPIKey("", "", "BRAVE_SEARCH_API_KEY", "MODU_BRAVE_SEARCH_API_KEY") != "":
+			provider = "brave"
+		case providerAPIKey("", "", "FIRECRAWL_API_KEY", "MODU_FIRECRAWL_API_KEY") != "":
+			provider = "firecrawl"
+		}
+	}
 	if provider == "exa" || (provider == "" && apiKey != "") {
 		endpoint := strings.TrimSpace(firstNonEmpty(cfg.Endpoint, os.Getenv("MODU_EXA_SEARCH_ENDPOINT")))
 		if endpoint == "" {
@@ -529,17 +556,21 @@ func NewSearchToolWithConfig(cfg SearchConfig) types.Tool {
 		return newProviderSearchTool("brave", firstNonEmpty(cfg.Endpoint, os.Getenv("MODU_BRAVE_SEARCH_ENDPOINT"), defaultBraveEndpoint), providerAPIKey(cfg.APIKey, cfg.APIKeyEnv, "BRAVE_SEARCH_API_KEY", "MODU_BRAVE_SEARCH_API_KEY"), cfg.SearchType)
 	case "firecrawl":
 		return newProviderSearchTool("firecrawl", firstNonEmpty(cfg.Endpoint, os.Getenv("MODU_FIRECRAWL_SEARCH_ENDPOINT"), defaultFirecrawlSearchEndpoint), providerAPIKey(cfg.APIKey, cfg.APIKeyEnv, "FIRECRAWL_API_KEY", "MODU_FIRECRAWL_API_KEY"), cfg.SearchType)
+	case "bing":
+		return newProviderSearchTool("bing", firstNonEmpty(cfg.Endpoint, os.Getenv("MODU_BING_SEARCH_ENDPOINT"), defaultSearchEndpoint), "", "")
+	case "duckduckgo", "ddg", "html":
+		return newProviderSearchTool("html", firstNonEmpty(cfg.Endpoint, os.Getenv("MODU_WEB_SEARCH_ENDPOINT"), defaultDuckDuckGoEndpoint), "", "")
 	}
 	endpoint := strings.TrimSpace(firstNonEmpty(cfg.Endpoint, os.Getenv("MODU_WEB_SEARCH_ENDPOINT")))
-	if endpoint == "" {
-		endpoint = defaultSearchEndpoint
+	if endpoint != "" {
+		return NewSearchToolWithEndpoint(endpoint)
 	}
-	return NewSearchToolWithEndpoint(endpoint)
+	return newProviderSearchTool("bing", defaultSearchEndpoint, "", "")
 }
 
 func NewSearchToolWithEndpoint(endpoint string) types.Tool {
 	if strings.TrimSpace(endpoint) == "" {
-		endpoint = defaultSearchEndpoint
+		return newProviderSearchTool("bing", defaultSearchEndpoint, "", "")
 	}
 	return &SearchTool{
 		client:   &http.Client{Timeout: 15 * time.Second},
@@ -595,6 +626,16 @@ func (t *SearchTool) Parameters() any {
 				"type":        "integer",
 				"description": "Maximum results to return, capped at 10. Defaults to 5.",
 			},
+			"allowed_domains": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"description": "Only return results from these domains or their subdomains.",
+			},
+			"blocked_domains": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"description": "Exclude results from these domains and their subdomains.",
+			},
 		},
 		"required": []string{"query"},
 	}
@@ -606,15 +647,21 @@ func (t *SearchTool) Execute(ctx context.Context, toolCallID string, args map[st
 		return common.ErrorResult("query is required"), nil
 	}
 	maxResults := boundedInt(args["max_results"], defaultSearchResults, maxSearchResults)
+	filters, err := parseDomainFilters(args)
+	if err != nil {
+		return common.ErrorResult(err.Error()), nil
+	}
 	switch t.provider {
 	case "exa":
-		return t.executeExa(ctx, query, maxResults)
+		return t.executeExa(ctx, query, maxResults, filters)
 	case "tavily":
-		return t.executeTavily(ctx, query, maxResults)
+		return t.executeTavily(ctx, query, maxResults, filters)
 	case "brave":
-		return t.executeBrave(ctx, query, maxResults)
+		return t.executeBrave(ctx, query, maxResults, filters)
 	case "firecrawl":
-		return t.executeFirecrawlSearch(ctx, query, maxResults)
+		return t.executeFirecrawlSearch(ctx, query, maxResults, filters)
+	case "bing":
+		return t.executeBing(ctx, query, maxResults, filters)
 	}
 	searchURL, err := buildSearchURL(t.endpoint, query)
 	if err != nil {
@@ -627,14 +674,16 @@ func (t *SearchTool) Execute(ctx context.Context, toolCallID string, args map[st
 	if statusCode(status) >= 400 {
 		return common.ErrorResult(fmt.Sprintf("search failed: %s", status)), nil
 	}
-	results := parseSearchResults(string(body), searchURL, maxResults)
+	results := filterSearchResults(parseSearchResults(string(body), searchURL, providerResultLimit(maxResults, filters)), filters, maxResults)
 	if len(results) == 0 {
 		return textResult(fmt.Sprintf("No search results found for %q.", query), map[string]any{
-			"query":        query,
-			"status":       status,
-			"content_type": contentType,
-			"truncated":    truncated,
-			"results":      []map[string]string{},
+			"query":           query,
+			"status":          status,
+			"content_type":    contentType,
+			"truncated":       truncated,
+			"results":         []map[string]string{},
+			"allowed_domains": filters.allowed,
+			"blocked_domains": filters.blocked,
 		}), nil
 	}
 	var b strings.Builder
@@ -657,13 +706,80 @@ func (t *SearchTool) Execute(ctx context.Context, toolCallID string, args map[st
 		})
 	}
 	return textResult(b.String(), map[string]any{
-		"provider":     "html",
-		"query":        query,
-		"status":       status,
-		"content_type": contentType,
-		"truncated":    truncated,
-		"results":      details,
+		"provider":        "html",
+		"query":           query,
+		"status":          status,
+		"content_type":    contentType,
+		"truncated":       truncated,
+		"results":         details,
+		"allowed_domains": filters.allowed,
+		"blocked_domains": filters.blocked,
 	}), nil
+}
+
+func (t *SearchTool) executeBing(ctx context.Context, query string, maxResults int, filters domainFilters) (types.ToolResult, error) {
+	searchURL, err := buildSearchURL(t.endpoint, query)
+	if err != nil {
+		return common.ErrorResult(fmt.Sprintf("invalid bing search endpoint: %v", err)), nil
+	}
+	body, status, contentType, truncated, err := fetch(ctx, t.client, searchURL, defaultSearchMaxBytes)
+	if err != nil {
+		return common.ErrorResult(fmt.Sprintf("bing search failed: %v", err)), nil
+	}
+	if statusCode(status) >= 400 {
+		return common.ErrorResult(fmt.Sprintf("bing search failed: %s", status)), nil
+	}
+	results, err := parseBingRSS(body, providerResultLimit(maxResults, filters))
+	if err != nil {
+		return common.ErrorResult(fmt.Sprintf("bing search failed: invalid RSS response: %v", err)), nil
+	}
+	results = filterSearchResults(results, filters, maxResults)
+	return formatSearchResults("bing", query, status, contentType, truncated, results, map[string]any{
+		"allowed_domains": filters.allowed,
+		"blocked_domains": filters.blocked,
+	}), nil
+}
+
+type bingRSSResponse struct {
+	Channel struct {
+		Items []struct {
+			Title       string `xml:"title"`
+			Link        string `xml:"link"`
+			Description string `xml:"description"`
+			Published   string `xml:"pubDate"`
+		} `xml:"item"`
+	} `xml:"channel"`
+}
+
+func parseBingRSS(body []byte, maxResults int) ([]searchResult, error) {
+	var response bingRSSResponse
+	if err := xml.Unmarshal(body, &response); err != nil {
+		return nil, err
+	}
+	results := make([]searchResult, 0, min(maxResults, len(response.Channel.Items)))
+	seen := make(map[string]bool)
+	for _, item := range response.Channel.Items {
+		if len(results) >= maxResults {
+			break
+		}
+		title := normalizeSpace(item.Title)
+		target := strings.TrimSpace(item.Link)
+		if title == "" || target == "" || seen[target] {
+			continue
+		}
+		parsed, err := validateHTTPURL(target)
+		if err != nil {
+			continue
+		}
+		seen[target] = true
+		results = append(results, searchResult{
+			Title:         title,
+			URL:           parsed.String(),
+			Snippet:       common.TruncateLine(normalizeSpace(item.Description), 360),
+			PublishedDate: normalizeSpace(item.Published),
+		})
+	}
+	return results, nil
 }
 
 type searchResult struct {
@@ -674,7 +790,7 @@ type searchResult struct {
 	Author        string
 }
 
-func (t *SearchTool) executeExa(ctx context.Context, query string, maxResults int) (types.ToolResult, error) {
+func (t *SearchTool) executeExa(ctx context.Context, query string, maxResults int, filters domainFilters) (types.ToolResult, error) {
 	if strings.TrimSpace(t.apiKey) == "" {
 		return common.ErrorResult("exa api key is required; set MODU_EXA_API_KEY or EXA_API_KEY"), nil
 	}
@@ -682,9 +798,10 @@ func (t *SearchTool) executeExa(ctx context.Context, query string, maxResults in
 	if searchType == "" {
 		searchType = "fast"
 	}
+	requestLimit := providerResultLimit(maxResults, filters)
 	payload := map[string]any{
 		"query":      query,
-		"numResults": maxResults,
+		"numResults": requestLimit,
 		"type":       searchType,
 		"contents": map[string]any{
 			"highlights": true,
@@ -697,22 +814,25 @@ func (t *SearchTool) executeExa(ctx context.Context, query string, maxResults in
 	if statusCode(status) >= 400 {
 		return common.ErrorResult(fmt.Sprintf("search failed: %s: %s", status, common.PreviewText(string(body), common.TextPreviewOptions{MaxLines: 3, MaxBytes: 512}).Text)), nil
 	}
-	resp, err := parseExaSearchResponse(body, maxResults)
+	resp, err := parseExaSearchResponse(body, requestLimit)
 	if err != nil {
 		return common.ErrorResult(fmt.Sprintf("search failed: invalid exa response: %v", err)), nil
 	}
+	resp.Results = filterExaSearchResults(resp.Results, filters, maxResults)
 	if len(resp.Results) == 0 {
 		return textResult(fmt.Sprintf("No search results found for %q.", query), map[string]any{
-			"provider":     "exa",
-			"query":        query,
-			"status":       status,
-			"content_type": contentType,
-			"truncated":    truncated,
-			"request_id":   resp.RequestID,
-			"search_type":  searchType,
-			"exa_type":     resp.ResolvedType,
-			"cost_dollars": resp.CostDollars,
-			"results":      []map[string]string{},
+			"provider":        "exa",
+			"query":           query,
+			"status":          status,
+			"content_type":    contentType,
+			"truncated":       truncated,
+			"request_id":      resp.RequestID,
+			"search_type":     searchType,
+			"exa_type":        resp.ResolvedType,
+			"cost_dollars":    resp.CostDollars,
+			"results":         []map[string]string{},
+			"allowed_domains": filters.allowed,
+			"blocked_domains": filters.blocked,
 		}), nil
 	}
 
@@ -744,16 +864,18 @@ func (t *SearchTool) executeExa(ctx context.Context, query string, maxResults in
 		})
 	}
 	return textResult(b.String(), map[string]any{
-		"provider":     "exa",
-		"query":        query,
-		"status":       status,
-		"content_type": contentType,
-		"truncated":    truncated,
-		"request_id":   resp.RequestID,
-		"search_type":  searchType,
-		"exa_type":     resp.ResolvedType,
-		"cost_dollars": resp.CostDollars,
-		"results":      details,
+		"provider":        "exa",
+		"query":           query,
+		"status":          status,
+		"content_type":    contentType,
+		"truncated":       truncated,
+		"request_id":      resp.RequestID,
+		"search_type":     searchType,
+		"exa_type":        resp.ResolvedType,
+		"cost_dollars":    resp.CostDollars,
+		"results":         details,
+		"allowed_domains": filters.allowed,
+		"blocked_domains": filters.blocked,
 	}), nil
 }
 
@@ -811,14 +933,15 @@ func exaSnippet(result exaSearchResult) string {
 	return common.TruncateLine(normalizeSpace(result.Text), 360)
 }
 
-func (t *SearchTool) executeTavily(ctx context.Context, query string, maxResults int) (types.ToolResult, error) {
+func (t *SearchTool) executeTavily(ctx context.Context, query string, maxResults int, filters domainFilters) (types.ToolResult, error) {
 	if strings.TrimSpace(t.apiKey) == "" {
 		return common.ErrorResult("tavily api key is required; set TAVILY_API_KEY or settings.webSearch.apiKeyEnv"), nil
 	}
 	searchDepth := firstNonEmpty(t.searchType, "basic")
+	requestLimit := providerResultLimit(maxResults, filters)
 	payload := map[string]any{
 		"query":        query,
-		"max_results":  maxResults,
+		"max_results":  requestLimit,
 		"search_depth": searchDepth,
 	}
 	body, status, contentType, truncated, err := postJSONWithHeaders(ctx, t.client, t.endpoint, payload, defaultSearchMaxBytes, map[string]string{
@@ -837,7 +960,7 @@ func (t *SearchTool) executeTavily(ctx context.Context, query string, maxResults
 	results := make([]searchResult, 0, len(resp.Results))
 	seen := map[string]bool{}
 	for _, result := range resp.Results {
-		if len(results) >= maxResults {
+		if len(results) >= requestLimit {
 			break
 		}
 		title := normalizeSpace(result.Title)
@@ -853,11 +976,14 @@ func (t *SearchTool) executeTavily(ctx context.Context, query string, maxResults
 			PublishedDate: result.PublishedDate,
 		})
 	}
+	results = filterSearchResults(results, filters, maxResults)
 	return formatSearchResults("tavily", query, status, contentType, truncated, results, map[string]any{
-		"request_id":    resp.RequestID,
-		"response_time": resp.ResponseTime,
-		"search_depth":  searchDepth,
-		"usage":         resp.Usage,
+		"request_id":      resp.RequestID,
+		"response_time":   resp.ResponseTime,
+		"search_depth":    searchDepth,
+		"usage":           resp.Usage,
+		"allowed_domains": filters.allowed,
+		"blocked_domains": filters.blocked,
 	}), nil
 }
 
@@ -873,11 +999,12 @@ type tavilySearchResponse struct {
 	Usage        map[string]any `json:"usage"`
 }
 
-func (t *SearchTool) executeBrave(ctx context.Context, query string, maxResults int) (types.ToolResult, error) {
+func (t *SearchTool) executeBrave(ctx context.Context, query string, maxResults int, filters domainFilters) (types.ToolResult, error) {
 	if strings.TrimSpace(t.apiKey) == "" {
 		return common.ErrorResult("brave api key is required; set BRAVE_SEARCH_API_KEY or settings.webSearch.apiKeyEnv"), nil
 	}
-	searchURL, err := buildBraveSearchURL(t.endpoint, query, maxResults)
+	requestLimit := providerResultLimit(maxResults, filters)
+	searchURL, err := buildBraveSearchURL(t.endpoint, query, requestLimit)
 	if err != nil {
 		return common.ErrorResult(fmt.Sprintf("invalid brave search endpoint: %v", err)), nil
 	}
@@ -898,7 +1025,7 @@ func (t *SearchTool) executeBrave(ctx context.Context, query string, maxResults 
 	results := make([]searchResult, 0, len(resp.Web.Results))
 	seen := map[string]bool{}
 	for _, result := range resp.Web.Results {
-		if len(results) >= maxResults {
+		if len(results) >= requestLimit {
 			break
 		}
 		title := normalizeSpace(result.Title)
@@ -918,7 +1045,11 @@ func (t *SearchTool) executeBrave(ctx context.Context, query string, maxResults 
 			PublishedDate: result.Age,
 		})
 	}
-	return formatSearchResults("brave", query, status, contentType, truncated, results, nil), nil
+	results = filterSearchResults(results, filters, maxResults)
+	return formatSearchResults("brave", query, status, contentType, truncated, results, map[string]any{
+		"allowed_domains": filters.allowed,
+		"blocked_domains": filters.blocked,
+	}), nil
 }
 
 type braveSearchResponse struct {
@@ -933,13 +1064,14 @@ type braveSearchResponse struct {
 	} `json:"web"`
 }
 
-func (t *SearchTool) executeFirecrawlSearch(ctx context.Context, query string, maxResults int) (types.ToolResult, error) {
+func (t *SearchTool) executeFirecrawlSearch(ctx context.Context, query string, maxResults int, filters domainFilters) (types.ToolResult, error) {
 	if strings.TrimSpace(t.apiKey) == "" {
 		return common.ErrorResult("firecrawl api key is required; set FIRECRAWL_API_KEY or settings.webSearch.apiKeyEnv"), nil
 	}
+	requestLimit := providerResultLimit(maxResults, filters)
 	payload := map[string]any{
 		"query":   query,
-		"limit":   maxResults,
+		"limit":   requestLimit,
 		"sources": []any{"web"},
 	}
 	body, status, contentType, truncated, err := postJSONWithHeaders(ctx, t.client, t.endpoint, payload, defaultSearchMaxBytes, map[string]string{
@@ -961,7 +1093,7 @@ func (t *SearchTool) executeFirecrawlSearch(ctx context.Context, query string, m
 	results := make([]searchResult, 0, len(resp.Data))
 	seen := map[string]bool{}
 	for _, result := range resp.Data {
-		if len(results) >= maxResults {
+		if len(results) >= requestLimit {
 			break
 		}
 		u := firstNonEmpty(result.URL, result.Metadata.SourceURL, result.Metadata.URL)
@@ -976,10 +1108,13 @@ func (t *SearchTool) executeFirecrawlSearch(ctx context.Context, query string, m
 			Snippet: common.TruncateLine(normalizeSpace(firstNonEmpty(result.Description, result.Markdown, result.Metadata.Description)), 360),
 		})
 	}
+	results = filterSearchResults(results, filters, maxResults)
 	return formatSearchResults("firecrawl", query, status, contentType, truncated, results, map[string]any{
-		"id":           resp.ID,
-		"warning":      resp.Warning,
-		"credits_used": resp.CreditsUsed,
+		"id":              resp.ID,
+		"warning":         resp.Warning,
+		"credits_used":    resp.CreditsUsed,
+		"allowed_domains": filters.allowed,
+		"blocked_domains": filters.blocked,
 	}), nil
 }
 
@@ -1062,6 +1197,144 @@ func detailValuePresent(v any) bool {
 		return strings.TrimSpace(s) != ""
 	}
 	return true
+}
+
+type domainFilters struct {
+	allowed []string
+	blocked []string
+}
+
+func parseDomainFilters(args map[string]any) (domainFilters, error) {
+	allowed, err := parseDomainList(args["allowed_domains"], "allowed_domains")
+	if err != nil {
+		return domainFilters{}, err
+	}
+	blocked, err := parseDomainList(args["blocked_domains"], "blocked_domains")
+	if err != nil {
+		return domainFilters{}, err
+	}
+	return domainFilters{allowed: allowed, blocked: blocked}, nil
+}
+
+func parseDomainList(value any, field string) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	var raw []string
+	switch list := value.(type) {
+	case []string:
+		raw = append(raw, list...)
+	case []any:
+		for _, item := range list {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("%s must contain only domain strings", field)
+			}
+			raw = append(raw, s)
+		}
+	default:
+		return nil, fmt.Errorf("%s must be an array of domain strings", field)
+	}
+	out := make([]string, 0, len(raw))
+	seen := map[string]bool{}
+	for _, item := range raw {
+		domain, err := normalizeDomain(item)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", field, err)
+		}
+		if !seen[domain] {
+			seen[domain] = true
+			out = append(out, domain)
+		}
+	}
+	return out, nil
+}
+
+func normalizeDomain(raw string) (string, error) {
+	domain := strings.ToLower(strings.TrimSpace(raw))
+	domain = strings.TrimPrefix(domain, "*.")
+	domain = strings.Trim(domain, ".")
+	if domain == "" || strings.ContainsAny(domain, "/?#") {
+		return "", fmt.Errorf("invalid domain %q", raw)
+	}
+	if host, _, err := net.SplitHostPort(domain); err == nil {
+		domain = strings.Trim(host, "[]")
+	}
+	if strings.ContainsAny(domain, " \t\r\n") {
+		return "", fmt.Errorf("invalid domain %q", raw)
+	}
+	return domain, nil
+}
+
+func providerResultLimit(maxResults int, filters domainFilters) int {
+	if len(filters.allowed) > 0 || len(filters.blocked) > 0 {
+		return maxSearchResults
+	}
+	return maxResults
+}
+
+func filterSearchResults(results []searchResult, filters domainFilters, maxResults int) []searchResult {
+	out := make([]searchResult, 0, min(maxResults, len(results)))
+	for _, result := range results {
+		if !domainAllowed(result.URL, filters) {
+			continue
+		}
+		out = append(out, result)
+		if len(out) >= maxResults {
+			break
+		}
+	}
+	return out
+}
+
+func filterExaSearchResults(results []exaSearchResult, filters domainFilters, maxResults int) []exaSearchResult {
+	out := make([]exaSearchResult, 0, min(maxResults, len(results)))
+	for _, result := range results {
+		if !domainAllowed(result.URL, filters) {
+			continue
+		}
+		out = append(out, result)
+		if len(out) >= maxResults {
+			break
+		}
+	}
+	return out
+}
+
+func domainAllowed(rawURL string, filters domainFilters) bool {
+	if len(filters.allowed) == 0 && len(filters.blocked) == 0 {
+		return true
+	}
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	for _, domain := range filters.blocked {
+		if domainMatches(host, domain) {
+			return false
+		}
+	}
+	if len(filters.allowed) == 0 {
+		return true
+	}
+	for _, domain := range filters.allowed {
+		if domainMatches(host, domain) {
+			return true
+		}
+	}
+	return false
+}
+
+func domainMatches(host, domain string) bool {
+	return host == domain || strings.HasSuffix(host, "."+domain)
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
 func validateHTTPURL(raw string) (*url.URL, error) {

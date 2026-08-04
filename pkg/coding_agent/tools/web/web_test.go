@@ -141,6 +141,25 @@ func TestWebFetchRejectsNonHTTPURLs(t *testing.T) {
 	}
 }
 
+func TestWebFetchBlocksCrossOriginRedirect(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("unexpected"))
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer source.Close()
+
+	result, err := NewFetchTool().Execute(context.Background(), "fetch-1", map[string]any{"url": source.URL}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := extractText(result.Content); !strings.Contains(text, "cross-origin redirect blocked") {
+		t.Fatalf("unexpected result: %s", text)
+	}
+}
+
 func TestWebSearchUsesEndpointAndParsesResults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("q"); got != "modu workflow" {
@@ -166,6 +185,188 @@ func TestWebSearchUsesEndpointAndParsesResults(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected %q in search output:\n%s", want, text)
 		}
+	}
+}
+
+func TestWebSearchFiltersAllowedAndBlockedDomains(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body>
+<div><a href="https://docs.example.com/one">Allowed Result</a><span>Allowed source snippet with enough detail.</span></div>
+<div><a href="https://blocked.example.com/two">Blocked Subdomain</a><span>Blocked snippet.</span></div>
+<div><a href="https://other.test/three">Other Result</a><span>Other snippet.</span></div>
+</body></html>`))
+	}))
+	defer server.Close()
+
+	result, err := NewSearchToolWithEndpoint(server.URL).Execute(context.Background(), "search-1", map[string]any{
+		"query":           "modu",
+		"allowed_domains": []any{"example.com"},
+		"blocked_domains": []any{"blocked.example.com"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := extractText(result.Content)
+	if !strings.Contains(text, "Allowed Result") {
+		t.Fatalf("allowed result missing:\n%s", text)
+	}
+	for _, unwanted := range []string{"Blocked Subdomain", "Other Result"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("unexpected %q in filtered output:\n%s", unwanted, text)
+		}
+	}
+}
+
+func TestWebSearchRejectsInvalidDomainFilter(t *testing.T) {
+	result, err := NewSearchToolWithEndpoint("https://example.test/search").Execute(context.Background(), "search-1", map[string]any{
+		"query":           "modu",
+		"allowed_domains": []any{"https://example.com/path"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := extractText(result.Content); !strings.Contains(text, "invalid domain") {
+		t.Fatalf("unexpected result: %s", text)
+	}
+}
+
+func TestWebSearchDefaultsToBingRSS(t *testing.T) {
+	for _, name := range []string{
+		"MODU_WEB_SEARCH_PROVIDER",
+		"MODU_WEB_SEARCH_ENDPOINT",
+		"MODU_BING_SEARCH_ENDPOINT",
+		"MODU_EXA_API_KEY",
+		"EXA_API_KEY",
+		"TAVILY_API_KEY",
+		"MODU_TAVILY_API_KEY",
+		"BRAVE_SEARCH_API_KEY",
+		"MODU_BRAVE_SEARCH_API_KEY",
+		"FIRECRAWL_API_KEY",
+		"MODU_FIRECRAWL_API_KEY",
+	} {
+		t.Setenv(name, "")
+	}
+
+	tool, ok := NewSearchToolWithConfig(SearchConfig{}).(*SearchTool)
+	if !ok {
+		t.Fatalf("unexpected tool type %T", NewSearchToolWithConfig(SearchConfig{}))
+	}
+	if tool.provider != "bing" || tool.endpoint != defaultSearchEndpoint {
+		t.Fatalf("default search backend = provider %q endpoint %q", tool.provider, tool.endpoint)
+	}
+}
+
+func TestWebSearchParsesBingRSS(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("q"); got != "上海 明天 天气预报" {
+			t.Fatalf("query = %q", got)
+		}
+		if got := r.URL.Query().Get("format"); got != "rss" {
+			t.Fatalf("format = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+		_, _ = w.Write([]byte(`<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel>
+<item>
+  <title>上海天气预报</title>
+  <link>https://weather.example.com/shanghai</link>
+  <description>今天、明天和未来十天的天气。</description>
+  <pubDate>Tue, 04 Aug 2026 00:00:00 GMT</pubDate>
+</item>
+<item>
+  <title>第二个结果</title>
+  <link>https://example.org/two</link>
+  <description>第二个摘要。</description>
+</item>
+</channel></rss>`))
+	}))
+	defer server.Close()
+
+	result, err := NewSearchToolWithConfig(SearchConfig{
+		Provider: "bing",
+		Endpoint: server.URL + "?format=rss",
+	}).Execute(context.Background(), "search-1", map[string]any{
+		"query":       "上海 明天 天气预报",
+		"max_results": 1,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := extractText(result.Content)
+	for _, want := range []string{
+		`Search results for "上海 明天 天气预报"`,
+		"Provider: bing",
+		"上海天气预报",
+		"https://weather.example.com/shanghai",
+		"今天、明天和未来十天的天气。",
+		"Published: Tue, 04 Aug 2026 00:00:00 GMT",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in search output:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "第二个结果") {
+		t.Fatalf("max_results was ignored:\n%s", text)
+	}
+}
+
+func TestWebSearchBingLive(t *testing.T) {
+	if os.Getenv("MODU_WEB_SEARCH_LIVE_TEST") != "1" {
+		t.Skip("set MODU_WEB_SEARCH_LIVE_TEST=1 to run the Bing RSS integration test")
+	}
+	result, err := NewSearchToolWithConfig(SearchConfig{Provider: "bing"}).Execute(
+		context.Background(),
+		"search-live",
+		map[string]any{
+			"query":       "上海 明天 天气预报",
+			"max_results": 3,
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := extractText(result.Content)
+	for _, want := range []string{"Provider: bing", "URL: http"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in live search output:\n%s", want, text)
+		}
+	}
+}
+
+func TestWebSearchKeepsDuckDuckGoAsExplicitBackend(t *testing.T) {
+	tool, ok := NewSearchToolWithConfig(SearchConfig{Provider: "duckduckgo"}).(*SearchTool)
+	if !ok {
+		t.Fatalf("unexpected tool type %T", NewSearchToolWithConfig(SearchConfig{Provider: "duckduckgo"}))
+	}
+	if tool.provider != "html" || tool.endpoint != defaultDuckDuckGoEndpoint {
+		t.Fatalf("duckduckgo backend = provider %q endpoint %q", tool.provider, tool.endpoint)
+	}
+}
+
+func TestWebSearchAutoSelectsCredentialedProvider(t *testing.T) {
+	for _, name := range []string{
+		"MODU_WEB_SEARCH_PROVIDER",
+		"MODU_EXA_API_KEY",
+		"EXA_API_KEY",
+		"TAVILY_API_KEY",
+		"MODU_TAVILY_API_KEY",
+		"BRAVE_SEARCH_API_KEY",
+		"MODU_BRAVE_SEARCH_API_KEY",
+		"FIRECRAWL_API_KEY",
+		"MODU_FIRECRAWL_API_KEY",
+	} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("TAVILY_API_KEY", "tavily-key")
+
+	tool, ok := NewSearchToolWithConfig(SearchConfig{}).(*SearchTool)
+	if !ok {
+		t.Fatalf("unexpected tool type %T", NewSearchToolWithConfig(SearchConfig{}))
+	}
+	if tool.provider != "tavily" || tool.apiKey != "tavily-key" {
+		t.Fatalf("auto-selected provider = %q key=%q", tool.provider, tool.apiKey)
 	}
 }
 

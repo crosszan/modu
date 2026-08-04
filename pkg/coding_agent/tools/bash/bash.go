@@ -17,15 +17,21 @@ import (
 )
 
 // backgroundResult returns a success result for a background process.
-func backgroundResult(pid int) types.ToolResult {
+func backgroundResult(job *Job) types.ToolResult {
+	snapshot := job.snapshot()
 	return types.ToolResult{
 		Content: []types.ContentBlock{
 			&types.TextContent{
 				Type: "text",
-				Text: fmt.Sprintf("Process started in background (pid %d).", pid),
+				Text: fmt.Sprintf(
+					"Process started in background as %s (pid %d).\nUse bash_output with bash_id %q to read output, or kill_bash to stop it.",
+					snapshot.ID,
+					snapshot.PID,
+					snapshot.ID,
+				),
 			},
 		},
-		Details: map[string]any{"pid": pid, "background": true},
+		Details: map[string]any{"bash_id": snapshot.ID, "pid": snapshot.PID, "background": true},
 	}
 }
 
@@ -41,14 +47,33 @@ var sedInPlacePattern = regexp.MustCompile(`^\s*sed\s+(?:.*\s)?(?:-i(?:$|[\s'".]
 type BashTool struct {
 	cwd       string
 	artifacts *common.ArtifactStore
+	jobs      *JobStore
 }
 
 func NewTool(cwd string) types.Tool {
-	return &BashTool{cwd: cwd}
+	return &BashTool{cwd: cwd, jobs: NewJobStore()}
 }
 
 func NewToolWithArtifacts(cwd string, artifacts *common.ArtifactStore) types.Tool {
-	return &BashTool{cwd: cwd, artifacts: artifacts}
+	return &BashTool{cwd: cwd, artifacts: artifacts, jobs: NewJobStore()}
+}
+
+func NewToolWithStore(cwd string, artifacts *common.ArtifactStore, jobs *JobStore) types.Tool {
+	if jobs == nil {
+		jobs = NewJobStore()
+	}
+	return &BashTool{cwd: cwd, artifacts: artifacts, jobs: jobs}
+}
+
+func NewTools(cwd string, artifacts *common.ArtifactStore, jobs *JobStore) []types.Tool {
+	if jobs == nil {
+		jobs = NewJobStore()
+	}
+	return []types.Tool{
+		NewToolWithStore(cwd, artifacts, jobs),
+		NewBashOutputTool(jobs),
+		NewKillBashTool(jobs),
+	}
 }
 
 func (t *BashTool) Name() string  { return "bash" }
@@ -62,7 +87,7 @@ Usage:
 - Prefer absolute paths or paths relative to the working directory, and quote paths that contain spaces.
 - Avoid changing directories unless the user asks; keep command effects scoped to the working directory.
 - Use timeout to set execution timeout. Values up to 600 are treated as seconds for compatibility; larger values are treated as Claude-style milliseconds. The timeout_ms alias is accepted. Default 120 seconds, max 600 seconds. Numeric strings such as "1000" are accepted.
-- Use background=true for long-running servers or daemons that should not block. The run_in_background alias is accepted for Claude Code compatibility. Boolean strings "true" and "false" are accepted. The command starts in a detached process group and returns immediately with the PID.
+- Use background=true for long-running servers or daemons that should not block. The run_in_background alias is accepted for Claude Code compatibility. Boolean strings "true" and "false" are accepted. The command starts in a detached process group and returns immediately with a bash_id; use bash_output and kill_bash to manage it.
 - The dangerouslyDisableSandbox parameter is accepted for Claude Code compatibility, but sandbox policy is controlled by the host process in this implementation.
 - Foreground sleep commands of 2 seconds or longer are blocked; use run_in_background=true for intentional waits.
 - In-place sed edits are blocked; use the edit tool so the replacement is targeted and reviewable.
@@ -143,20 +168,25 @@ func (t *BashTool) Execute(ctx context.Context, toolCallID string, args map[stri
 		}
 	}
 	if background {
+		if t.jobs == nil {
+			t.jobs = NewJobStore()
+		}
 		cmd := exec.Command("bash", "-c", command)
 		cmd.Dir = t.cwd
 		cmd.Env = os.Environ()
-		// Detach from parent's stdout/stderr so cmd.Run doesn't block.
-		cmd.Stdout = nil
-		cmd.Stderr = nil
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		if err := cmd.Start(); err != nil {
+		backgroundTimeout := time.Duration(0)
+		if _, ok := args["timeout"]; ok {
+			backgroundTimeout = timeout
+		}
+		if _, ok := args["timeout_ms"]; ok {
+			backgroundTimeout = timeout
+		}
+		job, err := startBackgroundCommand(t.jobs, cmd, command, backgroundTimeout)
+		if err != nil {
 			return common.ErrorResult(fmt.Sprintf("failed to start background command: %v", err)), nil
 		}
-		pid := cmd.Process.Pid
-		// Reap the process asynchronously to avoid zombies.
-		go func() { _ = cmd.Wait() }()
-		return backgroundResult(pid), nil
+		return backgroundResult(job), nil
 	}
 
 	// Create context with timeout
