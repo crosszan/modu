@@ -13,6 +13,10 @@ func TestDefaultCompactionUserAnchorBudget(t *testing.T) {
 	if cfg.CompactionSettings.PreserveUserMessagesTokens != 1024 {
 		t.Fatalf("expected default user anchor budget 1024, got %d", cfg.CompactionSettings.PreserveUserMessagesTokens)
 	}
+	if !cfg.MemoryAutoOrganize() || cfg.MemoryOrganizeThresholdBytes() != 12*1024 ||
+		cfg.MemoryOrganizeIntervalHours() != 24 || cfg.MemoryRecentDailyDays() != 7 {
+		t.Fatalf("unexpected default memory organization config: %#v", cfg.Memory)
+	}
 }
 
 func TestLoadPreservesCompactionUserAnchorBudgetWhenOmitted(t *testing.T) {
@@ -60,6 +64,12 @@ disableWorkflows = true
 [settings.features]
 memoryTool = false
 
+[settings.memory]
+autoOrganize = false
+organizeThresholdBytes = 4096
+organizeIntervalHours = 12
+recentDailyDays = 3
+
 [settings.permissions]
 defaultMode = "auto"
 
@@ -90,6 +100,10 @@ apiKeyEnv = "FIRECRAWL_API_KEY"
 	}
 	if cfg.FeatureMemoryTool() {
 		t.Fatal("memoryTool should be false from config.toml [settings.features]")
+	}
+	if cfg.MemoryAutoOrganize() || cfg.MemoryOrganizeThresholdBytes() != 4096 ||
+		cfg.MemoryOrganizeIntervalHours() != 12 || cfg.MemoryRecentDailyDays() != 3 {
+		t.Fatalf("memory config not loaded: %#v", cfg.Memory)
 	}
 	if cfg.Permissions.DefaultMode != "auto" {
 		t.Fatalf("permissions.defaultMode = %q, want auto", cfg.Permissions.DefaultMode)
@@ -281,11 +295,18 @@ func TestSaveGlobalConfigTomlOmitsDefaultsAndEmptySections(t *testing.T) {
 	cfg := Default()
 	cfg.DisableWorkflows = true
 	cfg.Features.MemoryTool = Ptr(false)
+	cfg.Memory.AutoOrganize = Ptr(false)
+	cfg.Memory.OrganizeThresholdBytes = 4096
 	cfg.Permissions.DenyTools = []string{"bash"}
 	cfg.WebSearch.Provider = "exa"
 	cfg.WebSearch.APIKeyEnv = "EXA_API_KEY"
 	cfg.WebFetch.Provider = "firecrawl"
 	cfg.WebFetch.APIKeyEnv = "FIRECRAWL_API_KEY"
+	cfg.Hooks.PreToolUse = []CommandHookConfig{{
+		Matcher:        "bash|write",
+		Command:        "./check-tool.sh",
+		TimeoutSeconds: 5,
+	}}
 
 	if err := Save(cfg, GlobalConfigPath(agentDir)); err != nil {
 		t.Fatal(err)
@@ -295,7 +316,7 @@ func TestSaveGlobalConfigTomlOmitsDefaultsAndEmptySections(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, want := range []string{`[settings]`, `disableWorkflows = true`, `[settings.features]`, `memoryTool = false`, `[settings.permissions]`, `denyTools = ["bash"]`, `[settings.webSearch]`, `provider = "exa"`, `apiKeyEnv = "EXA_API_KEY"`, `[settings.webFetch]`, `provider = "firecrawl"`, `apiKeyEnv = "FIRECRAWL_API_KEY"`} {
+	for _, want := range []string{`[settings]`, `disableWorkflows = true`, `[settings.features]`, `memoryTool = false`, `[settings.memory]`, `autoOrganize = false`, `organizeThresholdBytes = 4096`, `[settings.permissions]`, `denyTools = ["bash"]`, `[settings.webSearch]`, `provider = "exa"`, `apiKeyEnv = "EXA_API_KEY"`, `[settings.webFetch]`, `provider = "firecrawl"`, `apiKeyEnv = "FIRECRAWL_API_KEY"`, `[[settings.hooks.preToolUse]]`, `matcher = "bash|write"`, `command = "./check-tool.sh"`, `timeoutSeconds = 5`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("saved config missing %q:\n%s", want, text)
 		}

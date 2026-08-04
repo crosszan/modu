@@ -3386,8 +3386,8 @@ func TestTodoWriteToolSchemaRejectsExtraFields(t *testing.T) {
 
 func TestAllToolsCreation(t *testing.T) {
 	allTools := AllTools("/tmp")
-	if len(allTools) != 7 {
-		t.Fatalf("expected 7 tools, got %d", len(allTools))
+	if len(allTools) != 9 {
+		t.Fatalf("expected 9 tools, got %d", len(allTools))
 	}
 
 	names := make(map[string]bool)
@@ -3395,7 +3395,7 @@ func TestAllToolsCreation(t *testing.T) {
 		names[tool.Name()] = true
 	}
 
-	expected := []string{"read", "write", "edit", "bash", "grep", "find", "ls"}
+	expected := []string{"read", "write", "edit", "bash", "bash_output", "kill_bash", "grep", "find", "ls"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Fatalf("missing tool: %s", name)
@@ -3409,13 +3409,13 @@ func TestCodingTools(t *testing.T) {
 	// The default coding set includes the read-only navigation tools
 	// (grep/find/ls) so Claude-Code-trained models don't hit "Tool not found"
 	// when they reach for ls instead of shelling out via bash.
-	for _, name := range []string{"read", "bash", "edit", "write", "grep", "find", "ls"} {
+	for _, name := range []string{"read", "bash", "bash_output", "kill_bash", "edit", "write", "grep", "find", "ls"} {
 		if !containsName(names, name) {
 			t.Fatalf("expected %s in coding tools, got %v", name, names)
 		}
 	}
-	if len(ct) != 7 {
-		t.Fatalf("expected 7 coding tools, got %d (%v)", len(ct), names)
+	if len(ct) != 9 {
+		t.Fatalf("expected 9 coding tools, got %d (%v)", len(ct), names)
 	}
 }
 

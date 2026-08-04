@@ -59,6 +59,19 @@ func (t namedTestTool) Execute(context.Context, string, map[string]any, types.To
 	return types.ToolResult{}, nil
 }
 
+type hookCaptureTool struct {
+	args map[string]any
+}
+
+func (t *hookCaptureTool) Name() string        { return "hook_capture" }
+func (t *hookCaptureTool) Label() string       { return "Hook Capture" }
+func (t *hookCaptureTool) Description() string { return "Capture hook-updated arguments" }
+func (t *hookCaptureTool) Parameters() any     { return map[string]any{"type": "object"} }
+func (t *hookCaptureTool) Execute(_ context.Context, _ string, args map[string]any, _ types.ToolUpdateCallback) (types.ToolResult, error) {
+	t.args = args
+	return types.ToolResult{}, nil
+}
+
 type testToolProvider struct {
 	ctx       types.ToolContext
 	rebindCwd string
@@ -3317,6 +3330,155 @@ func newTestSession(t *testing.T, model *types.Model) *CodingSession {
 	return session
 }
 
+func TestCodingSessionProjectTrustControlsApproval(t *testing.T) {
+	session := newTestSession(t, newTestModel())
+	t.Cleanup(func() { session.Close("test") })
+	callbacks := 0
+	session.SetToolApprovalCallback(func(name, id string, args map[string]any) (types.ToolApprovalDecision, error) {
+		callbacks++
+		return types.ToolApprovalDeny, nil
+	})
+
+	status, err := session.ConfigureProjectTrust("on")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Decision != "trusted" || status.Source != "persistent" {
+		t.Fatalf("trust status = %#v", status)
+	}
+	if decision, err := session.approvalManager.Approve("write", "write-1", nil); err != nil || decision != types.ToolApprovalAllow {
+		t.Fatalf("trusted write decision=%v err=%v", decision, err)
+	}
+	if callbacks != 0 {
+		t.Fatalf("trusted write prompted %d times", callbacks)
+	}
+
+	if decision, err := session.approvalManager.Approve("bash", "bash-1", map[string]any{"command": "rm file.txt"}); err != nil || decision != types.ToolApprovalDeny {
+		t.Fatalf("dangerous bash decision=%v err=%v", decision, err)
+	}
+	if callbacks != 1 {
+		t.Fatalf("dangerous bash callback count = %d", callbacks)
+	}
+}
+
+func TestCodingSessionRunsConfiguredHooksOnlyAfterTrust(t *testing.T) {
+	cwd := t.TempDir()
+	agentDir := filepath.Join(t.TempDir(), ".coding_agent")
+	projectConfigDir := filepath.Join(cwd, ".coding_agent")
+	if err := os.MkdirAll(projectConfigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{"hooks":{"preToolUse":[{"matcher":"hook_capture","command":"printf '%s' '{\"updatedInput\":{\"value\":\"changed\"}}'"}]}}`
+	if err := os.WriteFile(filepath.Join(projectConfigDir, "settings.json"), []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	capture := &hookCaptureTool{}
+	session, err := NewCodingSession(CodingSessionOptions{
+		Cwd:         cwd,
+		AgentDir:    agentDir,
+		Model:       newTestModel(),
+		CustomTools: []types.Tool{capture},
+		GetAPIKey:   func(string) (string, error) { return "", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { session.Close("test") })
+
+	var tool types.Tool
+	for _, candidate := range session.activeTools {
+		if candidate.Name() == "hook_capture" {
+			tool = candidate
+			break
+		}
+	}
+	if tool == nil {
+		t.Fatal("hook_capture tool not registered")
+	}
+	if _, err := tool.Execute(context.Background(), "untrusted", map[string]any{"value": "original"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if capture.args["value"] != "original" {
+		t.Fatalf("untrusted hook should not run: %#v", capture.args)
+	}
+
+	if _, err := session.ConfigureProjectTrust("on"); err != nil {
+		t.Fatal(err)
+	}
+	capture.args = nil
+	if _, err := tool.Execute(context.Background(), "trusted", map[string]any{"value": "original"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if capture.args["value"] != "changed" {
+		t.Fatalf("trusted hook did not update args: %#v", capture.args)
+	}
+}
+
+func TestCodingSessionRewindRestoresFileAndConversationLeaf(t *testing.T) {
+	session := newTestSession(t, newTestModel())
+	t.Cleanup(func() { session.Close("test") })
+
+	baseMessage := types.UserMessage{Role: types.RoleUser, Content: "base"}
+	baseEntry := sessionpkg.NewEntry(sessionpkg.EntryTypeMessage, "", sessionpkg.MessageData{
+		Role:    types.RoleUser,
+		Content: "base",
+	})
+	if err := session.sessionManager.Append(baseEntry); err != nil {
+		t.Fatal(err)
+	}
+	session.agent.ReplaceMessages([]types.AgentMessage{baseMessage})
+
+	session.beginRewindTurn("create generated file")
+	var writeTool types.Tool
+	for _, tool := range session.activeTools {
+		if tool.Name() == "write" {
+			writeTool = tool
+			break
+		}
+	}
+	if writeTool == nil {
+		t.Fatal("write tool not found")
+	}
+	path := filepath.Join(session.Cwd(), "generated.txt")
+	if _, err := writeTool.Execute(context.Background(), "write-1", map[string]any{
+		"path":    path,
+		"content": "generated",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	session.finishRewindTurn()
+	if len(session.GetRewindPoints()) != 1 {
+		t.Fatalf("rewind points = %#v", session.GetRewindPoints())
+	}
+
+	laterEntry := sessionpkg.NewEntry(sessionpkg.EntryTypeMessage, "", sessionpkg.MessageData{
+		Role:    types.RoleUser,
+		Content: "later",
+	})
+	if err := session.sessionManager.Append(laterEntry); err != nil {
+		t.Fatal(err)
+	}
+	session.agent.ReplaceMessages([]types.AgentMessage{
+		baseMessage,
+		types.UserMessage{Role: types.RoleUser, Content: "later"},
+	})
+
+	result, err := session.Rewind(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.RestoredFiles) != 1 || session.GetSessionLeafID() != baseEntry.ID {
+		t.Fatalf("rewind result=%#v leaf=%q want=%q", result, session.GetSessionLeafID(), baseEntry.ID)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("generated file was not removed: %v", err)
+	}
+	messages := session.GetMessages()
+	if len(messages) != 1 {
+		t.Fatalf("messages after rewind = %#v", messages)
+	}
+}
+
 func TestCodingSessionPromptWithImagesPreservesMultimodalUserMessage(t *testing.T) {
 	dir := t.TempDir()
 	model := newTestModel()
@@ -4207,9 +4369,10 @@ func TestPromptTemplateSlashExpandsToUserPrompt(t *testing.T) {
 	}
 	template := `---
 description: review a target
+argument-hint: <target> [focus]
 ---
-Review this target:
-{{input}}`
+Review $1.
+Focus: ${2:-all changes}`
 	if err := os.WriteFile(filepath.Join(promptDir, "review.md"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -4246,14 +4409,105 @@ Review this target:
 		t.Fatal(err)
 	}
 
-	if err := session.Prompt(context.Background(), "/review pkg/coding_agent"); err != nil {
+	if err := session.Prompt(context.Background(), `/review "pkg/coding agent" correctness`); err != nil {
 		t.Fatal(err)
 	}
-	if !messagesContainText(capturedMessages, "Review this target:\npkg/coding_agent") {
+	if !messagesContainText(capturedMessages, "Review pkg/coding agent.\nFocus: correctness") {
 		t.Fatalf("expected prompt template expansion in messages, got %#v", capturedMessages)
 	}
-	if templates := session.GetPromptTemplates(); len(templates) != 1 || templates[0].Name != "review" {
+	if templates := session.GetPromptTemplates(); len(templates) != 1 || templates[0].Name != "review" || templates[0].ArgumentHint != "<target> [focus]" {
 		t.Fatalf("expected review prompt template, got %#v", templates)
+	}
+}
+
+func TestPromptAutomaticallyOrganizesStoredMemory(t *testing.T) {
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, ".agent")
+	settingsDir := filepath.Join(dir, ".coding_agent")
+	memoryDir := filepath.Join(dir, ".modu_code", "memory")
+	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
+  "memory": {
+    "autoOrganize": true,
+    "organizeThresholdBytes": 1,
+    "organizeIntervalHours": 24,
+    "recentDailyDays": 1
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const source = "Always run focused Go tests before handoff."
+	if err := os.WriteFile(filepath.Join(memoryDir, "MEMORY.md"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	model := newTestModel()
+	var organizerCalls atomic.Int32
+	streamFn := func(_ context.Context, _ *types.Model, llmCtx *types.LLMContext, _ *types.SimpleStreamOptions) (types.EventStream, error) {
+		reply := "ok"
+		if strings.Contains(llmCtx.SystemPrompt, "organize durable memory") {
+			organizerCalls.Add(1)
+			reply = `{"global_summary":"","project_summary":"- Run focused Go tests before handoff."}`
+		}
+		stream := types.NewEventStream()
+		go func() {
+			defer stream.Close()
+			message := &types.AssistantMessage{
+				Role:       types.RoleAssistant,
+				ProviderID: model.ProviderID,
+				Model:      model.ID,
+				Content:    []types.ContentBlock{&types.TextContent{Type: "text", Text: reply}},
+				StopReason: "stop",
+			}
+			stream.Push(types.StreamEvent{Type: types.EventDone, Message: message})
+			stream.Resolve(message, nil)
+		}()
+		return stream, nil
+	}
+	session, err := NewCodingSession(CodingSessionOptions{
+		Cwd:       dir,
+		AgentDir:  agentDir,
+		Model:     model,
+		GetAPIKey: func(string) (string, error) { return "", nil },
+		StreamFn:  streamFn,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Prompt(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	summaryPath := filepath.Join(memoryDir, "memory_summary.md")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, readErr := os.ReadFile(summaryPath); readErr == nil && strings.Contains(string(data), "focused Go tests") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	data, err := os.ReadFile(summaryPath)
+	if err != nil {
+		t.Fatalf("automatic memory summary was not written: %v", err)
+	}
+	if !strings.Contains(string(data), "focused Go tests") || organizerCalls.Load() != 1 {
+		t.Fatalf("summary=%q organizer calls=%d", string(data), organizerCalls.Load())
+	}
+	if original, err := os.ReadFile(filepath.Join(memoryDir, "MEMORY.md")); err != nil || string(original) != source {
+		t.Fatalf("automatic organization changed source: %q err=%v", string(original), err)
+	}
+	status := session.GetMemoryOrganizationStatus()
+	if status.Status != "succeeded" || status.Running {
+		t.Fatalf("unexpected organization status: %+v", status)
+	}
+	runtimeState := session.RuntimeState()
+	if runtimeState.Memory["status"] != "succeeded" || runtimeState.Features["memory_auto_organize"] != true {
+		t.Fatalf("runtime state missing memory organization: %+v", runtimeState)
 	}
 }
 

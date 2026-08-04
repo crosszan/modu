@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,9 @@ import (
 type Store struct {
 	globalDir  string // e.g. ~/.modu/memory
 	projectDir string // e.g. <cwd>/memory
+
+	organizeMu sync.Mutex
+	organizing bool
 }
 
 var errMemorySearchTruncated = errors.New("memory search truncated")

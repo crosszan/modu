@@ -19,6 +19,7 @@ const maxEditFileSize = 1024 * 1024 * 1024
 type EditTool struct {
 	cwd       string
 	readState *common.FileReadState
+	snapshots common.SnapshotRecorder
 }
 
 func NewTool(cwd string) types.Tool {
@@ -27,6 +28,10 @@ func NewTool(cwd string) types.Tool {
 
 func NewTrackedTool(cwd string, readState *common.FileReadState) types.Tool {
 	return &EditTool{cwd: cwd, readState: readState}
+}
+
+func NewTrackedToolWithSnapshots(cwd string, readState *common.FileReadState, snapshots common.SnapshotRecorder) types.Tool {
+	return &EditTool{cwd: cwd, readState: readState, snapshots: snapshots}
 }
 
 func (t *EditTool) Name() string  { return "edit" }
@@ -240,7 +245,11 @@ func (t *EditTool) Execute(ctx context.Context, toolCallID string, args map[stri
 		newContent = strings.ReplaceAll(newContent, "\n", "\r\n")
 	}
 
+	recorded := t.snapshots != nil && t.snapshots.Record(resolved)
 	if err := os.WriteFile(resolved, []byte(newContent), 0o644); err != nil {
+		if recorded {
+			t.snapshots.Discard(resolved)
+		}
 		return common.ErrorResult(fmt.Sprintf("failed to write file: %v", err)), nil
 	}
 	t.recordWrittenState(resolved, newContent)
@@ -362,7 +371,11 @@ func (t *EditTool) editEmptyOldText(resolved, displayPath, newText string) (type
 		return common.ErrorResult(fmt.Sprintf("failed to read file: %v", err)), nil
 	}
 
+	recorded := t.snapshots != nil && t.snapshots.Record(resolved)
 	if err := os.WriteFile(resolved, []byte(newText), 0o644); err != nil {
+		if recorded {
+			t.snapshots.Discard(resolved)
+		}
 		return common.ErrorResult(fmt.Sprintf("failed to write file: %v", err)), nil
 	}
 	t.recordWrittenState(resolved, newText)

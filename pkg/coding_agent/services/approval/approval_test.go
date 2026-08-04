@@ -33,13 +33,56 @@ func TestApprovalManagerAutoAllowsReadOnlyTools(t *testing.T) {
 		called = true
 		return types.ToolApprovalDeny, nil
 	})
-	for _, toolName := range []string{"read", "grep", "find", "ls"} {
+	for _, toolName := range []string{"read", "grep", "find", "ls", "bash_output"} {
 		if d, _ := m.Approve(toolName, "call-"+toolName, nil); d != types.ToolApprovalAllow {
 			t.Fatalf("expected %s to auto-allow, got %v", toolName, d)
 		}
 	}
 	if called {
 		t.Fatal("read-only tools should not hit the interactive approval callback")
+	}
+}
+
+func TestApprovalManagerTrustedProjectAllowsWritesAndSafeBash(t *testing.T) {
+	m := New()
+	m.SetTrusted(func(toolName string, args map[string]any) bool { return true })
+	calls := 0
+	m.SetCallback(func(name, id string, args map[string]any) (types.ToolApprovalDecision, error) {
+		calls++
+		return types.ToolApprovalDeny, nil
+	})
+	for _, test := range []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "write"},
+		{name: "edit"},
+		{name: "kill_bash"},
+		{name: "bash", args: map[string]any{"command": "go test ./..."}},
+	} {
+		if decision, err := m.Approve(test.name, "call-"+test.name, test.args); err != nil || decision != types.ToolApprovalAllow {
+			t.Fatalf("%s decision=%v err=%v", test.name, decision, err)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("trusted tools prompted %d times", calls)
+	}
+}
+
+func TestApprovalManagerTrustedProjectStillPromptsForDangerousBash(t *testing.T) {
+	m := New()
+	m.SetTrusted(func(toolName string, args map[string]any) bool { return true })
+	calls := 0
+	m.SetCallback(func(name, id string, args map[string]any) (types.ToolApprovalDecision, error) {
+		calls++
+		return types.ToolApprovalDeny, nil
+	})
+	decision, err := m.Approve("bash", "call-bash", map[string]any{"command": "rm file.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision != types.ToolApprovalDeny || calls != 1 {
+		t.Fatalf("decision=%v callback calls=%d", decision, calls)
 	}
 }
 

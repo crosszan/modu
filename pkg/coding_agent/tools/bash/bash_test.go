@@ -197,6 +197,106 @@ func TestExecuteBackgroundAcceptsRunInBackgroundAlias(t *testing.T) {
 	}
 }
 
+func TestBackgroundJobOutputDrainsIncrementally(t *testing.T) {
+	store := NewJobStore()
+	t.Cleanup(store.KillAll)
+	tool := NewToolWithStore(t.TempDir(), nil, store)
+	started, err := tool.Execute(context.Background(), "id", map[string]any{
+		"command":           "printf first; sleep 0.05; printf second",
+		"run_in_background": true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := mustDetails(t, started)["bash_id"].(string)
+	if id == "" {
+		t.Fatalf("missing bash_id: %#v", started.Details)
+	}
+
+	outputTool := NewBashOutputTool(store)
+	var combined string
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		result, err := outputTool.Execute(context.Background(), "out", map[string]any{"bash_id": id}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		combined += mustText(t, result)
+		details := mustDetails(t, result)
+		if details["status"] == JobExited {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, want := range []string{"first", "second", "exited code 0"} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("missing %q in drained output:\n%s", want, combined)
+		}
+	}
+
+	empty, err := outputTool.Execute(context.Background(), "out-2", map[string]any{"bash_id": id}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := mustText(t, empty); strings.Contains(text, "first") || strings.Contains(text, "second") {
+		t.Fatalf("output was repeated after drain: %s", text)
+	}
+}
+
+func TestKillBashTerminatesProcessGroup(t *testing.T) {
+	store := NewJobStore()
+	t.Cleanup(store.KillAll)
+	tool := NewToolWithStore(t.TempDir(), nil, store)
+	started, err := tool.Execute(context.Background(), "id", map[string]any{
+		"command":           "sleep 30",
+		"run_in_background": true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := mustDetails(t, started)["bash_id"].(string)
+
+	killed, err := NewKillBashTool(store).Execute(context.Background(), "kill", map[string]any{"bash_id": id}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mustDetails(t, killed)["killed"] != true {
+		t.Fatalf("expected job to be killed: %#v", killed.Details)
+	}
+	again, err := NewKillBashTool(store).Execute(context.Background(), "kill-again", map[string]any{"bash_id": id}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mustDetails(t, again)["killed"] != false {
+		t.Fatalf("second kill should be idempotent: %#v", again.Details)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		job, _ := store.Get(id)
+		if job.snapshot().Status == JobExited {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("background job did not exit after kill_bash")
+}
+
+func TestBackgroundJobOutputIsBounded(t *testing.T) {
+	job := &Job{status: JobRunning}
+	large := strings.Repeat("x", maxBackgroundOutputBytes+128)
+	if _, err := job.Write([]byte(large)); err != nil {
+		t.Fatal(err)
+	}
+	output, truncated := job.drain()
+	if !truncated {
+		t.Fatal("expected dropped output to be reported as truncated")
+	}
+	if len(output) != maxBackgroundOutputBytes {
+		t.Fatalf("bounded output length = %d", len(output))
+	}
+}
+
 func TestExecuteBlocksSedInPlaceEdit(t *testing.T) {
 	tool := newTestTool(t)
 	res, err := tool.Execute(context.Background(), "id", map[string]any{"command": "sed -i 's/a/b/' file.txt"}, nil)

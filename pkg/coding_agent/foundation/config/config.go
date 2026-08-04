@@ -67,6 +67,9 @@ type Config struct {
 	// Features controls higher-level runtime feature gates.
 	Features FeatureConfig `json:"features,omitempty" toml:"features,omitempty"`
 
+	// Memory controls automatic organization of persisted memory.
+	Memory MemoryConfig `json:"memory,omitempty" toml:"memory,omitempty"`
+
 	// Permissions controls host-side tool permission policy.
 	Permissions PermissionConfig `json:"permissions,omitempty" toml:"permissions,omitempty"`
 
@@ -75,6 +78,9 @@ type Config struct {
 
 	// WebFetch configures the opt-in web_fetch research tool.
 	WebFetch WebFetchConfig `json:"webFetch,omitempty" toml:"webFetch,omitempty"`
+
+	// Hooks configures trusted shell lifecycle hooks.
+	Hooks HookConfig `json:"hooks,omitempty" toml:"hooks,omitempty"`
 
 	// MCPServers declares external Model Context Protocol servers. Global TOML
 	// config reads this from the Codex-compatible root [mcp_servers] table;
@@ -88,6 +94,13 @@ type FeatureConfig struct {
 	TaskOutputTool *bool `json:"taskOutputTool,omitempty" toml:"taskOutputTool,omitempty"`
 	PlanMode       *bool `json:"planMode,omitempty" toml:"planMode,omitempty"`
 	WorktreeMode   *bool `json:"worktreeMode,omitempty" toml:"worktreeMode,omitempty"`
+}
+
+type MemoryConfig struct {
+	AutoOrganize           *bool `json:"autoOrganize,omitempty" toml:"autoOrganize,omitempty"`
+	OrganizeThresholdBytes int   `json:"organizeThresholdBytes,omitempty" toml:"organizeThresholdBytes,omitempty"`
+	OrganizeIntervalHours  int   `json:"organizeIntervalHours,omitempty" toml:"organizeIntervalHours,omitempty"`
+	RecentDailyDays        int   `json:"recentDailyDays,omitempty" toml:"recentDailyDays,omitempty"`
 }
 
 type PermissionConfig struct {
@@ -111,6 +124,18 @@ type WebFetchConfig struct {
 	Endpoint  string `json:"endpoint,omitempty" toml:"endpoint,omitempty"`
 	APIKey    string `json:"apiKey,omitempty" toml:"apiKey,omitempty"`
 	APIKeyEnv string `json:"apiKeyEnv,omitempty" toml:"apiKeyEnv,omitempty"`
+}
+
+type HookConfig struct {
+	PreToolUse       []CommandHookConfig `json:"preToolUse,omitempty" toml:"preToolUse,omitempty"`
+	PostToolUse      []CommandHookConfig `json:"postToolUse,omitempty" toml:"postToolUse,omitempty"`
+	UserPromptSubmit []CommandHookConfig `json:"userPromptSubmit,omitempty" toml:"userPromptSubmit,omitempty"`
+}
+
+type CommandHookConfig struct {
+	Command        string `json:"command" toml:"command"`
+	Matcher        string `json:"matcher,omitempty" toml:"matcher,omitempty"`
+	TimeoutSeconds int    `json:"timeoutSeconds,omitempty" toml:"timeoutSeconds,omitempty"`
 }
 
 // MCPServerConfig configures one standard MCP transport: command selects
@@ -180,6 +205,12 @@ func Default() *Config {
 			PlanMode:       boolPtr(true),
 			WorktreeMode:   boolPtr(true),
 		},
+		Memory: MemoryConfig{
+			AutoOrganize:           boolPtr(true),
+			OrganizeThresholdBytes: 12 * 1024,
+			OrganizeIntervalHours:  24,
+			RecentDailyDays:        7,
+		},
 		Permissions: PermissionConfig{},
 	}
 }
@@ -204,6 +235,27 @@ func (c *Config) FeatureTaskOutputTool() bool {
 func (c *Config) FeaturePlanMode() bool { return c == nil || featureEnabled(c.Features.PlanMode) }
 func (c *Config) FeatureWorktreeMode() bool {
 	return c == nil || featureEnabled(c.Features.WorktreeMode)
+}
+func (c *Config) MemoryAutoOrganize() bool {
+	return c == nil || featureEnabled(c.Memory.AutoOrganize)
+}
+func (c *Config) MemoryOrganizeThresholdBytes() int {
+	if c == nil || c.Memory.OrganizeThresholdBytes <= 0 {
+		return 12 * 1024
+	}
+	return c.Memory.OrganizeThresholdBytes
+}
+func (c *Config) MemoryOrganizeIntervalHours() int {
+	if c == nil || c.Memory.OrganizeIntervalHours <= 0 {
+		return 24
+	}
+	return c.Memory.OrganizeIntervalHours
+}
+func (c *Config) MemoryRecentDailyDays() int {
+	if c == nil || c.Memory.RecentDailyDays <= 0 {
+		return 7
+	}
+	return c.Memory.RecentDailyDays
 }
 
 // GlobalConfigPath returns the global config.toml path that owns model config
@@ -350,9 +402,11 @@ func CompactSettingsMap(cfg *Config) map[string]any {
 	putBool(out, "disableWorkflows", cfg.DisableWorkflows, def.DisableWorkflows)
 	putHarness(out, cfg.Harness, def.Harness)
 	putFeatures(out, cfg, def)
+	putMemory(out, cfg, def)
 	putPermissions(out, cfg.Permissions)
 	putWebSearch(out, cfg.WebSearch)
 	putWebFetch(out, cfg.WebFetch)
+	putHooks(out, cfg.Hooks)
 	return out
 }
 
@@ -436,6 +490,25 @@ func putFeatures(out map[string]any, cfg, def *Config) {
 	}
 }
 
+func putMemory(out map[string]any, cfg, def *Config) {
+	section := map[string]any{}
+	if cfg.MemoryAutoOrganize() != def.MemoryAutoOrganize() {
+		section["autoOrganize"] = cfg.MemoryAutoOrganize()
+	}
+	if value := cfg.MemoryOrganizeThresholdBytes(); value != def.MemoryOrganizeThresholdBytes() {
+		section["organizeThresholdBytes"] = value
+	}
+	if value := cfg.MemoryOrganizeIntervalHours(); value != def.MemoryOrganizeIntervalHours() {
+		section["organizeIntervalHours"] = value
+	}
+	if value := cfg.MemoryRecentDailyDays(); value != def.MemoryRecentDailyDays() {
+		section["recentDailyDays"] = value
+	}
+	if len(section) > 0 {
+		out["memory"] = section
+	}
+}
+
 func putPermissions(out map[string]any, value PermissionConfig) {
 	section := map[string]any{}
 	if strings.TrimSpace(value.DefaultMode) != "" {
@@ -478,5 +551,21 @@ func putWebFetch(out map[string]any, value WebFetchConfig) {
 	putString(section, "apiKeyEnv", value.APIKeyEnv, "")
 	if len(section) > 0 {
 		out["webFetch"] = section
+	}
+}
+
+func putHooks(out map[string]any, value HookConfig) {
+	section := map[string]any{}
+	if len(value.PreToolUse) > 0 {
+		section["preToolUse"] = value.PreToolUse
+	}
+	if len(value.PostToolUse) > 0 {
+		section["postToolUse"] = value.PostToolUse
+	}
+	if len(value.UserPromptSubmit) > 0 {
+		section["userPromptSubmit"] = value.UserPromptSubmit
+	}
+	if len(section) > 0 {
+		out["hooks"] = section
 	}
 }

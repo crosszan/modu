@@ -18,6 +18,7 @@ type RuntimeStateSnapshot struct {
 	Modes       map[string]any    `json:"modes"`
 	Extensions  map[string]any    `json:"extensions"`
 	Features    map[string]bool   `json:"features"`
+	Memory      map[string]any    `json:"memory"`
 	Permissions map[string]any    `json:"permissions"`
 	Git         map[string]any    `json:"git"`
 	Counts      map[string]int    `json:"counts"`
@@ -102,6 +103,7 @@ func (s *engine) RuntimeState() RuntimeStateSnapshot {
 	}
 	todos := s.GetTodos()
 	tasks := s.GetBackgroundTasks()
+	memoryStatus := s.GetMemoryOrganizationStatus()
 	return RuntimeStateSnapshot{
 		UpdatedAt: time.Now().UnixMilli(),
 		SessionID: s.GetSessionID(),
@@ -116,11 +118,22 @@ func (s *engine) RuntimeState() RuntimeStateSnapshot {
 		},
 		Extensions: s.ExtensionRuntimeStates(),
 		Features: map[string]bool{
-			"memory_tool":      s.config.FeatureMemoryTool(),
-			"todo_tool":        s.config.FeatureTodoTool(),
-			"task_output_tool": s.config.FeatureTaskOutputTool(),
-			"plan_mode":        s.config.FeaturePlanMode(),
-			"worktree_mode":    s.config.FeatureWorktreeMode(),
+			"memory_tool":          s.config.FeatureMemoryTool(),
+			"memory_auto_organize": memoryFeatureEnabled(s.config) && s.config.MemoryAutoOrganize(),
+			"todo_tool":            s.config.FeatureTodoTool(),
+			"task_output_tool":     s.config.FeatureTaskOutputTool(),
+			"plan_mode":            s.config.FeaturePlanMode(),
+			"worktree_mode":        s.config.FeatureWorktreeMode(),
+		},
+		Memory: map[string]any{
+			"status":                memoryStatus.Status,
+			"running":               memoryStatus.Running,
+			"last_attempt":          memoryStatus.LastAttempt,
+			"last_success":          memoryStatus.LastSuccess,
+			"source_bytes":          memoryStatus.SourceBytes,
+			"global_summary_bytes":  memoryStatus.GlobalSummaryBytes,
+			"project_summary_bytes": memoryStatus.ProjectSummaryBytes,
+			"last_error":            memoryStatus.LastError,
 		},
 		Counts: map[string]int{
 			"messages": len(s.GetMessages()),

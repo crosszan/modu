@@ -42,26 +42,29 @@ const (
 	ValueArtifacts   = "artifacts"
 	ValueWebSearch   = "web_search"
 	ValueWebFetch    = "web_fetch"
+	ValueRewind      = "rewind_snapshots"
 )
 
 type DefaultProvider struct {
 	Set       ToolSet
 	readState *common.FileReadState
+	bashJobs  *bash.JobStore
 }
 
 func NewProvider(set ToolSet) DefaultProvider {
 	if set == "" {
 		set = ToolSetCoding
 	}
-	return DefaultProvider{Set: set, readState: common.NewFileReadState()}
+	return DefaultProvider{Set: set, readState: common.NewFileReadState(), bashJobs: bash.NewJobStore()}
 }
 
 func (p DefaultProvider) Tools(ctx types.ToolContext) []types.Tool {
 	readState := p.state()
 	artifacts, _ := ctx.Value(ValueArtifacts).(*common.ArtifactStore)
+	snapshots, _ := ctx.Value(ValueRewind).(common.SnapshotRecorder)
 	out := append([]types.Tool{}, ctx.BaseTools...)
 	if ctx.BaseTools == nil {
-		out = p.baseTools(ctx.Cwd, readState, artifacts)
+		out = p.baseTools(ctx.Cwd, readState, artifacts, snapshots)
 	}
 	if artifacts != nil && !containsTool(out, "read_tool_result") {
 		out = append(out, toolresult.NewTool(artifacts))
@@ -91,15 +94,20 @@ func (p DefaultProvider) Tools(ctx types.ToolContext) []types.Tool {
 func (p DefaultProvider) Rebind(tool types.Tool, ctx types.ToolContext) (types.Tool, bool) {
 	readState := p.state()
 	artifacts, _ := ctx.Value(ValueArtifacts).(*common.ArtifactStore)
+	snapshots, _ := ctx.Value(ValueRewind).(common.SnapshotRecorder)
 	switch tool.Name() {
 	case "read":
 		return read.NewTrackedTool(ctx.Cwd, readState), true
 	case "write":
-		return write.NewTrackedTool(ctx.Cwd, readState), true
+		return write.NewTrackedToolWithSnapshots(ctx.Cwd, readState, snapshots), true
 	case "edit":
-		return edit.NewTrackedTool(ctx.Cwd, readState), true
+		return edit.NewTrackedToolWithSnapshots(ctx.Cwd, readState, snapshots), true
 	case "bash":
-		return bash.NewToolWithArtifacts(ctx.Cwd, artifacts), true
+		return bash.NewToolWithStore(ctx.Cwd, artifacts, p.jobs()), true
+	case "bash_output":
+		return bash.NewBashOutputTool(p.jobs()), true
+	case "kill_bash":
+		return bash.NewKillBashTool(p.jobs()), true
 	case "grep":
 		return grep.NewToolWithArtifacts(ctx.Cwd, artifacts), true
 	case "find":
@@ -126,6 +134,19 @@ func (p DefaultProvider) state() *common.FileReadState {
 	return common.NewFileReadState()
 }
 
+func (p DefaultProvider) jobs() *bash.JobStore {
+	if p.bashJobs != nil {
+		return p.bashJobs
+	}
+	return bash.NewJobStore()
+}
+
+func (p DefaultProvider) ShutdownTools() {
+	if p.bashJobs != nil {
+		p.bashJobs.KillAll()
+	}
+}
+
 func valueAs[T any](ctx types.ToolContext, name string) T {
 	v, _ := ctx.Value(name).(T)
 	return v
@@ -140,7 +161,7 @@ func containsTool(tools []types.Tool, name string) bool {
 	return false
 }
 
-func (p DefaultProvider) baseTools(cwd string, readState *common.FileReadState, artifacts *common.ArtifactStore) []types.Tool {
+func (p DefaultProvider) baseTools(cwd string, readState *common.FileReadState, artifacts *common.ArtifactStore, snapshots common.SnapshotRecorder) []types.Tool {
 	if readState == nil {
 		readState = p.state()
 	}
@@ -153,41 +174,45 @@ func (p DefaultProvider) baseTools(cwd string, readState *common.FileReadState, 
 			ls.NewToolWithArtifacts(cwd, artifacts),
 		}
 	case ToolSetAll:
-		return []types.Tool{
+		out := []types.Tool{
 			read.NewTrackedTool(cwd, readState),
-			write.NewTrackedTool(cwd, readState),
-			edit.NewTrackedTool(cwd, readState),
-			bash.NewToolWithArtifacts(cwd, artifacts),
+			write.NewTrackedToolWithSnapshots(cwd, readState, snapshots),
+			edit.NewTrackedToolWithSnapshots(cwd, readState, snapshots),
+		}
+		out = append(out, bash.NewTools(cwd, artifacts, p.jobs())...)
+		return append(out,
 			grep.NewToolWithArtifacts(cwd, artifacts),
 			find.NewToolWithArtifacts(cwd, artifacts),
 			ls.NewToolWithArtifacts(cwd, artifacts),
-		}
+		)
 	default:
-		return []types.Tool{
+		out := []types.Tool{
 			read.NewTrackedTool(cwd, readState),
-			bash.NewToolWithArtifacts(cwd, artifacts),
-			edit.NewTrackedTool(cwd, readState),
-			write.NewTrackedTool(cwd, readState),
+		}
+		out = append(out, bash.NewTools(cwd, artifacts, p.jobs())...)
+		return append(out,
+			edit.NewTrackedToolWithSnapshots(cwd, readState, snapshots),
+			write.NewTrackedToolWithSnapshots(cwd, readState, snapshots),
 			grep.NewToolWithArtifacts(cwd, artifacts),
 			find.NewToolWithArtifacts(cwd, artifacts),
 			ls.NewToolWithArtifacts(cwd, artifacts),
-		}
+		)
 	}
 }
 
 // CodingTools returns the core coding tools: read, bash, edit, write.
 func CodingTools(cwd string) []types.Tool {
-	return NewProvider(ToolSetCoding).baseTools(cwd, nil, nil)
+	return NewProvider(ToolSetCoding).baseTools(cwd, nil, nil, nil)
 }
 
 // ReadOnlyTools returns read-only tools: read, grep, find, ls.
 func ReadOnlyTools(cwd string) []types.Tool {
-	return NewProvider(ToolSetReadOnly).baseTools(cwd, nil, nil)
+	return NewProvider(ToolSetReadOnly).baseTools(cwd, nil, nil, nil)
 }
 
 // AllTools returns all available built-in coding tools.
 func AllTools(cwd string) []types.Tool {
-	return NewProvider(ToolSetAll).baseTools(cwd, nil, nil)
+	return NewProvider(ToolSetAll).baseTools(cwd, nil, nil, nil)
 }
 
 // ResearchTools returns opt-in network research tools. They are not part of

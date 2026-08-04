@@ -316,11 +316,12 @@ func (e *moduTUICommandExecutor) executeBuiltin(ctx context.Context, invocation 
 	}
 	printer := &moduTUISlashPrinter{}
 	previousSessionFile := e.session.GetSessionFile()
+	previousLeafID := e.session.GetSessionLeafID()
 	exit := definition.Execute(ctx, invocation.Name, invocation.Args, e.session, printer, e.model)
 	if printer.clear {
 		e.client.ClearTranscript()
 	}
-	if e.session.GetSessionFile() != previousSessionFile {
+	if e.session.GetSessionFile() != previousSessionFile || e.session.GetSessionLeafID() != previousLeafID {
 		e.client.ReplaceEntries(moduTUITranscriptEntries(e.session, newModuTUIEventPresenter()))
 		e.client.SetFooter(moduTUIFooter(e.session))
 	}

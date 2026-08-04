@@ -5,6 +5,45 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-08-04: replaced the keyless `web_search` default with Bing RSS after
+  reproducing DuckDuckGo TLS failures in the target network. Credentialed
+  providers still take priority, custom HTML endpoints remain supported, and
+  DuckDuckGo remains an explicit opt-in provider. RSS parsing has focused
+  coverage for query construction, titles, URLs, snippets, dates, and limits;
+  the reported Shanghai weather query also passes the opt-in live integration
+  test against the default endpoint.
+
+- 2026-08-03: added turn-level `/rewind` for the built-in `write` and `edit`
+  tools. Successful mutations capture an in-memory pre-change snapshot and the
+  conversation leaf from before the turn. `/rewind N` restores the selected
+  point and later tracked changes, moves the active conversation to that leaf,
+  and refreshes the TUI transcript. The rollback boundary explicitly excludes
+  Bash, MCP, network, and external effects; files larger than 16 MiB or changed
+  outside tracked tool calls are refused instead of overwritten.
+
+- 2026-08-03: added persistent project trust and trusted configuration hooks.
+  `/trust status|on|off|once` uses the nearest saved ancestor decision from
+  `<agentDir>/trust.json`; trust auto-allows write/edit/kill and non-dangerous
+  Bash without bypassing explicit deny rules or dangerous-command approval.
+  Trusted projects may configure `PreToolUse`, `PostToolUse`, and
+  `UserPromptSubmit` shell hooks with JSON input/output, matcher filtering,
+  blocking, argument/prompt rewriting, bounded output, and bounded timeouts.
+
+- 2026-08-03: completed background Bash lifecycle management. Background calls
+  now return a stable `bash_id`; `bash_output` drains combined stdout/stderr
+  incrementally and reports status, while `kill_bash` idempotently terminates
+  the process group. Unread output is capped at 1 MiB, old completed jobs are
+  pruned as new jobs start, and session shutdown kills remaining jobs.
+
+- 2026-08-03: exposed the existing `web_search` and `web_fetch` research
+  tools to the `modu_code` main session. The command now composes its coding
+  tool provider with the network research tools while the embeddable
+  `pkg/coding_agent` default remains opt-in. Search now supports
+  `allowed_domains` / `blocked_domains` and automatically selects a
+  credentialed Exa, Tavily, Brave, or Firecrawl backend before its keyless
+  fallback. Normal fetches block cross-origin redirects. Command-level tests
+  require every coding, background Bash, and web tool exactly once.
+
 - 2026-08-03: fixed resumed context-compaction dividers appearing at the bottom
   of the TUI transcript. Resume replay now consumes the persisted current-path
   transcript as one ordered stream instead of pairing the full session tree

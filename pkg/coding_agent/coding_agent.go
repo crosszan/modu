@@ -3,6 +3,7 @@ package coding_agent
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -21,13 +22,16 @@ import (
 	"github.com/openmodu/modu/pkg/coding_agent/services/bash"
 	"github.com/openmodu/modu/pkg/coding_agent/services/bgtask"
 	"github.com/openmodu/modu/pkg/coding_agent/services/contextmgr"
+	hookservice "github.com/openmodu/modu/pkg/coding_agent/services/hooks"
 	"github.com/openmodu/modu/pkg/coding_agent/services/mcpclient"
 	"github.com/openmodu/modu/pkg/coding_agent/services/memory"
 	"github.com/openmodu/modu/pkg/coding_agent/services/plan"
 	"github.com/openmodu/modu/pkg/coding_agent/services/retry"
+	rewindservice "github.com/openmodu/modu/pkg/coding_agent/services/rewind"
 	"github.com/openmodu/modu/pkg/coding_agent/services/session"
 	"github.com/openmodu/modu/pkg/coding_agent/services/systemprompt"
 	"github.com/openmodu/modu/pkg/coding_agent/services/todo"
+	trustservice "github.com/openmodu/modu/pkg/coding_agent/services/trust"
 	"github.com/openmodu/modu/pkg/coding_agent/services/worktree"
 	"github.com/openmodu/modu/pkg/coding_agent/tools"
 	toolcommon "github.com/openmodu/modu/pkg/coding_agent/tools/common"
@@ -144,6 +148,9 @@ type engine struct {
 
 	// approvalManager handles tool execution approval.
 	approvalManager *approval.Manager
+	trustManager    *trustservice.Manager
+	configHooks     *hookservice.Runner
+	rewindRecorder  *rewindservice.Recorder
 
 	// gitCache holds the last-known git state to avoid spawning git subprocesses
 	// on every writeRuntimeState call.
@@ -216,6 +223,7 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 	artifactStore := toolcommon.NewArtifactStore(
 		runtimepaths.SessionToolResultsDir(agentDir, opts.Cwd, sessionMgr.SessionID()),
 	)
+	rewindRecorder := rewindservice.New()
 
 	// Set up tools
 	toolProvider := opts.ToolProvider
@@ -242,6 +250,7 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 			tools.ValueArtifacts:   artifactStore,
 			tools.ValueWebSearch:   cfg.WebSearch,
 			tools.ValueWebFetch:    cfg.WebFetch,
+			tools.ValueRewind:      rewindRecorder,
 		},
 	})
 	activeTools = append(activeTools, mcpManager.Tools()...)
@@ -318,6 +327,10 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 	// Create approval manager
 	approvalMgr := approval.New()
 	approvalMgr.SetRules(cfg.Permissions)
+	trustMgr, err := trustservice.New(filepath.Join(agentDir, "trust.json"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize project trust: %w", err)
+	}
 
 	// Create the underlying agent
 	ag := agent.NewAgent(types.Config{
@@ -363,15 +376,31 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 		mcpManager:       mcpManager,
 		mcpWarnings:      mcpManager.Warnings(),
 		approvalManager:  approvalMgr,
+		trustManager:     trustMgr,
+		rewindRecorder:   rewindRecorder,
 		contextRemaining: contextRemaining,
 
 		extraSubagentDirs: append([]string(nil), opts.ExtraSubagentDirs...),
 	}
 	cs.wireComponents()
+	hookRunner, err := hookservice.New(cfg.Hooks, hookservice.Options{
+		Cwd:       func() string { return cs.cwd },
+		SessionID: func() string { return cs.GetSessionID() },
+		Enabled: func() bool {
+			return cs.trustManager != nil && cs.trustManager.IsTrusted(cs.cwd)
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize hooks: %w", err)
+	}
+	cs.configHooks = hookRunner
 	if err := taskMgr.SetStorePath(cs.RuntimePaths().BackgroundTasksFile); err != nil {
 		return nil, fmt.Errorf("failed to load background tasks: %w", err)
 	}
 	approvalMgr.SetObserver(cs)
+	approvalMgr.SetTrusted(func(toolName string, args map[string]any) bool {
+		return cs.trustManager != nil && cs.trustManager.IsTrusted(cs.cwd)
+	})
 	approvalMgr.SetBlocker(func(toolName string, args map[string]any) (bool, string) {
 		if cs.planModeBlocksTool(toolName) {
 			return true, planModeBlockMessage(toolName)
@@ -733,6 +762,15 @@ func (s *engine) Prompt(ctx context.Context, text string) error {
 	if s.agent.GetState().IsStreaming {
 		return fmt.Errorf("agent is already processing")
 	}
+	if s.configHooks != nil {
+		var err error
+		text, err = s.configHooks.UserPromptSubmit(ctx, text)
+		if err != nil {
+			return err
+		}
+	}
+	s.beginRewindTurn(text)
+	defer s.finishRewindTurn()
 
 	// Record to session
 	_ = s.sessionManager.Append(session.NewEntry(session.EntryTypeMessage, "", session.MessageData{
@@ -751,6 +789,7 @@ func (s *engine) Prompt(ctx context.Context, text string) error {
 
 	// Auto-compaction: check if we should compact after the agent finishes
 	s.ctxMgr.MaybeAutoCompact(ctx)
+	s.maybeAutoOrganizeMemory()
 
 	return nil
 }
@@ -768,6 +807,15 @@ func (s *engine) PromptWithImages(ctx context.Context, text string, images []typ
 	if s.agent.GetState().IsStreaming {
 		return fmt.Errorf("agent is already processing")
 	}
+	if s.configHooks != nil {
+		var err error
+		text, err = s.configHooks.UserPromptSubmit(ctx, text)
+		if err != nil {
+			return err
+		}
+	}
+	s.beginRewindTurn(text)
+	defer s.finishRewindTurn()
 
 	msg := userMessageWithImages(text, images)
 	_ = s.sessionManager.Append(session.NewEntry(session.EntryTypeMessage, "", session.MessageData{
@@ -779,6 +827,7 @@ func (s *engine) PromptWithImages(ctx context.Context, text string, images []typ
 		return err
 	}
 	s.ctxMgr.MaybeAutoCompact(ctx)
+	s.maybeAutoOrganizeMemory()
 	return nil
 }
 
@@ -831,17 +880,23 @@ func (s *engine) Continue(ctx context.Context) error {
 	if s == nil || s.agent == nil {
 		return fmt.Errorf("session is not initialized")
 	}
+	s.beginRewindTurn("continued turn")
+	defer s.finishRewindTurn()
 	err := s.agent.Continue(ctx)
 	if err != nil {
 		return err
 	}
 	s.ctxMgr.MaybeAutoCompact(ctx)
+	s.maybeAutoOrganizeMemory()
 	return nil
 }
 
 func (s *engine) Close(reason string) {
 	if s.extensions != nil {
 		s.extensions.EmitEvent(types.Event{Type: types.EventType("session_shutdown")})
+	}
+	if shutdown, ok := s.toolProvider.(interface{ ShutdownTools() }); ok {
+		shutdown.ShutdownTools()
 	}
 	if s.mcpManager != nil {
 		_ = s.mcpManager.Close()
@@ -1051,11 +1106,14 @@ func (s *engine) executeSkill(ctx context.Context, skill *skills.Skill, args str
 		},
 	}
 
+	s.beginRewindTurn("/" + skill.Name + " " + task)
+	defer s.finishRewindTurn()
 	err := s.agent.Prompt(ctx, messages)
 	if err != nil {
 		return err
 	}
 	s.ctxMgr.MaybeAutoCompact(ctx)
+	s.maybeAutoOrganizeMemory()
 	return nil
 }
 

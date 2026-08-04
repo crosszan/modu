@@ -37,6 +37,15 @@ func TestExpand(t *testing.T) {
 		{"positional multi-digit no prefix clash", "$10 then $1", "a b c d e f g h i j", "j then a"},
 		{"arguments and positional mix", "$1: $ARGUMENTS", "x y z", "x: x y z"},
 		{"placeholder present empty input not appended", "Run $ARGUMENTS", "", "Run"},
+		{"quoted positional argument", "Build $1 with $2", `Button "click handler"`, "Build Button with click handler"},
+		{"single quoted positional argument", "Review $1", `'path with spaces.go'`, "Review path with spaces.go"},
+		{"all arguments alias", "Run $@", `one "two three"`, "Run one two three"},
+		{"positional default", "Use ${1:-main}", "", "Use main"},
+		{"all arguments default", "Do ${ARGUMENTS:-the default task}", "", "Do the default task"},
+		{"argument slice", "First=$1 rest=${@:2}", `a "b c" d`, "First=a rest=b c d"},
+		{"bounded argument slice", "Pick ${@:2:2}", "a b c d", "Pick b c"},
+		{"unterminated quote fallback", "Raw=$ARGUMENTS", `"broken value`, `Raw="broken value`},
+		{"legacy and positional mix", "{{input}} / $1", `"hello world" tail`, `"hello world" tail / hello world`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

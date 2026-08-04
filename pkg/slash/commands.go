@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ const (
 	commandClear
 	commandModel
 	commandCompact
+	commandMemory
 	commandTokens
 	commandContext
 	commandSession
@@ -65,6 +67,8 @@ const (
 	commandWorktree
 	commandSkills
 	commandPrompts
+	commandTrust
+	commandRewind
 )
 
 // CommandDefinitions is the canonical metadata for built-in slash commands.
@@ -75,6 +79,7 @@ func CommandDefinitions() []CommandDefinition {
 		{Name: "/clear", Aliases: []string{"/new"}, Description: "Clear the current session", operation: commandClear},
 		{Name: "/model", Description: "Show, list, or switch the active model", operation: commandModel},
 		{Name: "/compact", Description: "Manually trigger context compaction", operation: commandCompact},
+		{Name: "/memory", Description: "Show status or organize stored memory", operation: commandMemory},
 		{Name: "/tokens", Description: "Show token usage", operation: commandTokens},
 		{Name: "/context", Description: "Show loaded context", operation: commandContext},
 		{Name: "/session", Description: "Show, name, or delete a session", operation: commandSession},
@@ -100,6 +105,8 @@ func CommandDefinitions() []CommandDefinition {
 		{Name: "/worktree", Description: "Inspect or manage the current worktree", operation: commandWorktree},
 		{Name: "/skills", Description: "List available skills", operation: commandSkills},
 		{Name: "/prompts", Description: "List available prompt templates", operation: commandPrompts},
+		{Name: "/trust", Description: "Show or set project trust", operation: commandTrust},
+		{Name: "/rewind", Description: "List or restore write/edit checkpoints", operation: commandRewind},
 	}
 }
 
@@ -163,6 +170,28 @@ func executeCommand(ctx context.Context, operation commandOperation, invokedName
 		}
 		return false
 
+	case commandMemory:
+		arg := ""
+		if len(parts) > 1 {
+			arg = strings.ToLower(strings.TrimSpace(parts[1]))
+		}
+		switch arg {
+		case "", "status":
+			printMemoryStatus(session, r)
+		case "organize":
+			r.PrintInfo("organizing stored memory…")
+			result, err := session.OrganizeMemory(ctx)
+			if err != nil {
+				r.PrintError(err)
+			} else {
+				r.PrintInfo("memory organization: " + result.Reason)
+				printMemoryStatus(session, r)
+			}
+		default:
+			r.PrintError(fmt.Errorf("usage: /memory [status|organize]"))
+		}
+		return false
+
 	case commandTokens:
 		stats := session.GetSessionStats()
 		r.PrintInfo(fmt.Sprintf("tokens used this session: %d", stats.TotalTokens))
@@ -170,6 +199,64 @@ func executeCommand(ctx context.Context, operation commandOperation, invokedName
 
 	case commandContext:
 		handleContext(session, r)
+		return false
+
+	case commandTrust:
+		arg := ""
+		if len(parts) > 1 {
+			arg = strings.TrimSpace(parts[1])
+		}
+		status, err := session.ConfigureProjectTrust(arg)
+		if err != nil {
+			r.PrintError(err)
+			return false
+		}
+		r.PrintSection("Project trust", []string{
+			"decision: " + status.Decision,
+			"directory: " + status.Directory,
+			"source: " + status.Source,
+		})
+		return false
+
+	case commandRewind:
+		arg := ""
+		if len(parts) > 1 {
+			arg = strings.TrimSpace(parts[1])
+		}
+		if arg == "" {
+			points := session.GetRewindPoints()
+			if len(points) == 0 {
+				r.PrintInfo("no restore points yet; successful write/edit turns create them")
+				return false
+			}
+			lines := make([]string, 0, len(points))
+			for _, point := range points {
+				lines = append(lines, fmt.Sprintf(
+					"%d. %s  %d file(s)  %s",
+					point.Number,
+					point.Time.Local().Format("3:04PM"),
+					point.FileCount,
+					point.Label,
+				))
+			}
+			r.PrintSection("Restore points", lines)
+			return false
+		}
+		number, err := strconv.Atoi(arg)
+		if err != nil {
+			r.PrintError(fmt.Errorf("usage: /rewind [point-number]"))
+			return false
+		}
+		result, err := session.Rewind(number)
+		if err != nil {
+			r.PrintError(err)
+			return false
+		}
+		lines := make([]string, 0, len(result.RestoredFiles))
+		for _, path := range result.RestoredFiles {
+			lines = append(lines, session.DisplayRewindPath(path))
+		}
+		r.PrintSection(fmt.Sprintf("Rewound to before point %d", number), lines)
 		return false
 
 	case commandSession:
@@ -566,6 +653,22 @@ func executeCommand(ctx context.Context, operation commandOperation, invokedName
 		r.PrintError(fmt.Errorf("unknown built-in operation: %d", operation))
 		return false
 	}
+}
+
+func printMemoryStatus(session *coding_agent.CodingSession, r Printer) {
+	status := session.GetMemoryOrganizationStatus()
+	lines := []string{
+		"status: " + status.Status,
+		fmt.Sprintf("running: %v", status.Running),
+		fmt.Sprintf("source bytes: %d", status.SourceBytes),
+	}
+	if !status.LastSuccess.IsZero() {
+		lines = append(lines, "last success: "+status.LastSuccess.Local().Format(time.RFC3339))
+	}
+	if status.LastError != "" {
+		lines = append(lines, "last error: "+status.LastError)
+	}
+	r.PrintSection("Memory organization", lines)
 }
 
 func resolveExportPath(session *coding_agent.CodingSession, path string) string {

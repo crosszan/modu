@@ -27,6 +27,7 @@ type Manager struct {
 	rules           config.PermissionConfig
 	observer        Observer
 	blocker         func(toolName string, args map[string]any) (bool, string)
+	trusted         func(toolName string, args map[string]any) bool
 	// callback is called when no cached decision exists.
 	// If nil, all tools are auto-approved.
 	callback func(toolName, toolCallID string, args map[string]any) (types.ToolApprovalDecision, error)
@@ -73,6 +74,12 @@ func (m *Manager) SetBlocker(fn func(toolName string, args map[string]any) (bool
 	m.blocker = fn
 }
 
+func (m *Manager) SetTrusted(fn func(toolName string, args map[string]any) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.trusted = fn
+}
+
 // Approve is the types.Config.ApproveTool implementation.
 func (m *Manager) Approve(toolName, toolCallID string, args map[string]any) (types.ToolApprovalDecision, error) {
 	// exit_plan_mode runs its own interactive plan-approval gate inside the
@@ -114,6 +121,7 @@ func (m *Manager) Approve(toolName, toolCallID string, args map[string]any) (typ
 	toolAllowed := !bashNeedsApproval && m.alwaysAllow[toolName]
 	cb := m.callback
 	rules := m.rules
+	trusted := m.trusted
 	observer = m.observer
 	m.mu.RUnlock()
 
@@ -122,6 +130,10 @@ func (m *Manager) Approve(toolName, toolCallID string, args map[string]any) (typ
 			observer.OnPermissionDenied(toolName, toolCallID, args, reason)
 		}
 		return decision, nil
+	}
+
+	if !bashNeedsApproval && isTrustEligibleTool(toolName) && trusted != nil && trusted(toolName, args) {
+		return types.ToolApprovalAllow, nil
 	}
 
 	if bashAllowed || toolAllowed {
@@ -180,6 +192,15 @@ func (m *Manager) Approve(toolName, toolCallID string, args map[string]any) (typ
 	return decision, nil
 }
 
+func isTrustEligibleTool(toolName string) bool {
+	switch toolName {
+	case "write", "edit", "bash", "kill_bash":
+		return true
+	default:
+		return false
+	}
+}
+
 func evaluateDenyPermissionRules(rules config.PermissionConfig, toolName string, args map[string]any) (types.ToolApprovalDecision, string, bool) {
 	for _, denied := range rules.DenyTools {
 		if strings.TrimSpace(denied) == toolName {
@@ -230,7 +251,7 @@ func evaluateAllowPermissionRules(rules config.PermissionConfig, toolName string
 
 func isAutoAllowedReadOnlyTool(toolName string) bool {
 	switch toolName {
-	case "read", "grep", "find", "ls":
+	case "read", "grep", "find", "ls", "bash_output":
 		return true
 	default:
 		return false
@@ -301,5 +322,6 @@ func (m *Manager) Reset() {
 	m.alwaysDenyBash = make(map[string]bool)
 	m.rules = config.PermissionConfig{}
 	m.observer = nil
+	m.trusted = nil
 	m.callback = nil
 }

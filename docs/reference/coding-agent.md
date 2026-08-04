@@ -246,6 +246,31 @@ Agent 完成回复 → 记录最新 usage 快照 → 超过阈值？→ 调用 C
 
 Memory feature 开启时默认仍兼容旧的 global/project/recent notes 注入；当 global 或 project memory 目录存在 `memory_summary.md` 时，主 session 和 subagent/workflow 的 `memory_scope` 注入都会优先使用 bounded summary，并提示模型通过 `memo` 的 `list`、`read`、`search` 操作按需读取详细记忆。`memo` 可用 `write_summary` 覆盖当前 scope 的 `memory_summary.md`；`list`、`read`、`search` 的 tool result details 会包含结构化 path/entry/match/truncation metadata，便于后续 citation 和日志消费。读路径只接受 memory root 内的相对路径，拒绝 `..` 和隐藏路径组件。关闭 `features.memoryTool` 会同时移除 `memo` 工具、主 prompt memory 注入，以及 subagent/workflow `memory_scope` 注入。
 
+Memory 默认启用非破坏式自动整理。一次成功的 Agent 回合结束后，如果 global `MEMORY.md`、project `MEMORY.md` 与最近 7 天 project daily notes 合计达到 12 KiB，会在后台调用当前模型分别生成 global/project `memory_summary.md`。每个输入 scope 最多发送 64 KiB，每份摘要最多保存 8 KiB。整理只覆盖生成的摘要，不删除、合并或改写 `MEMORY.md` 和 daily notes；模型失败或返回无效 JSON 时保留旧摘要。
+
+自动整理用 source fingerprint 避免内容未变化时重复调用，默认两次尝试至少间隔 24 小时。进度写入 project `.modu_code/memory/.organize-state.json`，跨进程锁写入 global `~/.modu/memory/.organize.lock`，避免不同项目同时覆盖 global summary；`RuntimeState().Memory` 同步暴露 status、running、source bytes、最近成功时间和错误。`/memory status` 查看状态，`/memory organize` 忽略阈值和间隔强制整理一次。关闭 `features.memoryTool` 也会关闭自动整理。
+
+全局配置写在 `~/.modu/config.toml`：
+
+```toml
+[settings.memory]
+autoOrganize = true
+organizeThresholdBytes = 12288
+organizeIntervalHours = 24
+recentDailyDays = 7
+```
+
+项目级 `.coding_agent/settings.json` 使用同名字段：
+
+```json
+{
+  "memory": {
+    "autoOrganize": false,
+    "organizeThresholdBytes": 32768
+  }
+}
+```
+
 `GetDoctorInfo()` 返回基础运行诊断摘要，包括模型配置路径、当前模型、baseURL 连通性、provider 注册状态、API key 状态、上下文文件数量和问题列表。`modu_code` 的 `/doctor` 命令基于这份只读摘要渲染。
 
 ### 7. 计划模式（Plan Mode）
@@ -327,7 +352,17 @@ type Extension interface {
 
 **Subagent profiles**：从 `~/.modu/agents/` 和 `.coding_agent/agents/` 目录发现 Markdown profile。项目 profile 会覆盖同名全局 profile；发现到至少一个 profile 时，`extension/subagent` 会向模型暴露 `subagent` 和兼容 alias `spawn_subagent` 工具。
 
-**Prompt templates**：从 `~/.modu/prompts/` 和 `.coding_agent/prompts/` 目录发现 Markdown 模板。模板文件名或 frontmatter `name` 会注册为斜杠命令。模板里的参数占位符支持 Claude Code 自定义命令风格：`$ARGUMENTS`（全部参数）、`$1` / `$2` ...（按空格切分的位置参数），以及兼容旧版的 `{{input}}` / `{{args}}`。模板里的 `` !`command` `` 会在当前工作目录执行该命令，并把输出内联替换进 prompt（例如 `` 当前分支：!`git branch --show-current` ``）。模板没有任何占位符时，命令参数会追加到末尾。没有发现模板时，`/prompts` 会直接输出一个可复制的 `.coding_agent/prompts/review.md` 示例和调用方式。
+**Prompt templates**：从 `~/.modu/prompts/` 和 `.coding_agent/prompts/` 目录发现 Markdown 模板。模板文件名或 frontmatter `name` 会注册为斜杠命令；`argument-hint` 会进入命令元数据，供补全界面展示。
+
+参数按 shell quoting 规则拆分，因此 `/review "pkg/coding agent" correctness` 的 `$1` 是 `pkg/coding agent`，`$2` 是 `correctness`。支持：
+
+- `$1`、`$2`……：位置参数。
+- `$@`、`$ARGUMENTS`：全部参数。
+- `${1:-main}`、`${@:-default}`、`${ARGUMENTS:-default}`：参数为空时使用默认值。
+- `${@:2}`、`${@:2:3}`：从第 2 个参数开始，或取 3 个参数。
+- `{{input}}`、`{{args}}`：兼容旧模板，保留 trim 后的原始命令文本。
+
+引号未闭合时，整段原始文本回退为一个参数，命令仍可执行。默认值中的 `$` 不会递归展开。模板里的 `` !`command` `` 会在当前工作目录执行并内联输出，例如 `` 当前分支：!`git branch --show-current` ``。模板没有占位符时，解析后的参数会追加到末尾。没有发现模板时，`/prompts` 会输出可复制的 `.coding_agent/prompts/review.md` 示例和调用方式。
 
 **本地资源包**：从 `~/.modu/packages/<name>/package.json` 和 `.coding_agent/packages/<name>/package.json` 发现资源包。当前支持 `skills` 和 `prompts` 路径，`enabled: false` 可禁用包：
 
@@ -400,6 +435,7 @@ Streamable HTTP 的 POST JSON/SSE 响应和可选 GET SSE 通道都由官方 SDK
 | `/doctor` | 显示基础运行诊断 |
 | `/worktree` | 查看或管理当前 isolated worktree |
 | `/compact` | 手动触发上下文压缩 |
+| `/memory [status\|organize]` | 查看自动整理状态，或强制生成 memory summary |
 | `/session` | 显示当前会话 ID、名称、文件、cwd、模型、消息数、tokens、plan/worktree 和资源摘要 |
 | `/session name <name>` | 设置当前会话 display name |
 | `/session delete <file>` | 删除非当前会话文件 |
@@ -530,6 +566,11 @@ searchType = "basic"
 provider = "firecrawl"
 apiKeyEnv = "FIRECRAWL_API_KEY"
 
+[[settings.hooks.preToolUse]]
+matcher = "bash|write|edit"
+command = "./scripts/check-tool.sh"
+timeoutSeconds = 10
+
 [mcp_servers.docs]
 url = "https://example.com/mcp"
 bearer_token_env_var = "DOCS_MCP_TOKEN"
@@ -537,6 +578,69 @@ required = true
 ```
 
 默认值不会写入 `config.toml`；旧的 `~/.modu/settings.json` 仍会被读取，并在没有 `[settings]` 时迁移进 `config.toml`。
+
+`web_search` 未显式指定 provider 时，会按 Exa、Tavily、Brave、Firecrawl 的可用 API Key 依次自动选择，均不可用时使用无需 Key 的 Bing RSS。国内网络无法连接 DuckDuckGo 时不会再把 DDG 作为默认链路；确实需要时可显式设置 `provider = "duckduckgo"`。工具参数 `allowed_domains` 和 `blocked_domains` 使用域名后缀匹配筛选结果。`web_fetch` 的普通 HTTP 客户端拒绝跨 origin 重定向，避免把请求上下文带到意外站点。
+
+### 项目 Trust
+
+`/trust status|on|off|once` 控制当前 cwd 的信任状态。持久化决定保存在 `<agentDir>/trust.json`，查询时采用最近祖先目录的决定；`once` 只保存在当前进程。
+
+可信项目会自动放行内置 `write`、`edit`、`kill_bash` 和非危险 Bash。`permissions.denyTools`、`denyBashPrefixes` 以及危险 Bash 分类仍然优先，trust 不会绕过这些安全边界。未决定或不可信项目继续使用原有交互审批。
+
+### 配置 Hooks
+
+支持三个配置化 shell 生命周期：
+
+- `hooks.preToolUse`
+- `hooks.postToolUse`
+- `hooks.userPromptSubmit`
+
+全局 TOML 使用 `[[settings.hooks.preToolUse]]` 数组表；项目 `.coding_agent/settings.json` 使用下面的结构：
+
+```json
+{
+  "hooks": {
+    "preToolUse": [
+      {
+        "matcher": "bash|write|edit",
+        "command": "./scripts/check-tool.sh",
+        "timeoutSeconds": 10
+      }
+    ],
+    "postToolUse": [
+      {
+        "matcher": "write|edit",
+        "command": "./scripts/report-change.sh"
+      }
+    ],
+    "userPromptSubmit": [
+      {
+        "command": "./scripts/check-prompt.sh"
+      }
+    ]
+  }
+}
+```
+
+Hook 命令只在当前项目已 trust 时运行。命令从 stdin 读取 JSON；成功时可从 stdout 返回：
+
+```json
+{
+  "decision": "allow",
+  "reason": "",
+  "updatedInput": {},
+  "updatedPrompt": "",
+  "additionalContext": ""
+}
+```
+
+`decision: "block"` 或退出码 `2` 会阻断 `PreToolUse` / `UserPromptSubmit`。其他异常 fail-open；工具 Hook 的异常会在工具结果中显示 warning。单个 Hook 默认超时 10 秒、最大 60 秒，stdout 和 stderr 各限制为 1 MiB。
+
+### 后台 Bash 与 Rewind
+
+`bash` 使用 `run_in_background=true` 时返回 `bash_id`。`bash_output` 增量读取该任务的新 stdout/stderr 和退出状态，`kill_bash` 终止对应进程组；单任务最多保留 1 MiB 未读日志，session 关闭时会清理仍在运行的任务。
+
+`/rewind` 列出当前进程内由成功 `write/edit` 轮次生成的检查点；`/rewind N` 恢复该点及其后的文件修改，并把 conversation leaf 移到该轮之前。快照只保留不超过 16 MiB 的普通文件。Bash、MCP、网络和其他外部副作用不会被恢复；若文件在最后一次受跟踪修改后又被外部改变，回退会拒绝覆盖。
 
 ### Harness 配置
 

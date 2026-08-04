@@ -215,6 +215,32 @@ func TestHandleCompactReportsNoop(t *testing.T) {
 	}
 }
 
+func TestHandleMemoryShowsOrganizationStatus(t *testing.T) {
+	cwd := t.TempDir()
+	model := &types.Model{ID: "test", Name: "Test", ProviderID: "test"}
+	session, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
+		Cwd:       cwd,
+		AgentDir:  filepath.Join(cwd, ".coding_agent"),
+		Model:     model,
+		GetAPIKey: func(string) (string, error) { return "", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	printer := &capturePrinter{}
+	handled, exit := handleLine(context.Background(), "/memory status", session, printer, model)
+	if !handled || exit {
+		t.Fatalf("expected /memory to be handled without exit, handled=%v exit=%v", handled, exit)
+	}
+	output := printer.String()
+	for _, want := range []string{"Memory organization", "status: idle", "running: false"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("memory status missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestHandlePromptsListsPromptTemplates(t *testing.T) {
 	cwd := t.TempDir()
 	agentDir := filepath.Join(cwd, ".coding_agent")

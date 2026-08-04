@@ -178,6 +178,9 @@ func (s *engine) ClearSavedMessages() error {
 func (s *engine) ClearConversation() error {
 	s.agent.Reset()
 	s.ctxMgr.ResetUsage()
+	if s.rewindRecorder != nil {
+		s.rewindRecorder.Reset()
+	}
 	return s.ClearSavedMessages()
 }
 

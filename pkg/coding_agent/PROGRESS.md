@@ -16,6 +16,36 @@ High-priority gaps identified before this round:
 
 ## Completed In This Round
 
+- 2026-08-04: completed two bounded coding-agent runtime slices. Prompt templates now
+  tokenize arguments with shell quoting and support `$@`, `$ARGUMENTS`,
+  positional defaults, argument defaults, and `${@:start:length}` slices while
+  retaining raw legacy placeholders. Persisted memory now has non-destructive
+  automatic summary organization after successful turns: size/interval gates,
+  source fingerprints, a cross-process lock, persisted process state, bounded
+  model input/output, `/memory status|organize`, and runtime-state visibility.
+  Automatic runs only replace generated summaries; source `MEMORY.md` and
+  daily notes remain unchanged, and failed runs preserve the previous summary.
+  Unit and session-level integration tests cover expansion, automatic
+  triggering, failure preservation, idempotent skips, and status exposure.
+  Focused race tests, `go test ./...`, `go vet ./...`, `go mod tidy -diff`,
+  the `go run ./cmd/modu_code --help` startup check, and `git diff --check`
+  pass.
+- 2026-08-04: changed the no-credential web search fallback from unreachable
+  DuckDuckGo HTML to the keyless Bing RSS endpoint. Provider selection still
+  prefers configured Exa, Tavily, Brave, or Firecrawl credentials; custom HTML
+  endpoints and explicit DuckDuckGo remain available. Focused tests cover the
+  default choice and structured RSS parsing.
+- 2026-08-03: added four bounded runtime slices without
+  replacing Modu's existing session, approval, or extension architecture:
+  shared background Bash jobs (`bash_output` / `kill_bash`), nearest-ancestor
+  project trust, trusted `PreToolUse` / `PostToolUse` /
+  `UserPromptSubmit` shell hooks, and turn-level write/edit rewind. Bash logs,
+  hook I/O/time, and file snapshot sizes are bounded; dangerous Bash and
+  explicit deny rules remain authoritative; rewind refuses external file
+  conflicts and excludes untracked side effects. Package READMEs and focused
+  unit/integration coverage document each boundary. Focused race tests,
+  `go vet`, repository-wide `go test ./...`, CLI help startup, and
+  `git diff --check` pass.
 - 2026-08-03: separated persisted transcript replay from the compacted live
   model context. `GetSessionTranscript()` now returns current-path messages and
   compaction markers in causal order, while `GetMessages()` retains replacement
