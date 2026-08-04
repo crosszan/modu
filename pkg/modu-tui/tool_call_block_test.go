@@ -315,11 +315,7 @@ func TestSelectedTextOmitsNumberedToolCodeGutter(t *testing.T) {
 
 	m.selStart = cell{line: first, col: 0}
 	m.selEnd = cell{line: last, col: m.gutterAt(last) + len("func main() {}")}
-	selected := strings.Split(m.selectedText(), "\n")
-	for i := range selected {
-		selected[i] = strings.TrimRight(selected[i], " ")
-	}
-	if got, want := strings.Join(selected, "\n"), "package main\nfunc main() {}"; got != want {
+	if got, want := m.selectedText(), "package main\nfunc main() {}"; got != want {
 		t.Fatalf("selected numbered code = %q, want %q", got, want)
 	}
 }
@@ -399,11 +395,7 @@ func TestSelectedTextOmitsUpdateDiffMarkersAndLineNumbers(t *testing.T) {
 
 	m.selStart = cell{line: first, col: 0}
 	m.selEnd = cell{line: last, col: m.gutterAt(last) + len("if newValue {")}
-	selected := strings.Split(m.selectedText(), "\n")
-	for i := range selected {
-		selected[i] = strings.TrimRight(selected[i], " ")
-	}
-	if got, want := strings.Join(selected, "\n"), "if oldValue {\nif newValue {"; got != want {
+	if got, want := m.selectedText(), "if oldValue {\nif newValue {"; got != want {
 		t.Fatalf("selected update code = %q, want %q", got, want)
 	}
 }

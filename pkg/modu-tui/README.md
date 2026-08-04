@@ -41,7 +41,7 @@ artifact-loading queries.
 - A scrollable transcript above a fixed input area; mouse wheel and PageUp/PageDown move the viewport.
 - A single jump-to-bottom hint appears in the Agent status row when new content arrives off-screen.
 - Every rendered row is padded to the current width, preventing shorter frames from leaving stale terminal content.
-- Drag selection copies through the local clipboard and OSC52. SSH, tmux, and screen sessions use passthrough OSC52.
+- Drag selection copies through the local clipboard and OSC52. Right-side terminal render padding is omitted from copied lines while meaningful left indentation and internal spaces are preserved. SSH, tmux, and screen sessions use passthrough OSC52.
 - Selecting a complete bordered table copies Markdown table source rather than terminal border glyphs. Partial table selections still copy the visible cells and borders.
 - `DisableMouse` turns off terminal mouse reporting. `ArrowKeysScroll` lets Up/Down scroll when input and history navigation are both empty.
 

@@ -268,7 +268,11 @@ func (m *Model) selectedText() string {
 		if line == hi.line {
 			to = hi.col
 		}
-		parts = append(parts, cellSlice(ansi.Strip(m.lines[line]), from, to))
+		selected := cellSlice(ansi.Strip(m.lines[line]), from, to)
+		// Rendered transcript rows may be padded to the terminal width so a
+		// shorter redraw clears stale cells. That padding is layout, not text,
+		// and must not enter the clipboard when a drag reaches the row's end.
+		parts = append(parts, strings.TrimRight(selected, " "))
 		line++
 	}
 	return strings.Join(parts, "\n")
