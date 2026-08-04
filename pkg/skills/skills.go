@@ -61,27 +61,37 @@ type Skill struct {
 // type adds skill-specific lazy content loading and prompt formatting.
 type Manager struct {
 	*mdloader.Manager[Skill]
+	builtinRefs []mdloader.Ref
 }
 
 // NewManager creates a new skill manager. Global skills live under
 // {agentDir}/skills and project skills under {cwd}/.coding_agent/skills.
-// Project skills are scanned first so they win over global ones of the same
-// name (the parser keeps the first registration).
+// Project skills are scanned first, followed by global and package skills.
+// Bundled skills are scanned last so any custom skill of the same name wins.
 func NewManager(agentDir, cwd string) *Manager {
 	roots := []mdloader.Ref{
 		{Path: filepath.Join(cwd, ".coding_agent", "skills"), Source: "project"},
 		{Path: filepath.Join(agentDir, "skills"), Source: "user"},
 	}
-	return &Manager{mdloader.New(roots, skillParser{})}
+	m := &Manager{Manager: mdloader.New(roots, skillParser{})}
+	if path, err := materializeBuiltinSkillCreator(agentDir); err != nil {
+		slog.Warn("failed to materialize built-in skill", "name", "skill-creator", "error", err)
+	} else {
+		m.builtinRefs = []mdloader.Ref{{Path: path, Source: "builtin"}}
+	}
+	m.SetExtraRefs(m.builtinRefs)
+	return m
 }
 
 // SetExtraPaths registers additional skill files or directories (e.g. from
-// resource packages) to include in discovery.
+// resource packages) to include in discovery. Bundled skills remain last so
+// every caller-supplied path can override them.
 func (m *Manager) SetExtraPaths(paths []PathRef) {
-	refs := make([]mdloader.Ref, len(paths))
-	for i, p := range paths {
-		refs[i] = mdloader.Ref{Path: p.Path, Source: p.Source}
+	refs := make([]mdloader.Ref, 0, len(paths)+len(m.builtinRefs))
+	for _, p := range paths {
+		refs = append(refs, mdloader.Ref{Path: p.Path, Source: p.Source})
 	}
+	refs = append(refs, m.builtinRefs...)
 	m.SetExtraRefs(refs)
 }
 

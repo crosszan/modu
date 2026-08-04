@@ -75,6 +75,7 @@ Interactive hosts can build a non-persistent side conversation with `BeginSideTh
 - Trusted configuration may define `PreToolUse`, `PostToolUse`, and `UserPromptSubmit` shell hooks.
 - `GetRewindPoints` and `Rewind` restore in-process checkpoints produced by built-in `write` / `edit` turns. Bash, MCP, network, and external changes are outside that boundary.
 - Prompt-template arguments support shell quoting, positional values, defaults, and slices while retaining legacy `{{input}}` / `{{args}}`.
+- `/skill-creator` is bundled from Anthropic's official Skill without Modu-specific rewrites. Its full resource directory is materialized under `<agent-dir>/builtin-skills/<revision>/skill-creator`; project, user, and package skills with the same name override it. Claude Code-specific evaluation steps still require the `claude` CLI and their original Python dependencies.
 - Memory above the configured threshold is summarized in the background without changing source notes; `OrganizeMemory` and `/memory` expose manual execution and status.
 
 ## Documentation
