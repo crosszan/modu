@@ -45,9 +45,15 @@ func TestBuildChatRequestDropsUnknownToolCalls(t *testing.T) {
 		Tools: []types.ToolDefinition{{Name: "read"}},
 		Messages: []types.AgentMessage{
 			types.UserMessage{Role: types.RoleUser, Content: "commit it"},
-			types.AssistantMessage{Role: types.RoleAssistant, Content: []types.ContentBlock{
-				&types.ToolCallContent{Type: "toolCall", ID: "confirm-1", Name: "confirm", Arguments: map[string]any{"message": "确认提交？"}},
-			}},
+			types.AssistantMessage{
+				Role: types.RoleAssistant,
+				Content: []types.ContentBlock{
+					&types.ToolCallContent{Type: "toolCall", ID: "confirm-1", Name: "confirm", Arguments: map[string]any{"message": "确认提交？"}},
+				},
+				ProviderMetadata: map[string]json.RawMessage{
+					"openai.responses.output": json.RawMessage(`[{"type":"function_call","call_id":"confirm-1","name":"confirm","arguments":"{}"}]`),
+				},
+			},
 			types.ToolResultMessage{
 				Role:       types.RoleToolResult,
 				ToolCallID: "confirm-1",
@@ -63,7 +69,7 @@ func TestBuildChatRequestDropsUnknownToolCalls(t *testing.T) {
 		t.Fatalf("expected unknown tool call chain to be dropped, got %#v", req.Messages)
 	}
 	for _, msg := range req.Messages {
-		if msg.Role == providers.RoleTool || len(msg.ToolCalls) > 0 {
+		if msg.Role == providers.RoleTool || len(msg.ToolCalls) > 0 || len(msg.ProviderMetadata) > 0 {
 			t.Fatalf("expected no unknown tool message in request, got %#v", req.Messages)
 		}
 	}
@@ -132,9 +138,15 @@ func TestBuildChatRequestKeepsValidToolCallChain(t *testing.T) {
 	req := buildChatRequest(&types.Model{ID: "test-model"}, &types.LLMContext{
 		Tools: []types.ToolDefinition{{Name: "read"}},
 		Messages: []types.AgentMessage{
-			types.AssistantMessage{Role: types.RoleAssistant, Content: []types.ContentBlock{
-				&types.ToolCallContent{Type: "toolCall", ID: "read-1", Name: "read", Arguments: map[string]any{"path": "README.md"}},
-			}},
+			types.AssistantMessage{
+				Role: types.RoleAssistant,
+				Content: []types.ContentBlock{
+					&types.ToolCallContent{Type: "toolCall", ID: "read-1", Name: "read", Arguments: map[string]any{"path": "README.md"}},
+				},
+				ProviderMetadata: map[string]json.RawMessage{
+					"openai.responses.output": json.RawMessage(`[{"type":"function_call","call_id":"read-1","name":"read","arguments":"{}"}]`),
+				},
+			},
 			types.ToolResultMessage{
 				Role:       types.RoleToolResult,
 				ToolCallID: "read-1",
@@ -149,5 +161,60 @@ func TestBuildChatRequestKeepsValidToolCallChain(t *testing.T) {
 	}
 	if len(req.Messages[0].ToolCalls) != 1 || req.Messages[1].Role != providers.RoleTool {
 		t.Fatalf("expected assistant tool call plus tool result, got %#v", req.Messages)
+	}
+	if len(req.Messages[0].ProviderMetadata) == 0 {
+		t.Fatal("expected complete tool chain to retain provider metadata")
+	}
+}
+
+func TestBuildChatRequestDropsProviderMetadataForIncompleteToolChain(t *testing.T) {
+	req := buildChatRequest(&types.Model{ID: "test-model"}, &types.LLMContext{
+		Tools: []types.ToolDefinition{{Name: "read"}},
+		Messages: []types.AgentMessage{
+			types.AssistantMessage{
+				Role: types.RoleAssistant,
+				Content: []types.ContentBlock{
+					&types.TextContent{Type: "text", Text: "Reading."},
+					&types.ToolCallContent{Type: "toolCall", ID: "read-1", Name: "read", Arguments: map[string]any{"path": "README.md"}},
+				},
+				ProviderMetadata: map[string]json.RawMessage{
+					"openai.responses.output": json.RawMessage(`[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Reading."}]},{"type":"function_call","call_id":"read-1","name":"read","arguments":"{}"}]`),
+				},
+			},
+			types.UserMessage{Role: types.RoleUser, Content: "skip it"},
+		},
+	}, &types.SimpleStreamOptions{})
+
+	if len(req.Messages) != 2 {
+		t.Fatalf("unexpected messages: %#v", req.Messages)
+	}
+	assistant := req.Messages[0]
+	if len(assistant.ToolCalls) != 0 || len(assistant.ProviderMetadata) != 0 || assistant.Content != "Reading." {
+		t.Fatalf("incomplete tool chain retained provider state: %#v", assistant)
+	}
+}
+
+func TestBuildChatRequestCarriesReasoningAndProviderMetadata(t *testing.T) {
+	metadata := map[string]json.RawMessage{
+		"openai.responses.output": json.RawMessage(`[{"type":"reasoning","encrypted_content":"opaque"}]`),
+	}
+	req := buildChatRequest(&types.Model{ID: "gpt-5"}, &types.LLMContext{
+		Messages: []types.AgentMessage{
+			types.AssistantMessage{
+				Role:             types.RoleAssistant,
+				Content:          []types.ContentBlock{&types.TextContent{Type: "text", Text: "answer"}},
+				ProviderMetadata: metadata,
+			},
+		},
+	}, &types.SimpleStreamOptions{Reasoning: types.ThinkingLevelHigh})
+
+	if req.Reasoning != types.ThinkingLevelHigh {
+		t.Fatalf("reasoning = %q, want high", req.Reasoning)
+	}
+	if len(req.Messages) != 1 {
+		t.Fatalf("unexpected messages: %#v", req.Messages)
+	}
+	if got := string(req.Messages[0].ProviderMetadata["openai.responses.output"]); got != string(metadata["openai.responses.output"]) {
+		t.Fatalf("provider metadata was not preserved: %q", got)
 	}
 }

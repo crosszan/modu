@@ -1,5 +1,11 @@
 package providers
 
+import (
+	"encoding/json"
+
+	"github.com/openmodu/modu/pkg/types"
+)
+
 // Role 消息角色
 type Role string
 
@@ -10,15 +16,17 @@ const (
 	RoleTool      Role = "tool"
 )
 
-// Message 对话消息，兼容 OpenAI chat completions 格式。
-// Content 可以是 string（纯文本）或 []any（多模态，含图片时使用）。
+// Message is the provider-neutral message representation used by protocol
+// adapters. Content is either a string or []any for multimodal input.
+// ProviderMetadata carries opaque output Items that a protocol must replay.
 type Message struct {
-	Role             Role       `json:"role"`
-	Content          any        `json:"content,omitempty"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string     `json:"tool_call_id,omitempty"`
-	Name             string     `json:"name,omitempty"`
+	Role             Role                       `json:"role"`
+	Content          any                        `json:"content,omitempty"`
+	ReasoningContent string                     `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall                 `json:"tool_calls,omitempty"`
+	ToolCallID       string                     `json:"tool_call_id,omitempty"`
+	Name             string                     `json:"name,omitempty"`
+	ProviderMetadata map[string]json.RawMessage `json:"-"`
 }
 
 // ToolCall 工具调用
@@ -47,13 +55,14 @@ type FuncDef struct {
 	Parameters  any    `json:"parameters,omitempty"`
 }
 
-// ChatRequest 请求体
+// ChatRequest is the common request passed to provider protocol adapters.
 type ChatRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Tools       []Tool    `json:"tools,omitempty"`
-	Temperature *float64  `json:"temperature,omitempty"`
-	MaxTokens   *int      `json:"max_tokens,omitempty"`
+	Model       string              `json:"model"`
+	Messages    []Message           `json:"messages"`
+	Tools       []Tool              `json:"tools,omitempty"`
+	Temperature *float64            `json:"temperature,omitempty"`
+	MaxTokens   *int                `json:"max_tokens,omitempty"`
+	Reasoning   types.ThinkingLevel `json:"-"`
 }
 
 // Usage token 用量

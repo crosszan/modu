@@ -1,5 +1,7 @@
 package types
 
+import "encoding/json"
+
 // StopReason is the reason the model stopped generating.
 type StopReason = string
 
@@ -21,14 +23,15 @@ type UserMessage struct {
 
 // AssistantMessage is a message from the assistant, containing rich content blocks.
 type AssistantMessage struct {
-	Role         string         `json:"role"`
-	Content      []ContentBlock `json:"content"`
-	ProviderID   string         `json:"provider,omitempty"`
-	Model        string         `json:"model,omitempty"`
-	Usage        AgentUsage     `json:"usage"`
-	StopReason   StopReason     `json:"stopReason,omitempty"`
-	ErrorMessage string         `json:"errorMessage,omitempty"`
-	Timestamp    int64          `json:"timestamp"`
+	Role             string                     `json:"role"`
+	Content          []ContentBlock             `json:"content"`
+	ProviderID       string                     `json:"provider,omitempty"`
+	Model            string                     `json:"model,omitempty"`
+	ProviderMetadata map[string]json.RawMessage `json:"providerMetadata,omitempty"`
+	Usage            AgentUsage                 `json:"usage"`
+	StopReason       StopReason                 `json:"stopReason,omitempty"`
+	ErrorMessage     string                     `json:"errorMessage,omitempty"`
+	Timestamp        int64                      `json:"timestamp"`
 }
 
 // ToolResultMessage carries the result of a tool call back to the model.

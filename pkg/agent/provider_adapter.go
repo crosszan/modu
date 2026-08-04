@@ -22,6 +22,7 @@ func buildChatRequest(model *types.Model, llmCtx *types.LLMContext, opts *types.
 		Model:       model.ID,
 		Temperature: opts.Temperature,
 		MaxTokens:   opts.MaxTokens,
+		Reasoning:   opts.Reasoning,
 	}
 	knownTools := knownToolNames(llmCtx.Tools)
 	for _, tool := range llmCtx.Tools {
@@ -54,9 +55,9 @@ func buildChatRequest(model *types.Model, llmCtx *types.LLMContext, opts *types.
 		case *types.UserMessage:
 			req.Messages = append(req.Messages, userProviderMessage(v.Content))
 		case types.AssistantMessage:
-			req.Messages = append(req.Messages, assistantProviderMessage(v.Content, knownTools, i == lastAssistantIdx))
+			req.Messages = append(req.Messages, assistantProviderMessage(v.Content, v.ProviderMetadata, knownTools, i == lastAssistantIdx))
 		case *types.AssistantMessage:
-			req.Messages = append(req.Messages, assistantProviderMessage(v.Content, knownTools, i == lastAssistantIdx))
+			req.Messages = append(req.Messages, assistantProviderMessage(v.Content, v.ProviderMetadata, knownTools, i == lastAssistantIdx))
 		case types.ToolResultMessage:
 			req.Messages = append(req.Messages, providers.Message{
 				Role:       providers.RoleTool,
@@ -149,8 +150,9 @@ func rawBlocksToParts(blocks []interface{}) []any {
 	return parts
 }
 
-func assistantProviderMessage(content []types.ContentBlock, knownTools map[string]bool, keepThinking bool) providers.Message {
+func assistantProviderMessage(content []types.ContentBlock, providerMetadata map[string]json.RawMessage, knownTools map[string]bool, keepThinking bool) providers.Message {
 	msg := providers.Message{Role: providers.RoleAssistant}
+	replayProviderMetadata := true
 	var textBuf string
 	var reasoningBuf string
 	for _, block := range content {
@@ -174,6 +176,7 @@ func assistantProviderMessage(content []types.ContentBlock, knownTools map[strin
 	for _, block := range content {
 		if tc, ok := block.(*types.ToolCallContent); ok {
 			if !knownTools[tc.Name] {
+				replayProviderMetadata = false
 				continue
 			}
 			args, _ := json.Marshal(tc.Arguments)
@@ -183,6 +186,9 @@ func assistantProviderMessage(content []types.ContentBlock, knownTools map[strin
 				Function: providers.FuncCall{Name: tc.Name, Arguments: string(args)},
 			})
 		}
+	}
+	if replayProviderMetadata {
+		msg.ProviderMetadata = providerMetadata
 	}
 	return msg
 }
@@ -219,6 +225,7 @@ func sanitizeProviderMessages(messages []providers.Message) []providers.Message 
 
 		if len(toolResults) == 0 {
 			msg.ToolCalls = nil
+			msg.ProviderMetadata = nil
 			if providerMessageHasContent(msg) {
 				out = append(out, msg)
 			}
@@ -226,6 +233,7 @@ func sanitizeProviderMessages(messages []providers.Message) []providers.Message 
 			continue
 		}
 
+		originalToolCallCount := len(msg.ToolCalls)
 		validCalls := make([]providers.ToolCall, 0, len(toolResults))
 		for _, result := range toolResults {
 			if call, ok := toolIDs[result.ToolCallID]; ok {
@@ -234,6 +242,9 @@ func sanitizeProviderMessages(messages []providers.Message) []providers.Message 
 			}
 		}
 		msg.ToolCalls = validCalls
+		if len(validCalls) != originalToolCallCount {
+			msg.ProviderMetadata = nil
+		}
 		out = append(out, msg)
 		out = append(out, toolResults...)
 		i = j - 1
@@ -242,6 +253,9 @@ func sanitizeProviderMessages(messages []providers.Message) []providers.Message 
 }
 
 func providerMessageHasContent(msg providers.Message) bool {
+	if len(msg.ProviderMetadata) > 0 {
+		return true
+	}
 	if msg.Content == nil {
 		return false
 	}

@@ -334,14 +334,15 @@ func unmarshalAgentMessageRaws(raws []json.RawMessage) []types.AgentMessage {
 // dispatching on each content block's "type" field.
 func unmarshalAssistantMessage(raw json.RawMessage) (types.AssistantMessage, error) {
 	var wire struct {
-		Role         string            `json:"role"`
-		Content      []json.RawMessage `json:"content"`
-		ProviderID   string            `json:"provider,omitempty"`
-		Model        string            `json:"model,omitempty"`
-		Usage        types.AgentUsage  `json:"usage"`
-		StopReason   string            `json:"stopReason,omitempty"`
-		ErrorMessage string            `json:"errorMessage,omitempty"`
-		Timestamp    int64             `json:"timestamp"`
+		Role             string                     `json:"role"`
+		Content          []json.RawMessage          `json:"content"`
+		ProviderID       string                     `json:"provider,omitempty"`
+		Model            string                     `json:"model,omitempty"`
+		ProviderMetadata map[string]json.RawMessage `json:"providerMetadata,omitempty"`
+		Usage            types.AgentUsage           `json:"usage"`
+		StopReason       string                     `json:"stopReason,omitempty"`
+		ErrorMessage     string                     `json:"errorMessage,omitempty"`
+		Timestamp        int64                      `json:"timestamp"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return types.AssistantMessage{}, err
@@ -351,14 +352,15 @@ func unmarshalAssistantMessage(raw json.RawMessage) (types.AssistantMessage, err
 		return types.AssistantMessage{}, err
 	}
 	return types.AssistantMessage{
-		Role:         wire.Role,
-		Content:      blocks,
-		ProviderID:   wire.ProviderID,
-		Model:        wire.Model,
-		Usage:        wire.Usage,
-		StopReason:   wire.StopReason,
-		ErrorMessage: wire.ErrorMessage,
-		Timestamp:    wire.Timestamp,
+		Role:             wire.Role,
+		Content:          blocks,
+		ProviderID:       wire.ProviderID,
+		Model:            wire.Model,
+		ProviderMetadata: wire.ProviderMetadata,
+		Usage:            wire.Usage,
+		StopReason:       wire.StopReason,
+		ErrorMessage:     wire.ErrorMessage,
+		Timestamp:        wire.Timestamp,
 	}, nil
 }
 

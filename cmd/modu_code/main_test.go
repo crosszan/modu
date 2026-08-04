@@ -240,13 +240,18 @@ func TestConfigProviderEntriesIncludePresets(t *testing.T) {
 		t.Fatalf("configProviderEntries: %v", err)
 	}
 	names := map[string]bool{}
+	typesByName := map[string]string{}
 	for _, entry := range entries {
 		names[entry.Name] = true
+		typesByName[entry.Name] = entry.Type
 	}
 	for _, want := range []string{"openai", "deepseek", "lmstudio", "ollama"} {
 		if !names[want] {
 			t.Fatalf("expected provider preset %q in %#v", want, entries)
 		}
+	}
+	if typesByName["openai"] != "openai-responses" {
+		t.Fatalf("OpenAI preset type = %q, want openai-responses", typesByName["openai"])
 	}
 }
 

@@ -142,6 +142,7 @@ func Resolve() (*types.Model, func(string) (string, error)) {
 		},
 		{
 			ProviderID:   "openai",
+			API:          types.KnownApiOpenAIResponses,
 			KeyEnv:       "OPENAI_API_KEY",
 			ModelEnv:     "OPENAI_MODEL",
 			DefaultModel: "gpt-4o",
@@ -198,6 +199,7 @@ func Resolve() (*types.Model, func(string) (string, error)) {
 
 type envProviderSpec struct {
 	ProviderID          string
+	API                 types.Api
 	KeyEnv              string
 	ModelEnv            string
 	DefaultModel        string
@@ -225,11 +227,16 @@ func resolveFromEnvProvider(spec envProviderSpec) (*types.Model, func(string) (s
 	if len(spec.Headers) > 0 {
 		opts = append(opts, openai.WithHeaders(spec.Headers))
 	}
-	providers.Register(openai.New(spec.ProviderID, opts...))
+	if spec.API == types.KnownApiOpenAIResponses {
+		providers.Register(openai.NewResponses(spec.ProviderID, opts...))
+	} else {
+		providers.Register(openai.New(spec.ProviderID, opts...))
+	}
 	model := &types.Model{
 		ID:            modelID,
 		Name:          spec.DisplayName(modelID),
 		ProviderID:    spec.ProviderID,
+		Api:           spec.API,
 		BaseURL:       baseURL,
 		ContextWindow: defaultContextWindow(spec.ProviderID, modelID),
 	}
@@ -516,7 +523,7 @@ func DiscoverProviderModels(ctx context.Context, providerID string) (ModelDiscov
 	if !ok {
 		return ModelDiscovery{}, fmt.Errorf("provider not found: %s", providerID)
 	}
-	modelIDs, err := fetchOpenAICompatibleModelIDs(ctx, pc)
+	modelIDs, err := fetchOpenAIModelIDs(ctx, pc)
 	if err != nil {
 		return ModelDiscovery{}, err
 	}
@@ -813,10 +820,14 @@ func registerConfig(cfg Config) (*types.Model, func(string) (string, error)) {
 			if len(pc.ExtraBody) > 0 {
 				opts = append(opts, openai.WithExtraBody(pc.ExtraBody))
 			}
-			providers.Register(openai.New(entry.Provider, opts...))
+			if pc.Type == "openai-responses" {
+				providers.Register(openai.NewResponses(entry.Provider, opts...))
+			} else {
+				providers.Register(openai.New(entry.Provider, opts...))
+			}
 			registeredProviders[entry.Provider] = true
 		}
-		registerModel(entry, baseURL, pc.Headers)
+		registerModel(entry, baseURL, pc.Headers, pc.Type)
 	}
 
 	active, ok := cfg.activeModel()
@@ -827,7 +838,7 @@ func registerConfig(cfg Config) (*types.Model, func(string) (string, error)) {
 	if model == nil {
 		pc := modelProviderConfig(cfg, active)
 		baseURL := normalizedBaseURL(pc.BaseURL)
-		registerModel(active, baseURL, pc.Headers)
+		registerModel(active, baseURL, pc.Headers, pc.Type)
 		model = providers.GetModel(active.Provider, active.Model)
 	}
 	return model, func(p string) (string, error) {
@@ -872,8 +883,8 @@ func resolveProviderAPIKey(pc ProviderConfig) string {
 	return ""
 }
 
-func fetchOpenAICompatibleModelIDs(ctx context.Context, pc ProviderConfig) ([]string, error) {
-	if pc.Type != "" && pc.Type != "openai-compatible" {
+func fetchOpenAIModelIDs(ctx context.Context, pc ProviderConfig) ([]string, error) {
+	if pc.Type != "" && pc.Type != "openai-compatible" && pc.Type != "openai-responses" {
 		return nil, fmt.Errorf("provider type %q does not support model discovery", pc.Type)
 	}
 	if strings.TrimSpace(pc.BaseURL) == "" {
@@ -1052,7 +1063,7 @@ func configTargetsToScopeIDs(cfg Config, targets []string) []string {
 	return out
 }
 
-func registerModel(cfg ModelConfig, baseURL string, headers map[string]string) {
+func registerModel(cfg ModelConfig, baseURL string, headers map[string]string, providerType string) {
 	name := cfg.Name
 	if name == "" {
 		name = cfg.Model + " (" + cfg.Provider + ")"
@@ -1065,11 +1076,19 @@ func registerModel(cfg ModelConfig, baseURL string, headers map[string]string) {
 		ID:            cfg.Model,
 		Name:          name,
 		ProviderID:    cfg.Provider,
+		Api:           providerAPI(providerType),
 		BaseURL:       baseURL,
 		Headers:       headers,
 		ContextWindow: contextWindow,
 		Input:         cfg.Capabilities,
 	})
+}
+
+func providerAPI(providerType string) types.Api {
+	if providerType == "openai-responses" {
+		return types.KnownApiOpenAIResponses
+	}
+	return types.KnownApiOpenAIChatCompletions
 }
 
 func defaultContextWindow(providerID, modelID string) int {

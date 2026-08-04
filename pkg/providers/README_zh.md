@@ -28,7 +28,7 @@ import (
 	"github.com/openmodu/modu/pkg/providers/openai"
 )
 
-p := openai.New(
+p := openai.NewResponses(
 	"openai",
 	openai.WithBaseURL("https://api.openai.com/v1"),
 	openai.WithAPIKey(os.Getenv("OPENAI_API_KEY")),
@@ -54,12 +54,19 @@ response, err := registered.Chat(context.Background(), &providers.ChatRequest{
 
 | 服务 | 构造函数 | 边界 |
 |---|---|---|
-| OpenAI 兼容 API | `openai.New(id, options...)` | 必须设置 `WithBaseURL`；支持 API Key、自定义 Header 和额外请求字段 |
+| OpenAI Responses | `openai.NewResponses(id, options...)` | 支持文本、图片、自定义函数、reasoning summary、typed streaming 和 usage；默认 `store=false` |
+| OpenAI 兼容 Chat Completions | `openai.New(id, options...)` | 必须设置 `WithBaseURL`；支持 API Key、自定义 Header 和额外请求字段 |
 | Anthropic Messages API | `anthropic.New(apiKey, model)` | 使用独立的 Anthropic 协议 |
 | DeepSeek | `deepseek.New(apiKey)` | 使用 DeepSeek 的 OpenAI 兼容端点；Key 为空时读取 `DEEPSEEK_API_KEY` |
 | Gemini | `gemini.New(ctx, apiKey, id, model)` | 使用 Google Gen AI SDK；Key 为空时返回错误 |
 
 Ollama 和 LM Studio 使用 `openai.New`，并传入各自的本地 OpenAI 兼容地址。
+
+Responses provider 会把 API 返回的完整 output Items 放进
+`AssistantMessage.ProviderMetadata`。后续请求会重放这些 Items，并附上匹配
+`call_id` 的 `function_call_output`；因此本地 session 恢复后，stateless
+reasoning 和函数调用仍能继续。本实现不使用 `previous_response_id` 或
+Conversations API，也不开放 OpenAI 托管的 web search、file search 等工具。
 
 ## 流式响应
 
@@ -90,7 +97,7 @@ pkg/providers/
 ├── registry.go       # 进程级注册表
 ├── models.go         # 模型元数据注册表
 ├── sse.go            # 共用 SSE 扫描器
-├── openai/           # OpenAI 兼容实现
+├── openai/           # OpenAI Responses 与兼容 Chat Completions
 ├── anthropic/        # Anthropic Messages 实现
 ├── deepseek/         # DeepSeek 构造函数
 └── gemini/           # Gemini 实现
