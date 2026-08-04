@@ -16,6 +16,23 @@ High-priority gaps identified before this round:
 
 ## Completed In This Round
 
+- 2026-08-04: bundled Anthropic's official `skill-creator` directory without
+  Modu-specific content changes. The binary materializes all 18 licensed
+  resources under `<agent-dir>/builtin-skills/<upstream-commit>/skill-creator`
+  so Python, HTML, agent prompts, and references remain available through
+  normal filesystem tools. Discovery reports source `builtin` and keeps it at
+  the lowest precedence: project, user, and package skills can override the
+  same name. Unit coverage pins the upstream file set and aggregate digest,
+  verifies override order, and checks session-level discovery. The official
+  validator and packager pass in a temporary Python environment with PyYAML;
+  the vendored workflow intentionally retains its `claude` CLI dependency.
+  Focused race tests, repository-wide `go test ./...`, `go vet ./...`,
+  `go mod tidy -diff`, the `go run ./cmd/modu_code --help` startup check, and
+  `git diff --check` pass. One intermediate full-suite run hit a
+  `TempDir RemoveAll: directory not empty` cleanup failure in
+  `TestMainResumeStartsRequestedSession`; the test passed 10 focused runs, the
+  full `cmd/modu_code` package passed 5 runs, and the final full suite passed,
+  so this change does not modify that unrelated test.
 - 2026-08-04: added an isolated, in-process side-thread API for interactive
   hosts. `BeginSideThread` snapshots the main agent's messages, prompt, model,
   thinking level, and tools into a private agent; `PromptSideThread` exposes

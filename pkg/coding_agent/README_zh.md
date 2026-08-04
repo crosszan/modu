@@ -72,6 +72,7 @@ err := session.PromptWithImages(context.Background(), "解释这张截图", []ty
 - 已信任项目可配置 `PreToolUse`、`PostToolUse`、`UserPromptSubmit` shell hooks。
 - `GetRewindPoints` / `Rewind` 恢复本进程内由内置 `write` / `edit` 轮次生成的检查点；Bash、MCP、网络和外部修改不在回退边界内。
 - Prompt template 参数支持 shell 引号、位置参数、默认值和切片；旧 `{{input}}` / `{{args}}` 继续可用。
+- `/skill-creator` 原样内置 Anthropic 官方 Skill，完整资源目录在运行时落到 `<agent-dir>/builtin-skills/<revision>/skill-creator`。项目、用户和资源包中的同名 Skill 可以覆盖内置版本；其中面向 Claude Code 的评测步骤仍依赖 `claude` CLI 及原有 Python 依赖。
 - Memory 达到配置阈值后会后台更新 bounded summary，原始记忆不变；`OrganizeMemory` 和 `/memory` 提供手动入口与状态。
 
 ## 文档

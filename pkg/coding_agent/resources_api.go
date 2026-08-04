@@ -88,7 +88,7 @@ func skillPathRefs(refs []resource.ResourceRef) []skills.PathRef {
 type SkillInfo struct {
 	Name        string
 	Description string
-	Source      string // "user" or "project"
+	Source      string // "project", "user", package source, or "builtin"
 }
 
 // SubagentInfo is a minimal view of a discovered subagent definition.

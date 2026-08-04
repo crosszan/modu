@@ -1,9 +1,14 @@
 package skills
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -46,6 +51,174 @@ func TestDiscoverFlatAndSkillMd(t *testing.T) {
 	}
 }
 
+func TestBuiltinSkillCreatorDiscoveredWithOfficialResources(t *testing.T) {
+	m, agentDir, _ := newTestManager(t)
+
+	skill, ok := m.Get("skill-creator")
+	if !ok {
+		t.Fatal("built-in skill-creator was not discovered")
+	}
+	if skill.Source != "builtin" {
+		t.Fatalf("skill-creator source = %q, want builtin", skill.Source)
+	}
+	if !strings.Contains(skill.Description, "Create new skills") {
+		t.Fatalf("unexpected skill-creator description: %q", skill.Description)
+	}
+	if !strings.Contains(skill.Content, "python -m scripts.run_loop") {
+		t.Fatal("skill-creator content does not contain the official Claude Code workflow")
+	}
+	if !strings.HasPrefix(skill.FilePath, filepath.Join(agentDir, "builtin-skills")+string(filepath.Separator)) {
+		t.Fatalf("skill-creator path = %q, want materialized under agent dir", skill.FilePath)
+	}
+
+	var got []string
+	err := filepath.WalkDir(skill.BaseDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(skill.BaseDir, path)
+		if err != nil {
+			return err
+		}
+		got = append(got, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(got)
+	want := []string{
+		"LICENSE.txt",
+		"SKILL.md",
+		"agents/analyzer.md",
+		"agents/comparator.md",
+		"agents/grader.md",
+		"assets/eval_review.html",
+		"eval-viewer/generate_review.py",
+		"eval-viewer/viewer.html",
+		"references/schemas.md",
+		"scripts/__init__.py",
+		"scripts/aggregate_benchmark.py",
+		"scripts/generate_report.py",
+		"scripts/improve_description.py",
+		"scripts/package_skill.py",
+		"scripts/quick_validate.py",
+		"scripts/run_eval.py",
+		"scripts/run_loop.py",
+		"scripts/utils.py",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("materialized skill-creator files:\n got: %v\nwant: %v", got, want)
+	}
+
+	digest := sha256.New()
+	for _, rel := range got {
+		data, err := os.ReadFile(filepath.Join(skill.BaseDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest.Write([]byte(rel))
+		digest.Write([]byte{0})
+		digest.Write(data)
+		digest.Write([]byte{0})
+	}
+	if gotDigest := hex.EncodeToString(digest.Sum(nil)); gotDigest != "887b2027e7eeb09e4e6bcc48f2a0f7f76adc8033462139260a77c6d39799b779" {
+		t.Fatalf("official skill-creator digest = %s", gotDigest)
+	}
+}
+
+func TestCustomSkillCreatorOverridesBuiltin(t *testing.T) {
+	tests := []struct {
+		name       string
+		source     string
+		install    func(t *testing.T, agentDir, cwd, extraDir string)
+		extraPaths func(extraDir string) []PathRef
+	}{
+		{
+			name:   "project",
+			source: "project",
+			install: func(t *testing.T, _, cwd, _ string) {
+				writeFile(t, filepath.Join(cwd, ".coding_agent", "skills", "skill-creator", "SKILL.md"),
+					"---\ndescription: project override\n---\nproject")
+			},
+		},
+		{
+			name:   "user",
+			source: "user",
+			install: func(t *testing.T, agentDir, _, _ string) {
+				writeFile(t, filepath.Join(agentDir, "skills", "skill-creator", "SKILL.md"),
+					"---\ndescription: user override\n---\nuser")
+			},
+		},
+		{
+			name:   "package",
+			source: "package",
+			install: func(t *testing.T, _, _, extraDir string) {
+				writeFile(t, filepath.Join(extraDir, "skill-creator", "SKILL.md"),
+					"---\ndescription: package override\n---\npackage")
+			},
+			extraPaths: func(extraDir string) []PathRef {
+				return []PathRef{{Path: extraDir, Source: "package"}}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, agentDir, cwd := newTestManager(t)
+			extraDir := t.TempDir()
+			tt.install(t, agentDir, cwd, extraDir)
+			if tt.extraPaths != nil {
+				m.SetExtraPaths(tt.extraPaths(extraDir))
+			}
+
+			skill, ok := m.Get("skill-creator")
+			if !ok {
+				t.Fatal("skill-creator was not discovered")
+			}
+			if skill.Source != tt.source {
+				t.Fatalf("skill-creator source = %q, want %q", skill.Source, tt.source)
+			}
+			if skill.Description != tt.source+" override" {
+				t.Fatalf("skill-creator description = %q", skill.Description)
+			}
+		})
+	}
+}
+
+func TestBuiltinSkillCreatorMaterializationIsConcurrentSafe(t *testing.T) {
+	agentDir := t.TempDir()
+	cwd := t.TempDir()
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			skill, ok := NewManager(agentDir, cwd).Get("skill-creator")
+			if !ok {
+				t.Error("built-in skill-creator missing after concurrent materialization")
+				return
+			}
+			if skill.Source != "builtin" {
+				t.Errorf("skill-creator source = %q, want builtin", skill.Source)
+			}
+		}()
+	}
+	wg.Wait()
+
+	entries, err := os.ReadDir(filepath.Join(agentDir, "builtin-skills"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != builtinSkillCreatorCommit {
+		t.Fatalf("unexpected built-in materializations: %#v", entries)
+	}
+}
+
 func TestListAndPromptDoNotLoadSkillContent(t *testing.T) {
 	m, agentDir, _ := newTestManager(t)
 
@@ -53,11 +226,18 @@ func TestListAndPromptDoNotLoadSkillContent(t *testing.T) {
 		"---\ndescription: lazy skill\n---\nsecret body should stay out of indexes")
 
 	list := m.List()
-	if len(list) != 1 {
-		t.Fatalf("expected 1 skill, got %d", len(list))
+	var lazy *Skill
+	for _, skill := range list {
+		if skill.Name == "lazy" {
+			lazy = skill
+			break
+		}
 	}
-	if list[0].Content != "" {
-		t.Fatalf("List should expose metadata only, got content %q", list[0].Content)
+	if lazy == nil {
+		t.Fatalf("lazy skill missing from list: %#v", list)
+	}
+	if lazy.Content != "" {
+		t.Fatalf("List should expose metadata only, got content %q", lazy.Content)
 	}
 
 	prompt := m.FormatForPrompt()

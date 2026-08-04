@@ -350,6 +350,8 @@ type Extension interface {
 
 **技能**（Skills）：从 `~/.modu/skills/` 和 `.coding_agent/skills/` 目录发现 Markdown/Text 文件，支持 YAML frontmatter 定义名称、描述、标签。系统提示词只注入技能索引（名称、描述、路径和 base_dir），正文在显式调用技能或 subagent profile 引用时按需加载。
 
+`modu_code` 默认提供 `/skill-creator`。该目录原样取自 [Claude Code 官方 skill-creator 插件](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/skill-creator/skills/skill-creator)，启动时落到 `~/.modu/builtin-skills/<revision>/skill-creator`，使其中的 Python、HTML 和参考文件能被普通文件工具访问。覆盖顺序为项目、用户、资源包、内置版本；前面任一来源存在同名 Skill 时，内置版本不生效。官方内容未适配 Modu，其中的描述优化等步骤仍调用 `claude -p`，Python 脚本也保留原依赖。
+
 **Subagent profiles**：从 `~/.modu/agents/` 和 `.coding_agent/agents/` 目录发现 Markdown profile。项目 profile 会覆盖同名全局 profile；发现到至少一个 profile 时，`extension/subagent` 会向模型暴露 `subagent` 和兼容 alias `spawn_subagent` 工具。
 
 **Prompt templates**：从 `~/.modu/prompts/` 和 `.coding_agent/prompts/` 目录发现 Markdown 模板。模板文件名或 frontmatter `name` 会注册为斜杠命令；`argument-hint` 会进入命令元数据，供补全界面展示。

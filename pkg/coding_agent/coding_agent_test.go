@@ -146,6 +146,21 @@ func TestNewCodingSession(t *testing.T) {
 	if len(toolNames) == 0 {
 		t.Fatal("expected tools to be initialized")
 	}
+
+	var builtinSkill *SkillInfo
+	sessionSkills := session.GetSkills()
+	for i := range sessionSkills {
+		if sessionSkills[i].Name == "skill-creator" {
+			builtinSkill = &sessionSkills[i]
+			break
+		}
+	}
+	if builtinSkill == nil {
+		t.Fatal("expected built-in skill-creator in coding session")
+	}
+	if builtinSkill.Source != "builtin" {
+		t.Fatalf("skill-creator source = %q, want builtin", builtinSkill.Source)
+	}
 	// grep/find/ls are part of the default coding set so models that reflexively
 	// reach for ls don't hit "Tool not found". Network research tools stay opt-in.
 	for _, name := range []string{"grep", "find", "ls"} {
