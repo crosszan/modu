@@ -1130,7 +1130,7 @@ func TestModuTUIFooterIncludesCacheHitRate(t *testing.T) {
 		t.Fatal(err)
 	}
 	session.GetAgent().AppendMessage(types.AssistantMessage{
-		Role: types.RoleAssistant,
+		Role:  types.RoleAssistant,
 		Usage: types.AgentUsage{Input: 10, CacheRead: 90, Output: 5},
 	})
 
@@ -3581,17 +3581,19 @@ func TestModuTUIConfigWizardProviderFlow(t *testing.T) {
 	if prompts[0].Title != "Config" || len(prompts[0].Options) != 2 || prompts[0].Options[0].Label != "Setup provider" || prompts[0].Options[1].Label != "Show config status" {
 		t.Fatalf("unexpected config menu prompt: %#v", prompts[0])
 	}
-	if prompts[1].Title != "Config: provider" || len(prompts[1].Options) != 4 {
+	if prompts[1].Title != "Config: provider" || len(prompts[1].Options) != 6 {
 		t.Fatalf("unexpected provider prompt: %#v", prompts[1])
 	}
 	for i, want := range []struct {
 		label string
 		value string
 	}{
+		{label: "OpenAI", value: "openai"},
 		{label: "DeepSeek", value: "deepseek"},
 		{label: "LMStudio", value: "lmstudio"},
 		{label: "Ollama", value: "ollama"},
 		{label: "Custom OpenAI-Compatible", value: "custom"},
+		{label: "Custom OpenAI Responses", value: "custom-responses"},
 	} {
 		if prompts[1].Options[i].Label != want.label || prompts[1].Options[i].Value != want.value {
 			t.Fatalf("provider option %d = %#v, want %#v", i, prompts[1].Options[i], want)
@@ -3608,6 +3610,13 @@ func TestModuTUIConfigWizardProviderFlow(t *testing.T) {
 	}
 	if strings.Contains(text, "sk-test") {
 		t.Fatalf("API key should not be echoed to transcript:\n%s", text)
+	}
+}
+
+func TestConfigWizardDefaultsOpenAIToResponses(t *testing.T) {
+	entry := configWizardDefaultProvider("openai")
+	if entry.Type != "openai-responses" || entry.BaseURL != "https://api.openai.com/v1" || entry.APIKeyEnv != "OPENAI_API_KEY" {
+		t.Fatalf("unexpected OpenAI preset: %#v", entry)
 	}
 }
 

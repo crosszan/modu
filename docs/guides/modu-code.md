@@ -39,7 +39,7 @@ go build -o modu_code ./cmd/modu_code
 
 ```bash
 ANTHROPIC_API_KEY   # Anthropic（走 OpenAI 兼容端点）
-OPENAI_API_KEY      # OpenAI，模型取 $OPENAI_MODEL，默认 gpt-4o
+OPENAI_API_KEY      # OpenAI Responses，模型取 $OPENAI_MODEL，默认 gpt-4o
 DEEPSEEK_API_KEY    # DeepSeek，模型取 $DEEPSEEK_MODEL，默认 deepseek-chat
 OLLAMA_HOST         # Ollama，模型取 $OLLAMA_MODEL（必填）
 ```
@@ -51,7 +51,7 @@ export DEEPSEEK_API_KEY=sk-xxx
 go run ./cmd/modu_code
 ```
 
-辅助环境变量：`OPENAI_BASE_URL` 覆盖 OpenAI 兼容源的 base URL，`THINKING_LEVEL` 设推理档位（`off|low|medium|high`，默认 `off`），`MOMS_TG_TOKEN` 启动 Telegram bot。
+辅助环境变量：`OPENAI_BASE_URL` 覆盖 OpenAI Responses 的 base URL，`THINKING_LEVEL` 设推理档位（`off|low|medium|high`，默认 `off`），`MOMS_TG_TOKEN` 启动 Telegram bot。
 
 没有任何 provider 时也能进 TUI：启动会提示用 `/config` 现场配置 provider、API key 和模型。要走配置文件（多模型、role、reasoning 等），见下一节。
 
@@ -145,6 +145,29 @@ contextWindow = 1000000
 
 `providers` 只描述连接方式，`models` 只描述可选模型；`active` 是默认模型，`scopedModels` 是模型循环范围，`roles` 预留给 summary/dispatcher 等专用模型。`contextWindow` 可显式覆盖模型上下文窗口；未配置时，内置厂商会按当前厂商最大窗口补默认值。
 
+OpenAI Responses 使用独立的 provider 类型：
+
+```toml
+[providers.openai]
+type = "openai-responses"
+baseUrl = "https://api.openai.com/v1"
+apiKeyEnv = "OPENAI_API_KEY"
+
+[[models]]
+name = "gpt-5"
+provider = "openai"
+model = "gpt-5"
+capabilities = ["text", "image", "tools"]
+```
+
+它支持文本、图片、自定义函数、reasoning summary、流式 usage 和 API
+错误。请求默认 `store=false`；返回的完整 output Items 会随本地 session
+保存并在后续请求中重放，因此函数结果能用原 `call_id` 接回 reasoning
+上下文。当前不使用 `previous_response_id` 或 Conversations API，也不开放
+OpenAI 托管的 web search、file search 等工具。需要 Chat Completions
+兼容端点时，继续使用 `type = "openai-compatible"`。同一个 provider ID
+只能选择一种协议。
+
 运行中输入 `/model` 打开模型选择器：方向键选择（超过 9 个模型时会滚动显示后续项）、`Enter` 确认、`Esc`
 取消。`/model list` 列出模型，`/model <name>` 或
 `/model <provider> <model-id>` 也可以直接切换。切换后写回 `active`，下次
@@ -158,8 +181,9 @@ go run ./cmd/modu_code config init         # 生成示例配置
 go run ./cmd/modu_code config init --force # 覆盖已有配置
 ```
 
-TUI 中输入 `/config` 打开 provider 配置流程，可选 DeepSeek、LMStudio、
-Ollama 或 `Custom OpenAI-Compatible`，再统一填写密钥方式和 base URL；
+TUI 中输入 `/config` 打开 provider 配置流程，可选 OpenAI、DeepSeek、
+LMStudio、Ollama、`Custom OpenAI Responses` 或
+`Custom OpenAI-Compatible`，再统一填写密钥方式和 base URL；
 密钥输入不会进入 transcript。查看或切换模型使用 `/model`。这些流程与
 `/channel` 共用同一种 choice/text Flow 数据，不再各自维护输入状态机。
 

@@ -1,6 +1,5 @@
-// Package openai provides an OpenAI chat-completions compatible LLM provider
-// that also works with any endpoint speaking the OpenAI protocol
-// (LM Studio, Ollama, DeepSeek, etc.).
+// Package openai provides OpenAI Responses and OpenAI-compatible Chat
+// Completions providers.
 package openai
 
 import (

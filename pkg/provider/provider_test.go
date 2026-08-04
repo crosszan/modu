@@ -4,12 +4,14 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/openmodu/modu/pkg/providers"
+	"github.com/openmodu/modu/pkg/types"
 )
 
 func TestResolveWithoutProviderReturnsNil(t *testing.T) {
@@ -60,6 +62,81 @@ apiKey = "deepseek-key"
 	key, err := getAPIKey("lmstudio")
 	if err != nil || key != "local-key" {
 		t.Fatalf("unexpected api key %q err=%v", key, err)
+	}
+}
+
+func TestResolveUsesResponsesForOpenAIEnvironment(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	t.Setenv("OLLAMA_HOST", "")
+	t.Setenv("LMSTUDIO_MODEL", "")
+	t.Setenv("LMSTUDIO_BASE_URL", "")
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("OPENAI_MODEL", "gpt-5")
+
+	var requestPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath = r.URL.Path
+		_, _ = io.WriteString(w, `{"id":"resp_1","model":"gpt-5","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
+	}))
+	defer server.Close()
+	t.Setenv("OPENAI_BASE_URL", server.URL+"/v1")
+
+	model, _ := Resolve()
+	if model == nil || model.Api != types.KnownApiOpenAIResponses {
+		t.Fatalf("expected OpenAI Responses model, got %#v", model)
+	}
+	registered, ok := providers.Get("openai")
+	if !ok {
+		t.Fatal("expected OpenAI provider to be registered")
+	}
+	if _, err := registered.Chat(context.Background(), &providers.ChatRequest{Model: model.ID}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if requestPath != "/v1/responses" {
+		t.Fatalf("OpenAI environment used %q, want /v1/responses", requestPath)
+	}
+}
+
+func TestResolveConfiguredResponsesProvider(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var requestPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath = r.URL.Path
+		_, _ = io.WriteString(w, `{"id":"resp_1","model":"gpt-5","status":"completed","output":[]}`)
+	}))
+	defer server.Close()
+
+	writeConfig(t, home, `active = "gpt-5"
+
+[providers.openai]
+type = "openai-responses"
+baseUrl = "`+server.URL+`/v1"
+apiKey = "test-key"
+
+[[models]]
+name = "gpt-5"
+provider = "openai"
+model = "gpt-5"
+capabilities = ["text", "image", "tools"]
+`)
+
+	model, _ := Resolve()
+	if model == nil || model.Api != types.KnownApiOpenAIResponses {
+		t.Fatalf("expected configured Responses model, got %#v", model)
+	}
+	registered, ok := providers.Get("openai")
+	if !ok {
+		t.Fatal("expected configured provider")
+	}
+	if _, err := registered.Chat(context.Background(), &providers.ChatRequest{Model: model.ID}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if requestPath != "/v1/responses" {
+		t.Fatalf("configured provider used %q, want /v1/responses", requestPath)
 	}
 }
 
@@ -449,6 +526,30 @@ func TestDiscoverProviderModelsPersistsOpenAICompatibleModels(t *testing.T) {
 	}
 	if len(cfg.Models) != 2 || cfg.Models[0].Name != "gpt-4o" || cfg.Models[1].Name != "qwen" {
 		t.Fatalf("unexpected discovered models: %#v", cfg.Models)
+	}
+}
+
+func TestResponsesProviderSupportsModelDiscovery(t *testing.T) {
+	oldClient := modelDiscoveryHTTPClient
+	modelDiscoveryHTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"gpt-5"}]}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}
+	t.Cleanup(func() { modelDiscoveryHTTPClient = oldClient })
+
+	ids, err := fetchOpenAIModelIDs(context.Background(), ProviderConfig{
+		Type:    "openai-responses",
+		BaseURL: "https://example.test/v1",
+	})
+	if err != nil {
+		t.Fatalf("fetchOpenAIModelIDs: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "gpt-5" {
+		t.Fatalf("unexpected model IDs: %#v", ids)
 	}
 }
 

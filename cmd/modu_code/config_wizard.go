@@ -75,7 +75,7 @@ func (w *moduTUIConfigWizard) loadProviders(ctx context.Context) ([]ConfigProvid
 
 func (w *moduTUIConfigWizard) configureProvider(ctx context.Context) {
 	providers := configWizardSetupProviders(w.providers)
-	options := make([]modutui.HumanPromptOption, 0, len(providers)+1)
+	options := make([]modutui.HumanPromptOption, 0, len(providers)+2)
 	for _, provider := range providers {
 		options = append(options, modutui.HumanPromptOption{
 			Label: configWizardProviderLabel(provider.Name),
@@ -85,6 +85,10 @@ func (w *moduTUIConfigWizard) configureProvider(ctx context.Context) {
 	options = append(options, modutui.HumanPromptOption{
 		Label: "Custom OpenAI-Compatible",
 		Value: "custom",
+	})
+	options = append(options, modutui.HumanPromptOption{
+		Label: "Custom OpenAI Responses",
+		Value: "custom-responses",
 	})
 	selection, completed := w.run(ctx, codetui.Flow{
 		ID: "config-provider-select",
@@ -102,7 +106,7 @@ func (w *moduTUIConfigWizard) configureProvider(ctx context.Context) {
 
 	providerName := selection.Value("provider")
 	var provider ConfigProviderInput
-	if providerName == "custom" {
+	if providerName == "custom" || providerName == "custom-responses" {
 		custom, ok := w.run(ctx, codetui.Flow{
 			ID: "config-custom-provider",
 			Steps: []codetui.FlowStep{{
@@ -117,10 +121,11 @@ func (w *moduTUIConfigWizard) configureProvider(ctx context.Context) {
 		if !ok {
 			return
 		}
-		provider = ConfigProviderInput{
-			Provider: custom.Value("name"),
-			Type:     "openai-compatible",
+		providerType := "openai-compatible"
+		if providerName == "custom-responses" {
+			providerType = "openai-responses"
 		}
+		provider = ConfigProviderInput{Provider: custom.Value("name"), Type: providerType}
 	} else {
 		selected, ok := configWizardFindProvider(providers, providerName)
 		if !ok {
@@ -206,7 +211,7 @@ func (w *moduTUIConfigWizard) configureProviderDetails(ctx context.Context, prov
 			ID:          "base-url",
 			Kind:        codetui.FlowStepText,
 			Title:       "Config: base URL",
-			Body:        "OpenAI-compatible API base URL.",
+			Body:        "API base URL.",
 			Placeholder: "https://api.openai.com/v1",
 			Default:     provider.BaseURL,
 			Required:    true,
@@ -247,7 +252,7 @@ func (w *moduTUIConfigWizard) run(ctx context.Context, flow codetui.Flow) (codet
 }
 
 func configWizardSetupProviders(entries []ConfigProviderEntry) []ConfigProviderEntry {
-	names := []string{"deepseek", "lmstudio", "ollama"}
+	names := []string{"openai", "deepseek", "lmstudio", "ollama"}
 	out := make([]ConfigProviderEntry, 0, len(names))
 	for _, name := range names {
 		if entry, ok := configWizardFindProvider(entries, name); ok {
@@ -271,6 +276,8 @@ func configWizardFindProvider(entries []ConfigProviderEntry, name string) (Confi
 
 func configWizardDefaultProvider(name string) ConfigProviderEntry {
 	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "openai":
+		return ConfigProviderEntry{Name: "openai", Type: "openai-responses", BaseURL: "https://api.openai.com/v1", APIKeyEnv: "OPENAI_API_KEY"}
 	case "deepseek":
 		return ConfigProviderEntry{Name: "deepseek", Type: "openai-compatible", BaseURL: "https://api.deepseek.com/v1", APIKeyEnv: "DEEPSEEK_API_KEY"}
 	case "lmstudio":
@@ -284,6 +291,8 @@ func configWizardDefaultProvider(name string) ConfigProviderEntry {
 
 func configWizardProviderLabel(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "openai":
+		return "OpenAI"
 	case "deepseek":
 		return "DeepSeek"
 	case "lmstudio":

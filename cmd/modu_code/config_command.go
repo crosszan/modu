@@ -66,7 +66,7 @@ func configProviderPresetEntries(seen map[string]bool) []ConfigProviderEntry {
 		{Name: "deepseek", Type: "openai-compatible", BaseURL: "https://api.deepseek.com/v1", APIKeyEnv: "DEEPSEEK_API_KEY"},
 		{Name: "lmstudio", Type: "openai-compatible", BaseURL: "http://127.0.0.1:1234/v1"},
 		{Name: "ollama", Type: "openai-compatible", BaseURL: "http://127.0.0.1:11434/v1"},
-		{Name: "openai", Type: "openai-compatible", BaseURL: "https://api.openai.com/v1", APIKeyEnv: "OPENAI_API_KEY"},
+		{Name: "openai", Type: "openai-responses", BaseURL: "https://api.openai.com/v1", APIKeyEnv: "OPENAI_API_KEY"},
 	}
 	out := make([]ConfigProviderEntry, 0, len(presets))
 	for _, preset := range presets {

@@ -5,6 +5,21 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-08-04: added an independent OpenAI Responses provider. The default
+  `OPENAI_API_KEY` path, the OpenAI `/config` preset, and
+  `type = "openai-responses"` providers now call `/responses`; existing
+  `openai-compatible` providers keep Chat Completions. Text, image input,
+  custom functions, reasoning summaries, typed streaming, usage, HTTP/API
+  errors, and model discovery are covered. Requests default to `store=false`
+  and persist complete output Items as opaque provider metadata, so encrypted
+  reasoning, function calls, matching `call_id` results, and session resume can
+  be replayed without server-side conversation state. Incomplete or unknown
+  tool chains discard opaque Items instead of replaying invalid calls. This
+  stage does not use `previous_response_id`, Conversations API, or
+  OpenAI-hosted tools. Provider-to-Agent tool round-trip integration, focused
+  race tests, repository-wide tests, `go vet ./...`, `go mod tidy -diff`,
+  CLI help startup, and `git diff --check` pass.
+
 - 2026-08-04: added interactive `/btw <question>` temporary side threads.
   Each side thread forks the current in-memory model context but uses a private
   agent with no session persistence or compaction wiring. Plain input continues

@@ -8,7 +8,7 @@ Import this package when two components must share the same Go type identity for
 
 | File | Contracts |
 |---|---|
-| `messages.go` | Conversation messages and roles |
+| `messages.go` | Conversation messages, roles, and persisted opaque provider metadata |
 | `content.go` | Text, thinking, Tool Call, and other content blocks |
 | `usage.go` | Token and cost accounting |
 | `model.go` | Models, Providers, reasoning settings, and compatibility metadata |
@@ -20,3 +20,7 @@ Import this package when two components must share the same Go type identity for
 | `agent_event.go` | Runtime events, `EventSink`, and event stream |
 
 Keep behavior out of this package unless it is required to preserve or interpret one of these contracts. `pkg/agent` supplies `Agent`, `Loop`, `DefaultLLM`, and `DefaultTools`.
+
+`AssistantMessage.ProviderMetadata` is protocol-owned JSON. Shared Agent code
+persists and forwards it without interpreting it; a provider adapter is
+responsible for choosing its keys and validating the payload before replay.
