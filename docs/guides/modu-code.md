@@ -145,7 +145,7 @@ contextWindow = 1000000
 
 `providers` 只描述连接方式，`models` 只描述可选模型；`active` 是默认模型，`scopedModels` 是模型循环范围，`roles` 预留给 summary/dispatcher 等专用模型。`contextWindow` 可显式覆盖模型上下文窗口；未配置时，内置厂商会按当前厂商最大窗口补默认值。
 
-运行中输入 `/model` 打开模型选择器：方向键选择、`Enter` 确认、`Esc`
+运行中输入 `/model` 打开模型选择器：方向键选择（超过 9 个模型时会滚动显示后续项）、`Enter` 确认、`Esc`
 取消。`/model list` 列出模型，`/model <name>` 或
 `/model <provider> <model-id>` 也可以直接切换。切换后写回 `active`，下次
 启动继续使用；如果实际切到了另一个模型，会清空旧对话上下文并明确提示。

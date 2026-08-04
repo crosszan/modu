@@ -2059,6 +2059,64 @@ func TestPOC2HumanPromptResolvesFromKeyboard(t *testing.T) {
 	}
 }
 
+func TestHumanPromptNavigatesPastNineOptions(t *testing.T) {
+	responses := make(chan string, 1)
+	options := make([]HumanPromptOption, 12)
+	for i := range options {
+		options[i] = HumanPromptOption{
+			Label: fmt.Sprintf("Option %d", i+1),
+			Value: fmt.Sprintf("value-%d", i+1),
+		}
+	}
+
+	var tm tea.Model = NewModel(Options{Width: 80, Height: 30})
+	tm, _ = tm.Update(RequestHumanPromptMsg{
+		Request: HumanPromptRequest{
+			Title:   "Choose an option",
+			Options: options,
+		},
+		Respond: responses,
+	})
+
+	initial := tm.(Model)
+	rendered := ansi.Strip(initial.render())
+	for _, want := range []string{"1. Option 1", "9. Option 9", "1-9 of 12"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("initial prompt missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "10. Option 10") {
+		t.Fatalf("initial prompt should keep later options below the visible window:\n%s", rendered)
+	}
+
+	for range 9 {
+		tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	}
+	moved := tm.(Model)
+	if moved.humanPrompt == nil || moved.humanPrompt.selected != 9 {
+		t.Fatalf("expected down key to select tenth option, got %#v", moved.humanPrompt)
+	}
+	rendered = ansi.Strip(moved.render())
+	for _, want := range []string{"10. Option 10", "12. Option 12", "10-12 of 12"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("scrolled prompt missing %q:\n%s", want, rendered)
+		}
+	}
+
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if resolved := tm.(Model); resolved.humanPrompt != nil {
+		t.Fatal("human prompt should clear after selecting a later option")
+	}
+	select {
+	case got := <-responses:
+		if got != "value-10" {
+			t.Fatalf("response = %q, want value-10", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected human prompt response")
+	}
+}
+
 func TestPOC2PanelRendersScrollableMainViewAndCloses(t *testing.T) {
 	var tm tea.Model = NewModel(Options{Width: 60, Height: 12, InitialEntries: []Entry{
 		testMarkdownEntry(RoleAssistant, "transcript stays behind panel"),

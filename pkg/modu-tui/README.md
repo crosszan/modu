@@ -82,7 +82,7 @@ artifact-loading queries.
 
 - `CardBlock` provides one border style for approval, slash-command, todo, and human-input cards.
 - `Client.AskToolApproval` opens a blocking approval card and returns allow/deny decisions. `ToolApprovalDecisionIntent` reports the result to the host.
-- `Client.AskChoice` and `Client.AskText` collect host-requested choices or text without exposing response channels to business flows.
+- `Client.AskChoice` and `Client.AskText` collect host-requested choices or text without exposing response channels to business flows. Choice cards keep at most nine options visible at once; up/down or j/k navigation pages through the complete option list.
 - `SetTodoListUpdate` updates the current run's active todos. Empty, completed-only, idle, and previous-run lists remain hidden; approval cards take precedence when vertical space is limited.
 - `ShowPanelUpdate`, `RefreshPanelUpdate`, and `ClosePanelUpdate` manage a host-owned main-view panel. Rows and shortcuts emit `PanelActionIntent`; closing emits `PanelClosedIntent`.
 

@@ -29,11 +29,8 @@ func runModuTUIModelSelect(ctx context.Context, session *coding_agent.CodingSess
 	}
 
 	current := session.GetModel()
-	options := make([]modutui.HumanPromptOption, 0, min(len(models), 9))
-	for i, model := range models {
-		if i >= 9 {
-			break
-		}
+	options := make([]modutui.HumanPromptOption, 0, len(models))
+	for _, model := range models {
 		label := model.Name
 		if strings.TrimSpace(label) == "" {
 			label = model.ID
