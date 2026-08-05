@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -190,5 +191,62 @@ func TestModuTUISideThreadExitDrainsRunningTurnBeforeReturningToMain(t *testing.
 	runtime.finish(context.Canceled)
 	if controller.Submit("main is available", nil) {
 		t.Fatal("side controller stayed active after the running turn stopped")
+	}
+}
+
+func TestModuTUISideThreadNoticesAreNotStyledAsAssistantMessages(t *testing.T) {
+	session := &moduTUISideThreadSessionStub{}
+	runtime := &moduTUISideThreadRuntimeStub{}
+	var updates []any
+	client := modutui.NewClient(func(message any) {
+		updates = append(updates, message)
+	})
+	controller := newModuTUISideThreadController(
+		session,
+		runtime,
+		client,
+		codetui.NewEventPresenter(nil, ""),
+	)
+
+	controller.Open("first question")
+	controller.HandleCommand("/exit")
+
+	var notices []modutui.Entry
+	for _, update := range updates {
+		msg, ok := update.(modutui.UpdateMsg)
+		if !ok {
+			continue
+		}
+		appended, ok := msg.Update.(modutui.AppendEntryUpdate)
+		if !ok || len(appended.Entry.Nodes) == 0 {
+			continue
+		}
+		node, ok := appended.Entry.Nodes[0].(modutui.TextNode)
+		if !ok || !strings.HasPrefix(node.Text, "btw · ") {
+			continue
+		}
+		notices = append(notices, appended.Entry)
+	}
+	if len(notices) != 2 {
+		t.Fatalf("expected the open and exit notices, got %d", len(notices))
+	}
+
+	for _, notice := range notices {
+		// These are the TUI's own status lines, not model output: rendering
+		// them as a normal assistant entry gives them a "●" marker that
+		// wrongly implies the model said them.
+		if notice.Role != modutui.RoleStatus {
+			t.Fatalf("side-thread notice should use RoleStatus, not the assistant marker: %#v", notice)
+		}
+		if _, ok := notice.Nodes[0].(modutui.TextNode); !ok {
+			t.Fatalf("side-thread notice should be a TextNode, got %T", notice.Nodes[0])
+		}
+	}
+
+	// The open notice is deliberately two lines; markdown rendering would
+	// have collapsed the newline into one run-on line.
+	openText := notices[0].Nodes[0].(modutui.TextNode).Text
+	if !strings.Contains(openText, "\n") {
+		t.Fatalf("the open notice should keep its second line, got %q", openText)
 	}
 }

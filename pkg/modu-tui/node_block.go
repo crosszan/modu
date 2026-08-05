@@ -8,6 +8,9 @@ import (
 type nodeGroupBlock struct {
 	Marker string
 	Nodes  []Node
+	// Dim renders the group's text faintly (status/lifecycle lines), so it
+	// reads as chrome rather than as conversation content.
+	Dim bool
 }
 
 func (b nodeGroupBlock) Render(ctx RenderContext) BlockRender {
@@ -17,6 +20,12 @@ func (b nodeGroupBlock) Render(ctx RenderContext) BlockRender {
 		block := blockFromNode(node, marker)
 		if block == nil {
 			continue
+		}
+		if b.Dim {
+			if text, ok := block.(TextBlock); ok {
+				text.Dim = true
+				block = text
+			}
 		}
 		rendered := block.Render(ctx)
 		if len(rendered.Lines) == 0 {

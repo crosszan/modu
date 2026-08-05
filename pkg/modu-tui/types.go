@@ -10,6 +10,13 @@ type Role int
 const (
 	RoleUser Role = iota
 	RoleAssistant
+	// RoleStatus is the TUI's own status output — lifecycle notices, mode
+	// changes, subagent and permission lines. It renders dimmed behind a
+	// "·" marker so it reads as chrome rather than as something the model
+	// said, while staying aligned with the surrounding messages. (An entry
+	// that should have no marker at all, like the compaction divider, uses
+	// Plain instead.)
+	RoleStatus
 )
 
 type ToolPermissionState string

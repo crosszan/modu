@@ -256,9 +256,14 @@ func (c *moduTUISideThreadController) setIdleStatus() {
 	c.client.SetStatus("btw · side thread · /exit to return", 0)
 }
 
+// appendInfo writes a side-thread status line. These are the TUI's own
+// notices, not model output, so they use RoleStatus — dimmed behind a "·"
+// marker instead of the "●" that would imply the model said them — and a
+// TextNode, since markdown would collapse the embedded newline in
+// multi-line notices into a single run-on line.
 func (c *moduTUISideThreadController) appendInfo(text string) {
 	c.client.AppendEntry(modutui.Entry{
-		Role:  modutui.RoleAssistant,
-		Nodes: []modutui.Node{modutui.MarkdownNode{Text: text}},
+		Role:  modutui.RoleStatus,
+		Nodes: []modutui.Node{modutui.TextNode{Text: text}},
 	})
 }
