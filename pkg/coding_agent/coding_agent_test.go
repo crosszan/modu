@@ -5143,11 +5143,77 @@ func TestGetAvailableModels(t *testing.T) {
 
 func TestExportHTML(t *testing.T) {
 	session := newTestSession(t, newTestModel())
+	baseTime := time.Date(2026, time.August, 4, 12, 7, 7, 0, time.UTC)
 
-	session.GetAgent().AppendMessage(types.UserMessage{Role: "user", Content: "test prompt"})
+	entries := []sessionpkg.SessionEntry{
+		{
+			Type:      sessionpkg.EntryTypeMessage,
+			Timestamp: baseTime.UnixMilli(),
+			Data: sessionpkg.MessageData{
+				Role:    types.RoleUser,
+				Content: "# Test prompt\n\n<script>alert('unsafe')</script>",
+			},
+		},
+		{
+			Type:      sessionpkg.EntryTypeMessage,
+			Timestamp: baseTime.Add(time.Second).UnixMilli(),
+			Data: sessionpkg.MessageData{
+				Role: types.RoleAssistant,
+				Content: types.AssistantMessage{
+					Role: types.RoleAssistant,
+					Content: []types.ContentBlock{
+						&types.TextContent{Type: "text", Text: "checking **MCP** with `iaas`\n\n- first\n- second"},
+						&types.ToolCallContent{
+							Type:      "toolCall",
+							ID:        "call-1",
+							Name:      "mcp__FeishuProjectMcp__list_workitem_types",
+							Arguments: map[string]any{"project": "iaas"},
+						},
+					},
+				},
+			},
+		},
+		{
+			Type:      sessionpkg.EntryTypeMessage,
+			Timestamp: baseTime.Add(2 * time.Second).UnixMilli(),
+			Data: sessionpkg.MessageData{
+				Role: types.RoleToolResult,
+				Content: types.ToolResultMessage{
+					Role:       types.RoleToolResult,
+					ToolCallID: "call-1",
+					ToolName:   "mcp__FeishuProjectMcp__list_workitem_types",
+					Content: []types.ContentBlock{
+						&types.TextContent{Type: "text", Text: "6 types & counting"},
+					},
+					IsError: true,
+				},
+			},
+		},
+		{
+			Type:      sessionpkg.EntryTypeCompaction,
+			Timestamp: baseTime.Add(3 * time.Second).UnixMilli(),
+			Data:      sessionpkg.CompactionData{},
+		},
+		{
+			Type:      sessionpkg.EntryTypeMessage,
+			Timestamp: baseTime.Add(4 * time.Second).UnixMilli(),
+			Data: sessionpkg.MessageData{
+				Role: types.RoleAssistant,
+				Content: types.AssistantMessage{
+					Role:    types.RoleAssistant,
+					Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: "test response"}},
+				},
+			},
+		},
+	}
+	for _, entry := range entries {
+		if err := session.sessionManager.Append(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
 	session.GetAgent().AppendMessage(types.AssistantMessage{
-		Role:    "assistant",
-		Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: "test response"}},
+		Role:    types.RoleAssistant,
+		Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: "compacted replacement only"}},
 	})
 
 	dir := t.TempDir()
@@ -5161,11 +5227,124 @@ func TestExportHTML(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "test prompt") {
-		t.Fatal("expected user message in HTML")
+	for _, want := range []string{
+		"<h1>Test prompt</h1>",
+		"<strong>MCP</strong>",
+		"<code>iaas</code>",
+		"<li>first</li>",
+		"test response",
+		"<article class=\"message tool\">",
+		"mcp__FeishuProjectMcp__list_workitem_types",
+		"Failed",
+		"Input",
+		"Output",
+		"6 types &amp; counting",
+		"Context compacted",
+		"<details",
+		time.UnixMilli(baseTime.UnixMilli()).Local().Format("2006-01-02 15:04:05"),
+		time.UnixMilli(baseTime.Add(2 * time.Second).UnixMilli()).Local().Format("2006-01-02 15:04:05"),
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected %q in HTML:\n%s", want, content)
+		}
 	}
-	if !strings.Contains(content, "test response") {
-		t.Fatal("expected assistant message in HTML")
+	for _, unwanted := range []string{"unknown", "compacted replacement only", "<script>", "Tool result ·"} {
+		if strings.Contains(content, unwanted) {
+			t.Fatalf("did not expect %q in HTML:\n%s", unwanted, content)
+		}
+	}
+	if got := strings.Count(content, "mcp__FeishuProjectMcp__list_workitem_types"); got != 1 {
+		t.Fatalf("tool name appeared %d times, want one combined tool block:\n%s", got, content)
+	}
+	assistantStart := strings.Index(content, `<article class="message assistant">`)
+	toolStart := strings.Index(content, `<article class="message tool">`)
+	assistantEnd := -1
+	if assistantStart >= 0 {
+		assistantEnd = strings.Index(content[assistantStart:], "</article>")
+	}
+	if assistantStart < 0 || toolStart < 0 || assistantEnd < 0 || toolStart < assistantStart+assistantEnd {
+		t.Fatalf("tool block must be a sibling after the assistant block:\n%s", content)
+	}
+}
+
+func TestExportHTMLFallsBackToAgentStateWithoutTranscript(t *testing.T) {
+	session := newTestSession(t, newTestModel())
+	session.GetAgent().AppendMessage(types.UserMessage{Role: types.RoleUser, Content: "unsaved prompt"})
+	session.GetAgent().AppendMessage(types.AssistantMessage{
+		Role:    types.RoleAssistant,
+		Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: "unsaved response"}},
+	})
+
+	outPath := filepath.Join(t.TempDir(), "export.html")
+	if err := session.ExportHTML(outPath); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	for _, want := range []string{"unsaved prompt", "unsaved response"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected %q in HTML:\n%s", want, content)
+		}
+	}
+}
+
+func TestExportHTMLToolOnlyAssistantUsesOneToolBlock(t *testing.T) {
+	session := newTestSession(t, newTestModel())
+	call := &types.ToolCallContent{
+		Type:      "toolCall",
+		ID:        "call-only",
+		Name:      "read",
+		Arguments: map[string]any{"path": "README.md"},
+	}
+	entries := []sessionpkg.SessionEntry{
+		{
+			Type: sessionpkg.EntryTypeMessage,
+			Data: sessionpkg.MessageData{
+				Role:    types.RoleAssistant,
+				Content: types.AssistantMessage{Role: types.RoleAssistant, Content: []types.ContentBlock{call}},
+			},
+		},
+		{
+			Type: sessionpkg.EntryTypeMessage,
+			Data: sessionpkg.MessageData{
+				Role: types.RoleToolResult,
+				Content: types.ToolResultMessage{
+					Role:       types.RoleToolResult,
+					ToolCallID: call.ID,
+					ToolName:   call.Name,
+					Content:    []types.ContentBlock{&types.TextContent{Type: "text", Text: "file contents"}},
+				},
+			},
+		},
+	}
+	for _, entry := range entries {
+		if err := session.sessionManager.Append(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	outPath := filepath.Join(t.TempDir(), "export.html")
+	if err := session.ExportHTML(outPath); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if strings.Contains(content, `<article class="message assistant">`) {
+		t.Fatalf("tool-only assistant created an empty assistant block:\n%s", content)
+	}
+	if got := strings.Count(content, `<article class="message tool">`); got != 1 {
+		t.Fatalf("tool block count = %d, want 1:\n%s", got, content)
+	}
+	for _, want := range []string{"Input", "Output", "README.md", "file contents"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected %q in HTML:\n%s", want, content)
+		}
 	}
 }
 

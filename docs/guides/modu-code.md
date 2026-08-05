@@ -395,7 +395,7 @@ token = "123456:bot-token"
 | `/fork <entry-id>` | 从历史位置 fork |
 | `/clone` | 从当前 session leaf 克隆一份会话 |
 | `/tree` | 显示 session tree 摘要 |
-| `/export [file]` | 导出当前 session 为 HTML |
+| `/export [file]` | 将当前分支的完整 session 记录导出为 HTML；消息支持 Markdown，每次工具调用单独成块，输入/输出合并并保留本地时间 |
 | `/copy` | 复制最后一条 assistant 回复到系统剪贴板 |
 | `/changelog` | 显示当前 git 仓库最近提交 |
 | `/skills` | 列出已发现 skills |
