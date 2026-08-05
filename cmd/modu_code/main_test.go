@@ -944,3 +944,17 @@ func initMainTestGitRepo(t *testing.T, dir string) {
 	run("add", "README.md")
 	run("commit", "-m", "init")
 }
+
+func TestResumeCommandLinePreservesNoApprove(t *testing.T) {
+	const id = "228c1e38-e8af-474d-a145-642130fc8603"
+
+	// Reported: launching with --no-approve and exiting printed a resume
+	// command without it, so following the printed command silently brought
+	// back the approval prompts the user had turned off.
+	if got, want := resumeCommandLine(id, true), "modu_code --no-approve --resume "+id; got != want {
+		t.Fatalf("resumeCommandLine(noApprove=true) = %q, want %q", got, want)
+	}
+	if got, want := resumeCommandLine(id, false), "modu_code --resume "+id; got != want {
+		t.Fatalf("resumeCommandLine(noApprove=false) = %q, want %q", got, want)
+	}
+}

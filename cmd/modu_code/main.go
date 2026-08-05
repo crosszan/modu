@@ -234,7 +234,7 @@ func main() {
 		os.Exit(1)
 	}
 	closeSession()
-	printInteractiveExitSummary(interactiveExitOutput, session)
+	printInteractiveExitSummary(interactiveExitOutput, session, *noApprove)
 }
 
 // startCronScheduler embeds pkg/cron's scheduler loop in this process,
@@ -260,7 +260,7 @@ func startCronScheduler(ctx context.Context) {
 	}()
 }
 
-func printInteractiveExitSummary(out io.Writer, session *coding_agent.CodingSession) {
+func printInteractiveExitSummary(out io.Writer, session *coding_agent.CodingSession, noApprove bool) {
 	if out == nil || session == nil {
 		return
 	}
@@ -268,7 +268,21 @@ func printInteractiveExitSummary(out io.Writer, session *coding_agent.CodingSess
 	if id == "" {
 		return
 	}
-	fmt.Fprintf(out, "Session saved: %s\nResume with: modu_code --resume %s\n", id, id)
+	fmt.Fprintf(out, "Session saved: %s\nResume with: %s\n", id, resumeCommandLine(id, noApprove))
+}
+
+// resumeCommandLine builds the resume command printed on exit. noApprove is
+// carried over because it changes how the resumed session behaves, and
+// silently dropping it hands back a command that re-enables the approval
+// prompts the user had deliberately turned off. --worktree is deliberately
+// not carried: it creates a new worktree at startup, whereas resuming
+// already restores the session's recorded cwd.
+func resumeCommandLine(id string, noApprove bool) string {
+	cmd := "modu_code"
+	if noApprove {
+		cmd += " --no-approve"
+	}
+	return cmd + " --resume " + id
 }
 
 func unconfiguredModel() *types.Model {
