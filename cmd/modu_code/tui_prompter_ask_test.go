@@ -17,19 +17,38 @@ type askPrompterHarness struct {
 	// reply picks what the "user" does for the nth request; returning ""
 	// stands for dismissing the card with Esc.
 	reply func(n int, req modutui.HumanPromptRequest) string
+	// textRequests records the free-text overlays opened after picking
+	// "Other"; typed answers them the same way reply answers a card.
+	textRequests []modutui.HumanTextRequest
+	typed        func(n int, req modutui.HumanTextRequest) string
 }
 
 func (h *askPrompterHarness) prompter() *moduTUIPrompter {
 	client := modutui.NewClient(func(msg any) {
-		request, ok := msg.(modutui.RequestHumanPromptMsg)
-		if !ok {
-			return
+		switch request := msg.(type) {
+		case modutui.RequestHumanPromptMsg:
+			n := len(h.requests)
+			h.requests = append(h.requests, request.Request)
+			go func() { request.Respond <- h.reply(n, request.Request) }()
+		case modutui.RequestHumanTextMsg:
+			n := len(h.textRequests)
+			h.textRequests = append(h.textRequests, request.Request)
+			go func() {
+				if h.typed == nil {
+					request.Respond <- ""
+					return
+				}
+				request.Respond <- h.typed(n, request.Request)
+			}()
 		}
-		n := len(h.requests)
-		h.requests = append(h.requests, request.Request)
-		go func() { request.Respond <- h.reply(n, request.Request) }()
 	})
 	return &moduTUIPrompter{ctx: context.Background(), client: client}
+}
+
+// pickOther answers a card by selecting the synthetic "Other" entry, which
+// is always appended last.
+func pickOther(req modutui.HumanPromptRequest) string {
+	return req.Options[len(req.Options)-1].Value
 }
 
 func askRequest(questions ...coding_agent.AskQuestion) coding_agent.AskRequest {
@@ -146,5 +165,121 @@ func TestPrompterAskPropagatesContextCancellation(t *testing.T) {
 	cancel()
 	if _, err := p.Ask(ctx, askRequest(twoOptionQuestion("auth", "Auth method"))); err == nil {
 		t.Fatal("expected the cancelled context to surface as an error")
+	}
+}
+
+func TestPrompterAskAlwaysOffersAFreeTextEscapeHatch(t *testing.T) {
+	h := &askPrompterHarness{reply: func(_ int, req modutui.HumanPromptRequest) string {
+		return req.Options[0].Value
+	}}
+	if _, err := h.prompter().Ask(context.Background(), askRequest(twoOptionQuestion("auth", "Auth method"))); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+
+	options := h.requests[0].Options
+	// The model supplied two; the third is the always-present escape hatch,
+	// so the user is never boxed into the model's framing.
+	if len(options) != 3 {
+		t.Fatalf("expected the model's options plus Other, got %#v", options)
+	}
+	if options[len(options)-1].Label != askOtherLabel {
+		t.Fatalf("last option = %q, want the Other entry", options[len(options)-1].Label)
+	}
+}
+
+func TestPrompterAskReturnsTypedTextWhenOtherIsChosen(t *testing.T) {
+	h := &askPrompterHarness{
+		reply: func(_ int, req modutui.HumanPromptRequest) string { return pickOther(req) },
+		typed: func(int, modutui.HumanTextRequest) string { return "neither, use mTLS" },
+	}
+	result, err := h.prompter().Ask(context.Background(), askRequest(twoOptionQuestion("auth", "Auth method")))
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if result.Cancelled {
+		t.Fatal("typing an answer is answering, not cancelling")
+	}
+	if result.Answers["auth"] != "neither, use mTLS" {
+		t.Fatalf("answers = %#v, want the typed text", result.Answers)
+	}
+	if len(h.textRequests) != 1 {
+		t.Fatalf("expected one text overlay, got %d", len(h.textRequests))
+	}
+	// The text overlay has to restate the question; by then the card that
+	// asked it is gone from the screen.
+	if !strings.Contains(h.textRequests[0].Body, "Which one?") {
+		t.Fatalf("text overlay body = %q, want it to restate the question", h.textRequests[0].Body)
+	}
+}
+
+func TestPrompterAskTreatsAnEmptyOtherAsBackingOut(t *testing.T) {
+	h := &askPrompterHarness{
+		reply: func(_ int, req modutui.HumanPromptRequest) string { return pickOther(req) },
+		typed: func(int, modutui.HumanTextRequest) string { return "   " },
+	}
+	result, err := h.prompter().Ask(context.Background(), askRequest(twoOptionQuestion("auth", "Auth method")))
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if !result.Cancelled {
+		t.Fatal("submitting nothing must read as declining, not as a blank answer")
+	}
+	if len(result.Answers) != 0 {
+		t.Fatalf("answers = %#v, want none", result.Answers)
+	}
+}
+
+func TestPrompterAskOtherSentinelSurvivesAColludingOptionLabel(t *testing.T) {
+	// A model is free to author an option whose label happens to equal the
+	// sentinel; the synthetic entry must still be distinguishable from it.
+	question := coding_agent.AskQuestion{
+		ID:       "auth",
+		Header:   "Auth method",
+		Question: "Which one?",
+		Options: []coding_agent.AskOption{
+			{Label: "__modu_ask_other__"},
+			{Label: "Bearer token"},
+		},
+	}
+	h := &askPrompterHarness{
+		reply: func(_ int, req modutui.HumanPromptRequest) string { return req.Options[0].Value },
+		typed: func(int, modutui.HumanTextRequest) string { return "should not be reached" },
+	}
+	result, err := h.prompter().Ask(context.Background(), askRequest(question))
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if result.Answers["auth"] != "__modu_ask_other__" {
+		t.Fatalf("answers = %#v, want the model's own option", result.Answers)
+	}
+	if len(h.textRequests) != 0 {
+		t.Fatal("picking the model's option must not open the free-text overlay")
+	}
+}
+
+func TestPrompterAskShowsProgressAcrossMultipleQuestions(t *testing.T) {
+	h := &askPrompterHarness{reply: func(_ int, req modutui.HumanPromptRequest) string {
+		return req.Options[0].Value
+	}}
+	if _, err := h.prompter().Ask(context.Background(), askRequest(
+		twoOptionQuestion("auth", "Auth method"),
+		twoOptionQuestion("store", "Storage"),
+	)); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if !strings.Contains(h.requests[0].Title, "1/2") || !strings.Contains(h.requests[1].Title, "2/2") {
+		t.Fatalf("titles = %q, %q; want progress so the user knows how many remain", h.requests[0].Title, h.requests[1].Title)
+	}
+}
+
+func TestPrompterAskOmitsProgressForASingleQuestion(t *testing.T) {
+	h := &askPrompterHarness{reply: func(_ int, req modutui.HumanPromptRequest) string {
+		return req.Options[0].Value
+	}}
+	if _, err := h.prompter().Ask(context.Background(), askRequest(twoOptionQuestion("auth", "Auth method"))); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if strings.Contains(h.requests[0].Title, "1/1") {
+		t.Fatalf("title = %q, want no progress counter for a lone question", h.requests[0].Title)
 	}
 }
