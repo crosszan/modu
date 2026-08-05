@@ -944,3 +944,100 @@ func initMainTestGitRepo(t *testing.T, dir string) {
 	run("add", "README.md")
 	run("commit", "-m", "init")
 }
+
+func TestResumeCommandLinePreservesNoApprove(t *testing.T) {
+	const id = "228c1e38-e8af-474d-a145-642130fc8603"
+
+	// Reported: launching with --no-approve and exiting printed a resume
+	// command without it, so following the printed command silently brought
+	// back the approval prompts the user had turned off.
+	if got, want := resumeCommandLine(id, true), "modu_code --no-approve --resume "+id; got != want {
+		t.Fatalf("resumeCommandLine(noApprove=true) = %q, want %q", got, want)
+	}
+	if got, want := resumeCommandLine(id, false), "modu_code --resume "+id; got != want {
+		t.Fatalf("resumeCommandLine(noApprove=false) = %q, want %q", got, want)
+	}
+}
+
+type autoApproveSessionStub struct {
+	value bool
+	ok    bool
+}
+
+func (s autoApproveSessionStub) GetAutoApprove() (bool, bool) { return s.value, s.ok }
+
+func TestResolveAutoApprove(t *testing.T) {
+	tests := []struct {
+		name         string
+		flagValue    bool
+		flagSet      bool
+		session      autoApproveSession
+		want         bool
+		wantRestored bool
+	}{
+		{
+			name:    "fresh session, no flag",
+			session: autoApproveSessionStub{ok: false},
+		},
+		{
+			name:      "explicit flag on a fresh session",
+			flagValue: true,
+			flagSet:   true,
+			session:   autoApproveSessionStub{ok: false},
+			want:      true,
+		},
+		{
+			name:         "resumed session inherits auto-approve",
+			session:      autoApproveSessionStub{value: true, ok: true},
+			want:         true,
+			wantRestored: true,
+		},
+		{
+			// The user turned approvals back on for this session; resuming
+			// must not quietly re-enable auto-approve.
+			name:    "resumed session that recorded an explicit false",
+			session: autoApproveSessionStub{value: false, ok: true},
+		},
+		{
+			// A bool flag reads false whether it was omitted or passed as
+			// --no-approve=false, so only flagSet can express "the user asked
+			// for approvals back" against a session that saved true.
+			name:      "explicit --no-approve=false overrides a saved true",
+			flagValue: false,
+			flagSet:   true,
+			session:   autoApproveSessionStub{value: true, ok: true},
+		},
+		{
+			name:      "explicit flag matching the saved value is not reported as restored",
+			flagValue: true,
+			flagSet:   true,
+			session:   autoApproveSessionStub{value: true, ok: true},
+			want:      true,
+		},
+		{
+			name:      "nil session falls back to the flag",
+			flagValue: true,
+			flagSet:   true,
+			want:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, restored := resolveAutoApprove(tt.flagValue, tt.flagSet, tt.session)
+			if got != tt.want || restored != tt.wantRestored {
+				t.Fatalf("resolveAutoApprove = (%v, %v), want (%v, %v)", got, restored, tt.want, tt.wantRestored)
+			}
+		})
+	}
+}
+
+func TestAppendStartupNotice(t *testing.T) {
+	if got := appendStartupNotice("", "second"); got != "second" {
+		t.Fatalf("appendStartupNotice with no existing notice = %q", got)
+	}
+	got := appendStartupNotice("first", "second")
+	if !strings.Contains(got, "first") || !strings.Contains(got, "second") {
+		t.Fatalf("both notices should survive, got %q", got)
+	}
+}

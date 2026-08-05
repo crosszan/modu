@@ -24,17 +24,18 @@ type Header struct {
 type EntryType string
 
 const (
-	EntryTypeMessage        EntryType = "message"
-	EntryTypeThinkingChange EntryType = "thinking_level_change"
-	EntryTypeModelChange    EntryType = "model_change"
-	EntryTypeCompaction     EntryType = "compaction"
-	EntryTypeBranchSummary  EntryType = "branch_summary"
-	EntryTypeCustom         EntryType = "custom"
-	EntryTypeCustomMessage  EntryType = "custom_message"
-	EntryTypeLabel          EntryType = "label"
-	EntryTypeSessionInfo    EntryType = "session_info"
-	EntryTypeRuntimeState   EntryType = "runtime_state"
-	EntryTypePlanSnapshot   EntryType = "plan_snapshot"
+	EntryTypeMessage         EntryType = "message"
+	EntryTypeThinkingChange  EntryType = "thinking_level_change"
+	EntryTypeModelChange     EntryType = "model_change"
+	EntryTypeCompaction      EntryType = "compaction"
+	EntryTypeBranchSummary   EntryType = "branch_summary"
+	EntryTypeCustom          EntryType = "custom"
+	EntryTypeCustomMessage   EntryType = "custom_message"
+	EntryTypeLabel           EntryType = "label"
+	EntryTypeSessionInfo     EntryType = "session_info"
+	EntryTypeSessionSettings EntryType = "session_settings"
+	EntryTypeRuntimeState    EntryType = "runtime_state"
+	EntryTypePlanSnapshot    EntryType = "plan_snapshot"
 )
 
 // SessionEntry represents a single entry in the session history.
@@ -151,6 +152,14 @@ func (e SessionEntry) MarshalJSON() ([]byte, error) {
 		} else {
 			base["data"] = e.Data
 		}
+	case EntryTypeSessionSettings:
+		if data, ok := e.Data.(SessionSettingsData); ok {
+			if data.AutoApprove != nil {
+				base["autoApprove"] = *data.AutoApprove
+			}
+		} else {
+			base["data"] = e.Data
+		}
 	case EntryTypeRuntimeState:
 		base["state"] = e.Data
 	case EntryTypePlanSnapshot:
@@ -218,6 +227,15 @@ func (e *SessionEntry) UnmarshalJSON(data []byte) error {
 		_ = json.Unmarshal(raw["name"], &d.Name)
 		_ = json.Unmarshal(raw["cwd"], &d.Cwd)
 		_ = json.Unmarshal(raw["startTime"], &d.StartTime)
+		e.Data = d
+	case EntryTypeSessionSettings:
+		var d SessionSettingsData
+		if payload, ok := raw["autoApprove"]; ok {
+			var autoApprove bool
+			if json.Unmarshal(payload, &autoApprove) == nil {
+				d.AutoApprove = &autoApprove
+			}
+		}
 		e.Data = d
 	case EntryTypeRuntimeState:
 		var v any
@@ -316,6 +334,20 @@ type SessionInfoData struct {
 	Cwd       string `json:"cwd,omitempty"`
 	StartTime int64  `json:"startTime,omitempty"`
 	Name      string `json:"name,omitempty"`
+}
+
+// SessionSettingsData holds run settings that resuming should restore. It is
+// deliberately a separate entry type from SessionInfoData: SessionName reads
+// back the most recent session_info entry and returns its Name verbatim
+// (an empty one being how "/session name" clears the name), so writing
+// settings into that same entry type would silently wipe the session's name.
+type SessionSettingsData struct {
+	// AutoApprove records that the session runs tool executions without
+	// asking for approval, so resuming it restores that mode instead of
+	// silently reinstating the prompts. Tri-state on purpose: nil means the
+	// session never recorded one, which must not be confused with an
+	// explicit false.
+	AutoApprove *bool `json:"autoApprove,omitempty"`
 }
 
 // LabelData holds label entry data.

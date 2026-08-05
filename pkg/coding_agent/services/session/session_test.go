@@ -564,3 +564,96 @@ func TestTree(t *testing.T) {
 		t.Fatalf("expected current path length 1, got %d", len(currentPath))
 	}
 }
+
+func TestAutoApprovePersistsAcrossReload(t *testing.T) {
+	dir := t.TempDir()
+
+	mgr1, err := NewManager(dir, "/test/project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := mgr1.AutoApprove(); ok {
+		t.Fatal("a fresh session should report no recorded auto-approve mode")
+	}
+	if err := mgr1.AppendAutoApprove(true); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr2, err := NewManager(dir, "/test/project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, ok := mgr2.AutoApprove()
+	if !ok || !value {
+		t.Fatalf("auto-approve after reload = (%v, %v), want (true, true)", value, ok)
+	}
+}
+
+func TestAutoApproveDistinguishesFalseFromUnset(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := NewManager(dir, "/test/project")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// An explicit false must survive as "recorded false", not decay into
+	// "never recorded" — otherwise resuming a session the user deliberately
+	// turned approvals back on for would re-inherit a stale true.
+	if err := mgr.AppendAutoApprove(false); err != nil {
+		t.Fatal(err)
+	}
+	value, ok := mgr.AutoApprove()
+	if !ok || value {
+		t.Fatalf("auto-approve = (%v, %v), want (false, true)", value, ok)
+	}
+
+	reloaded, err := NewManager(dir, "/test/project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, ok = reloaded.AutoApprove()
+	if !ok || value {
+		t.Fatalf("auto-approve after reload = (%v, %v), want (false, true)", value, ok)
+	}
+}
+
+func TestAutoApproveReadsTheLatestValue(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := NewManager(dir, "/test/project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.AppendAutoApprove(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.AppendAutoApprove(false); err != nil {
+		t.Fatal(err)
+	}
+	if value, ok := mgr.AutoApprove(); !ok || value {
+		t.Fatalf("auto-approve = (%v, %v), want the latest value (false, true)", value, ok)
+	}
+}
+
+func TestSessionInfoNameAndAutoApproveDoNotClobberEachOther(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := NewManager(dir, "/test/project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.AppendSessionInfo("my session"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.AppendAutoApprove(true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both live in session_info entries, and each accessor scans back for the
+	// most recent entry carrying its own field, so writing one must not hide
+	// the other.
+	if got := mgr.SessionName(); got != "my session" {
+		t.Fatalf("SessionName = %q, want it to survive a later auto-approve entry", got)
+	}
+	if value, ok := mgr.AutoApprove(); !ok || !value {
+		t.Fatalf("AutoApprove = (%v, %v), want (true, true)", value, ok)
+	}
+}

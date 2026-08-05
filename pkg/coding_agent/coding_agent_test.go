@@ -5633,3 +5633,52 @@ func TestDeferredStartupEventRoutesGoalLikePromptToForegroundDriver(t *testing.T
 		t.Fatal("driver was not invoked for deferred startup prompt")
 	}
 }
+
+func TestSetAutoApproveOnlyPersistsWhatMatters(t *testing.T) {
+	countSettings := func(s *CodingSession) int {
+		n := 0
+		for _, entry := range s.sessionManager.Load() {
+			if entry.Type == sessionpkg.EntryTypeSessionSettings {
+				n++
+			}
+		}
+		return n
+	}
+
+	t.Run("default in a fresh session writes nothing", func(t *testing.T) {
+		s := newTestSession(t, newTestModel())
+		defer s.Close("test")
+		s.SetAutoApprove(false)
+		if got := countSettings(s); got != 0 {
+			t.Fatalf("wrote %d settings entries for the default; want none", got)
+		}
+		if _, ok := s.GetAutoApprove(); ok {
+			t.Fatal("the default should stay unrecorded, not become an explicit false")
+		}
+	})
+
+	t.Run("enabling is recorded and repeats are not", func(t *testing.T) {
+		s := newTestSession(t, newTestModel())
+		defer s.Close("test")
+		s.SetAutoApprove(true)
+		value, ok := s.GetAutoApprove()
+		if !ok || !value {
+			t.Fatalf("GetAutoApprove = (%v, %v), want (true, true)", value, ok)
+		}
+		s.SetAutoApprove(true)
+		if got := countSettings(s); got != 1 {
+			t.Fatalf("settings entries = %d, want the repeat to be skipped", got)
+		}
+	})
+
+	t.Run("turning it back off is recorded so resume does not inherit stale true", func(t *testing.T) {
+		s := newTestSession(t, newTestModel())
+		defer s.Close("test")
+		s.SetAutoApprove(true)
+		s.SetAutoApprove(false)
+		value, ok := s.GetAutoApprove()
+		if !ok || value {
+			t.Fatalf("GetAutoApprove = (%v, %v), want an explicit (false, true)", value, ok)
+		}
+	})
+}

@@ -343,6 +343,31 @@ func (m *Manager) SessionName() string {
 	return ""
 }
 
+// AppendAutoApprove records whether this session runs tool executions
+// without asking for approval, so resuming can restore that mode.
+func (m *Manager) AppendAutoApprove(autoApprove bool) error {
+	return m.Append(NewEntry(EntryTypeSessionSettings, "", SessionSettingsData{AutoApprove: &autoApprove}))
+}
+
+// AutoApprove reports the latest recorded auto-approve mode. ok is false for
+// a session that never recorded one (including every session written before
+// the field existed), which callers must not treat as an explicit "false".
+func (m *Manager) AutoApprove() (value bool, ok bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		if m.entries[i].Type != EntryTypeSessionSettings {
+			continue
+		}
+		data, isSettings := m.entries[i].Data.(SessionSettingsData)
+		if !isSettings || data.AutoApprove == nil {
+			continue
+		}
+		return *data.AutoApprove, true
+	}
+	return false, false
+}
+
 // FilePath returns the session file path.
 func (m *Manager) FilePath() string {
 	m.mu.RLock()

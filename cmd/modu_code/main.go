@@ -229,12 +229,65 @@ func main() {
 	if missingProvider {
 		runOpts.StartupNotice = missingProviderStartupNotice()
 	}
-	if err := runTUI(ctx, session, model, *noApprove, runOpts); err != nil {
+	autoApprove, restored := resolveAutoApprove(*noApprove, flagWasSet("no-approve"), session)
+	if restored {
+		runOpts.StartupNotice = appendStartupNotice(runOpts.StartupNotice, restoredAutoApproveNotice())
+	}
+	session.SetAutoApprove(autoApprove)
+	if err := runTUI(ctx, session, model, autoApprove, runOpts); err != nil {
 		fmt.Fprintf(os.Stderr, "ui error: %v\n", err)
 		os.Exit(1)
 	}
 	closeSession()
-	printInteractiveExitSummary(interactiveExitOutput, session)
+	printInteractiveExitSummary(interactiveExitOutput, session, autoApprove)
+}
+
+// flagWasSet reports whether name was given on the command line, which a
+// bool flag's value alone cannot tell us: an unset --no-approve and an
+// explicit --no-approve=false both read as false.
+func flagWasSet(name string) bool {
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
+
+// resolveAutoApprove decides the session's approval mode. An explicit
+// command-line flag always wins; otherwise a resumed session inherits what
+// it was last running with, so `modu_code --resume <id>` reproduces the
+// session without the user having to remember its flags. restored reports
+// the inherited case, which the caller surfaces on screen — silently
+// skipping every tool approval is not something to leave invisible.
+func resolveAutoApprove(flagValue, flagSet bool, session autoApproveSession) (autoApprove, restored bool) {
+	if flagSet || session == nil {
+		return flagValue, false
+	}
+	saved, ok := session.GetAutoApprove()
+	if !ok || saved == flagValue {
+		return flagValue, false
+	}
+	return saved, saved
+}
+
+// autoApproveSession is the slice of CodingSession resolveAutoApprove needs,
+// so the decision can be tested without building a real session.
+type autoApproveSession interface {
+	GetAutoApprove() (bool, bool)
+}
+
+func restoredAutoApproveNotice() string {
+	return "Restored from this session: --no-approve (tool executions run without asking for approval)."
+}
+
+func appendStartupNotice(existing, notice string) string {
+	existing = strings.TrimSpace(existing)
+	if existing == "" {
+		return notice
+	}
+	return existing + "\n\n" + notice
 }
 
 // startCronScheduler embeds pkg/cron's scheduler loop in this process,
@@ -260,7 +313,7 @@ func startCronScheduler(ctx context.Context) {
 	}()
 }
 
-func printInteractiveExitSummary(out io.Writer, session *coding_agent.CodingSession) {
+func printInteractiveExitSummary(out io.Writer, session *coding_agent.CodingSession, noApprove bool) {
 	if out == nil || session == nil {
 		return
 	}
@@ -268,7 +321,21 @@ func printInteractiveExitSummary(out io.Writer, session *coding_agent.CodingSess
 	if id == "" {
 		return
 	}
-	fmt.Fprintf(out, "Session saved: %s\nResume with: modu_code --resume %s\n", id, id)
+	fmt.Fprintf(out, "Session saved: %s\nResume with: %s\n", id, resumeCommandLine(id, noApprove))
+}
+
+// resumeCommandLine builds the resume command printed on exit. noApprove is
+// carried over because it changes how the resumed session behaves, and
+// silently dropping it hands back a command that re-enables the approval
+// prompts the user had deliberately turned off. --worktree is deliberately
+// not carried: it creates a new worktree at startup, whereas resuming
+// already restores the session's recorded cwd.
+func resumeCommandLine(id string, noApprove bool) string {
+	cmd := "modu_code"
+	if noApprove {
+		cmd += " --no-approve"
+	}
+	return cmd + " --resume " + id
 }
 
 func unconfiguredModel() *types.Model {
