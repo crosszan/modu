@@ -402,6 +402,31 @@ func inputSlashCommandEnd(runes []rune) int {
 	return len(runes)
 }
 
+// inputAtTokenStart returns the rune index of '@' for the unbroken "@query"
+// token containing the cursor, and the text typed after it. Unlike slash
+// commands (only valid as the whole line), an "@" file mention can start
+// anywhere, so this scans backward from the cursor rather than checking a
+// fixed position: it stops at the first whitespace or existing token rune
+// without finding '@' (cursor isn't in a token), and requires '@' itself be
+// preceded by whitespace or start-of-input (so "email@domain" mid-word text
+// doesn't trigger it). ok is false when the cursor isn't inside such a token.
+func inputAtTokenStart(runes []rune, cursor int) (start int, query string, ok bool) {
+	cursor = clamp(cursor, 0, len(runes))
+	for i := cursor - 1; i >= 0; i-- {
+		r := runes[i]
+		if r == '@' {
+			if i > 0 && !unicode.IsSpace(runes[i-1]) {
+				return 0, "", false
+			}
+			return i, string(runes[i+1 : cursor]), true
+		}
+		if unicode.IsSpace(r) || isInputToken(r) {
+			return 0, "", false
+		}
+	}
+	return 0, "", false
+}
+
 func (b InputBlock) expandLabels(value string) string {
 	return b.expandInputTokens(value, func(p inputPaste) string {
 		return p.Label

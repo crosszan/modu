@@ -1030,7 +1030,7 @@ func TestPOC2JumpHintSharesAgentStatusRow(t *testing.T) {
 		t.Fatalf("jump hint count = %d, want 1:\n%s", got, rendered)
 	}
 	lines := strings.Split(rendered, "\n")
-	statusRow := m.vpHeight() + m.approvalPanelHeight() + m.humanPromptPanelHeight() + m.slashPanelHeight() + m.todoPanelHeight() + 1
+	statusRow := m.vpHeight() + m.approvalPanelHeight() + m.humanPromptPanelHeight() + m.completionPanelHeight() + m.todoPanelHeight() + 1
 	if !strings.Contains(lines[statusRow], "running") || !strings.Contains(lines[statusRow], jumpHintText()) {
 		t.Fatalf("jump hint should share the agent status row, got %q in:\n%s", lines[statusRow], rendered)
 	}
@@ -1115,7 +1115,7 @@ func TestPOC2JumpRowClickScrollsToBottom(t *testing.T) {
 		t.Fatal("setup should be scrolled away from bottom")
 	}
 
-	statusRow := m.vpHeight() + m.approvalPanelHeight() + m.humanPromptPanelHeight() + m.slashPanelHeight() + m.todoPanelHeight() + 1
+	statusRow := m.vpHeight() + m.approvalPanelHeight() + m.humanPromptPanelHeight() + m.completionPanelHeight() + m.todoPanelHeight() + 1
 	_ = m.onPress(1, statusRow)
 	if !m.atBottom() {
 		t.Fatalf("jump row click should scroll to bottom, offset=%d max=%d", m.yOffset, m.maxOffset())
@@ -2937,5 +2937,147 @@ func TestMarkdownRendererForWidthMemoizes(t *testing.T) {
 	r3 := m.markdownRendererForWidth(40)
 	if r3 == r1 {
 		t.Fatal("a different width should not reuse another width's renderer")
+	}
+}
+
+func newAtMentionTestModel(t *testing.T, files ...string) tea.Model {
+	t.Helper()
+	var tm tea.Model = NewModel(Options{
+		Width: 80, Height: 20,
+		Services: Services{
+			ListFiles: func(query string) []string {
+				return rankTestFiles(files, query)
+			},
+		},
+	})
+	return tm
+}
+
+func rankTestFiles(files []string, query string) []string {
+	if query == "" {
+		return files
+	}
+	var out []string
+	for _, f := range files {
+		if strings.Contains(strings.ToLower(f), strings.ToLower(query)) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func typeInto(t *testing.T, model tea.Model, text string) tea.Model {
+	t.Helper()
+	for _, r := range text {
+		model = updateAndRunImmediate(t, model, tea.KeyPressMsg(tea.Key{Code: r, Text: string(r)}))
+	}
+	return model
+}
+
+func TestAtMentionPopupOpensAndCompletes(t *testing.T) {
+	model := newAtMentionTestModel(t, "pkg/modu-tui/model.go", "cmd/modu_code/main.go")
+
+	model = typeInto(t, model, "@mod")
+	m := model.(Model)
+	if len(m.atMatches) == 0 {
+		t.Fatal("typing an @query should populate file matches")
+	}
+	if !strings.Contains(ansi.Strip(m.render()), "pkg/modu-tui/model.go") {
+		t.Fatalf("the completion popup should list matching files:\n%s", ansi.Strip(m.render()))
+	}
+
+	model = updateAndRunImmediate(t, model, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	m = model.(Model)
+	if got, want := m.input.Value, "@pkg/modu-tui/model.go "; got != want {
+		t.Fatalf("Tab should replace the @query with the selected path: got %q, want %q", got, want)
+	}
+	if len(m.atMatches) != 0 {
+		t.Fatal("completing should dismiss the popup")
+	}
+}
+
+func TestAtMentionCompletesMidSentenceWithoutTouchingOtherText(t *testing.T) {
+	model := newAtMentionTestModel(t, "pkg/modu-tui/model.go")
+
+	model = typeInto(t, model, "explain @mod")
+	model = updateAndRunImmediate(t, model, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+
+	m := model.(Model)
+	if got, want := m.input.Value, "explain @pkg/modu-tui/model.go "; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestAtMentionEnterAcceptsInsteadOfSubmitting(t *testing.T) {
+	model := newAtMentionTestModel(t, "pkg/modu-tui/model.go")
+	model = typeInto(t, model, "@mod")
+
+	model = updateAndRunImmediate(t, model, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m := model.(Model)
+	if got, want := m.input.Value, "@pkg/modu-tui/model.go "; got != want {
+		t.Fatalf("Enter with the popup open should accept the path, not submit: input = %q, want %q", got, want)
+	}
+	if len(m.entries) != 0 {
+		t.Fatalf("Enter should not have submitted a message, got %d entries", len(m.entries))
+	}
+}
+
+func TestAtMentionEscDismissesPopupWithoutClearingInput(t *testing.T) {
+	model := newAtMentionTestModel(t, "pkg/modu-tui/model.go")
+	model = typeInto(t, model, "@mod")
+
+	model = updateAndRunImmediate(t, model, tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	m := model.(Model)
+	if len(m.atMatches) != 0 {
+		t.Fatal("Esc should dismiss the file popup")
+	}
+	if m.input.Value != "@mod" {
+		t.Fatalf("Esc should leave typed text alone, got %q", m.input.Value)
+	}
+}
+
+func TestAtMentionArrowKeysMoveSelection(t *testing.T) {
+	model := newAtMentionTestModel(t, "a/model.go", "b/model.go", "c/model.go")
+	model = typeInto(t, model, "@model")
+
+	model = updateAndRunImmediate(t, model, tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if got := model.(Model).atIndex; got != 1 {
+		t.Fatalf("Down should advance the selection, got %d", got)
+	}
+	model = updateAndRunImmediate(t, model, tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	if got := model.(Model).atIndex; got != 0 {
+		t.Fatalf("Up should move the selection back, got %d", got)
+	}
+
+	model = updateAndRunImmediate(t, model, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	if got, want := model.(Model).input.Value, "@a/model.go "; got != want {
+		t.Fatalf("Tab should complete the highlighted entry, got %q want %q", got, want)
+	}
+}
+
+func TestAtMentionStaleResultsAreDiscarded(t *testing.T) {
+	var tm tea.Model = NewModel(Options{Width: 80, Height: 20})
+	m := tm.(Model)
+	m.input.Insert("@newer")
+	m.input.Cursor = m.input.Len()
+
+	// A lookup for an older, shorter query resolving late must not replace
+	// what the user has since typed.
+	m.applyAtMatches(atFilesLoadedMsg{query: "old", paths: []string{"stale/path.go"}})
+	if len(m.atMatches) != 0 {
+		t.Fatalf("results for a stale query should be discarded, got %#v", m.atMatches)
+	}
+
+	m.applyAtMatches(atFilesLoadedMsg{query: "newer", paths: []string{"fresh/path.go"}})
+	if len(m.atMatches) != 1 || m.atMatches[0] != "fresh/path.go" {
+		t.Fatalf("results matching the current query should apply, got %#v", m.atMatches)
+	}
+}
+
+func TestAtMentionDoesNotOpenWithoutListFilesService(t *testing.T) {
+	var model tea.Model = NewModel(Options{Width: 80, Height: 20})
+	model = typeInto(t, model, "@mod")
+	if len(model.(Model).atMatches) != 0 {
+		t.Fatal("no popup should appear when the host provides no ListFiles service")
 	}
 }

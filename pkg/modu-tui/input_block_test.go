@@ -42,6 +42,41 @@ func TestInputBlockHighlightsSlashCommandToken(t *testing.T) {
 	}
 }
 
+func TestInputAtTokenStart(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     string
+		cursor    int
+		wantStart int
+		wantQuery string
+		wantOK    bool
+	}{
+		{name: "just typed @ at start", value: "@", cursor: 1, wantStart: 0, wantQuery: "", wantOK: true},
+		{name: "@ with partial query", value: "@src/mai", cursor: 8, wantStart: 0, wantQuery: "src/mai", wantOK: true},
+		{name: "@ mid-sentence after whitespace", value: "look at @src", cursor: 12, wantStart: 8, wantQuery: "src", wantOK: true},
+		{name: "cursor mid-query, not at end", value: "@src/main.go", cursor: 4, wantStart: 0, wantQuery: "src", wantOK: true},
+		{name: "no @ at all", value: "just text", cursor: 9, wantOK: false},
+		{name: "@ token already closed by a space", value: "@src ", cursor: 5, wantOK: false},
+		{name: "email-like text should not trigger mid-word", value: "user@domain", cursor: 11, wantOK: false},
+		{name: "@ preceded by non-space char", value: "x@y", cursor: 3, wantOK: false},
+		{name: "empty input", value: "", cursor: 0, wantOK: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, query, ok := inputAtTokenStart([]rune(tt.value), tt.cursor)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if start != tt.wantStart || query != tt.wantQuery {
+				t.Fatalf("start=%d query=%q, want start=%d query=%q", start, query, tt.wantStart, tt.wantQuery)
+			}
+		})
+	}
+}
+
 func TestInputBlockReplaceBeforeCursor(t *testing.T) {
 	var input InputBlock
 	input.Insert("prefix zhege suffix")

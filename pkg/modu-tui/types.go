@@ -122,6 +122,12 @@ type Services struct {
 	ResolvePastedImages func(content string) ([]ImageAttachment, bool, error)
 	SlashCommands       func() []SlashCommand
 	LoadToolArtifact    func(path string) (string, error)
+	// ListFiles resolves an in-progress "@query" file-mention token into
+	// candidate relative paths, already filtered and capped by the host
+	// (unlike SlashCommands, which returns everything for the model to
+	// filter client-side — a project's file count can be far larger than
+	// its command count, so filtering happens host-side instead).
+	ListFiles func(query string) []string
 }
 
 type EntryBlockFactory func(Entry) (Block, bool)
