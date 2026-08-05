@@ -43,6 +43,12 @@ type Prompter interface {
 	ApprovePlan(plan string, steps []string) string
 	// ApproveTool gates a single tool execution.
 	ApproveTool(toolName, toolCallID string, args map[string]any) (types.ToolApprovalDecision, error)
+	// Ask puts a round of model-authored questions to the user. Unlike the
+	// other methods it takes a context (the tool's, so an interrupt unblocks
+	// it) and may return an error: a host that cannot prompt must say so
+	// rather than invent an answer, since there is no sensible fallback for
+	// "what does the user want?".
+	Ask(ctx context.Context, request AskRequest) (AskResult, error)
 }
 
 // SetPrompter wires every interactive callback from a single Prompter. It is
@@ -57,4 +63,5 @@ func (s *CodingSession) SetPrompter(p Prompter) {
 	s.SetExtensionSelectCallback(p.Select)
 	s.SetPlanDecisionCallback(p.ApprovePlan)
 	s.SetToolApprovalCallback(p.ApproveTool)
+	s.SetAskCallback(p.Ask)
 }
