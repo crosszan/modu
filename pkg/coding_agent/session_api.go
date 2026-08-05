@@ -253,6 +253,39 @@ func (s *CodingSession) GetSessionName() string {
 	return s.sessionName
 }
 
+// SetAutoApprove records whether this session runs tool executions without
+// asking for approval, so resuming it can restore that mode rather than
+// silently reinstating the prompts.
+//
+// Nothing is written when the value already matches what the session
+// records, nor for the default (false) in a session that never recorded
+// anything: an entry there would say nothing a reader couldn't assume, and
+// would make an otherwise-untouched session look like it has content.
+func (s *CodingSession) SetAutoApprove(autoApprove bool) {
+	if s == nil || s.sessionManager == nil {
+		return
+	}
+	current, ok := s.sessionManager.AutoApprove()
+	if ok && current == autoApprove {
+		return
+	}
+	if !ok && !autoApprove {
+		return
+	}
+	_ = s.sessionManager.AppendAutoApprove(autoApprove)
+}
+
+// GetAutoApprove reports the auto-approve mode recorded for this session.
+// ok is false when the session never recorded one — including every session
+// saved before the setting was persisted — which callers must distinguish
+// from an explicit false.
+func (s *CodingSession) GetAutoApprove() (value bool, ok bool) {
+	if s == nil || s.sessionManager == nil {
+		return false, false
+	}
+	return s.sessionManager.AutoApprove()
+}
+
 // GetForkMessages returns user messages from the session history, suitable for forking.
 func (s *CodingSession) GetForkMessages() []ForkMessage {
 	entries := s.sessionTree.GetCurrentPath()
