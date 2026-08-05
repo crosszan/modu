@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	coding_agent "github.com/openmodu/modu/pkg/coding_agent"
@@ -100,6 +101,10 @@ func (p *moduTUIPrompter) ApproveTool(toolName, toolCallID string, args map[stri
 	return toolApprovalDecisionToTypes(decision), nil
 }
 
+// askOtherLabel is the always-present escape hatch appended to every
+// question, so the user is never forced into one of the model's options.
+const askOtherLabel = "Other (type your own answer)"
+
 // Ask puts the model's questions to the user, one card at a time, and
 // collects the answers by question ID.
 //
@@ -120,42 +125,101 @@ func (p *moduTUIPrompter) Ask(ctx context.Context, request coding_agent.AskReque
 	}
 
 	answers := make(map[string]string, len(request.Questions))
-	for _, question := range request.Questions {
-		options := make([]modutui.HumanPromptOption, 0, len(question.Options))
-		for _, option := range question.Options {
-			label := option.Label
-			if option.Description != "" {
-				label += " — " + option.Description
-			}
-			// Value stays the bare label: it is what the model reads back,
-			// so it should not carry the description text used for display.
-			options = append(options, modutui.HumanPromptOption{Label: label, Value: option.Label})
-		}
-		title := question.Header
-		if title == "" {
-			title = "Question"
-		}
-		choice, err := p.client.AskChoice(ctx, modutui.HumanPromptRequest{
-			ID:           question.ID,
-			Title:        title,
-			Body:         question.Question,
-			Options:      options,
-			DefaultIndex: -1,
-		})
-		if errors.Is(err, modutui.ErrClientUnavailable) {
-			return coding_agent.AskResult{}, coding_agent.ErrAskUnavailable
-		}
+	for i, question := range request.Questions {
+		answer, cancelled, err := p.askOne(ctx, question, i, len(request.Questions))
 		if err != nil {
 			return coding_agent.AskResult{}, err
 		}
-		if strings.TrimSpace(choice) == "" {
+		if cancelled {
 			// Dismissing one question abandons the round: answering the rest
 			// would attribute a decision to a user who just opted out.
 			return coding_agent.AskResult{Cancelled: true}, nil
 		}
-		answers[question.ID] = choice
+		answers[question.ID] = answer
 	}
 	return coding_agent.AskResult{Answers: answers}, nil
+}
+
+func (p *moduTUIPrompter) askOne(ctx context.Context, question coding_agent.AskQuestion, index, total int) (answer string, cancelled bool, err error) {
+	options := make([]modutui.HumanPromptOption, 0, len(question.Options)+1)
+	for _, option := range question.Options {
+		label := option.Label
+		if option.Description != "" {
+			label += " — " + option.Description
+		}
+		// Value stays the bare label: it is what the model reads back, so it
+		// should not carry the description text used for display.
+		options = append(options, modutui.HumanPromptOption{Label: label, Value: option.Label})
+	}
+	otherValue := uniqueOptionValue(options, "__modu_ask_other__")
+	options = append(options, modutui.HumanPromptOption{Label: askOtherLabel, Value: otherValue})
+
+	title := question.Header
+	if title == "" {
+		title = "Question"
+	}
+	if total > 1 {
+		title = fmt.Sprintf("%s (%d/%d)", title, index+1, total)
+	}
+
+	choice, err := p.client.AskChoice(ctx, modutui.HumanPromptRequest{
+		ID:           question.ID,
+		Title:        title,
+		Body:         question.Question,
+		Options:      options,
+		DefaultIndex: -1,
+	})
+	if errors.Is(err, modutui.ErrClientUnavailable) {
+		return "", false, coding_agent.ErrAskUnavailable
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if strings.TrimSpace(choice) == "" {
+		return "", true, nil
+	}
+	if choice != otherValue {
+		return choice, false, nil
+	}
+
+	// "Other" hands the same question to the text overlay. Leaving it blank
+	// reads as backing out, same as dismissing the card.
+	typed, err := p.client.AskText(ctx, modutui.HumanTextRequest{
+		ID:          question.ID + ":other",
+		Title:       title,
+		Body:        question.Question,
+		Placeholder: "Type your answer",
+	})
+	if errors.Is(err, modutui.ErrClientUnavailable) {
+		return "", false, coding_agent.ErrAskUnavailable
+	}
+	if err != nil {
+		return "", false, err
+	}
+	typed = strings.TrimSpace(typed)
+	if typed == "" {
+		return "", true, nil
+	}
+	return typed, false, nil
+}
+
+// uniqueOptionValue returns a value no option already uses, so the synthetic
+// "Other" entry stays distinguishable even if the model happens to author an
+// option whose label collides with the sentinel.
+func uniqueOptionValue(options []modutui.HumanPromptOption, candidate string) string {
+	for {
+		taken := false
+		for _, option := range options {
+			if option.Value == candidate {
+				taken = true
+				break
+			}
+		}
+		if !taken {
+			return candidate
+		}
+		candidate += "_"
+	}
 }
 
 func (p *moduTUIPrompter) requestHumanPrompt(req modutui.HumanPromptRequest) string {

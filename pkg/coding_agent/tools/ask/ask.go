@@ -66,8 +66,10 @@ not for decisions with an obvious default, and not for facts you could
 verify yourself by reading the code.
 
 Each question needs at least two concrete options. The user can always
-decline to answer, in which case you should proceed with your best judgment
-and say what you assumed.`
+answer with their own text instead of picking one of them, so handle an
+answer that matches none of your options. They can also decline to answer
+entirely, in which case you should proceed with your best judgment and say
+what you assumed.`
 }
 
 func (t *Tool) Parameters() any {
