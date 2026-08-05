@@ -197,8 +197,18 @@ func markdownEntry(role modutui.Role, text string) modutui.Entry {
 	}
 }
 
+// infoEntry builds a session lifecycle line (model/cwd/worktree changes,
+// subagent and permission notices, extension messages). These are the TUI's
+// own status output, not model output, so they use RoleStatus — dimmed
+// behind a "·" marker instead of the "●" that would imply the model said
+// them — and a TextNode: markdown would collapse the embedded newline in
+// multi-line notices such as permission-denied reasons, and would also
+// mangle literal paths containing markdown punctuation.
 func infoEntry(text string) modutui.Entry {
-	return markdownEntry(modutui.RoleAssistant, strings.TrimSpace(text))
+	return modutui.Entry{
+		Role:  modutui.RoleStatus,
+		Nodes: []modutui.Node{modutui.TextNode{Text: strings.TrimSpace(text)}},
+	}
 }
 
 // firstLinePreview collapses text to a single trimmed line and truncates it to

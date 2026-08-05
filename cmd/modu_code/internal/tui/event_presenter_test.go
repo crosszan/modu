@@ -106,9 +106,22 @@ func TestEventPresenterMapsSessionEvents(t *testing.T) {
 	if !ok {
 		t.Fatal("permission event was not presented")
 	}
-	text := denied.Nodes[0].(modutui.MarkdownNode).Text
-	if !strings.Contains(text, "bash") || !strings.Contains(text, "dangerous command") {
+	// Lifecycle lines are the TUI's own status output, not model output: they
+	// must use RoleStatus (dim "·" marker, not the assistant "●") and a
+	// TextNode, so an embedded newline like this one survives instead of
+	// being collapsed by markdown into a single run-on line.
+	if denied.Role != modutui.RoleStatus {
+		t.Fatalf("session lifecycle entry should use RoleStatus, got %#v", denied)
+	}
+	node, ok := denied.Nodes[0].(modutui.TextNode)
+	if !ok {
+		t.Fatalf("session lifecycle entry should be a TextNode, got %T", denied.Nodes[0])
+	}
+	if !strings.Contains(node.Text, "bash") || !strings.Contains(node.Text, "dangerous command") {
 		t.Fatalf("permission entry = %#v", denied)
+	}
+	if !strings.Contains(node.Text, "\n") {
+		t.Fatalf("the reason should stay on its own line, got %q", node.Text)
 	}
 
 	compact, ok := presenter.SessionEvent(coding_agent.SessionEvent{
@@ -117,8 +130,8 @@ func TestEventPresenterMapsSessionEvents(t *testing.T) {
 	if !ok || !compact.Plain {
 		t.Fatalf("compact entry = %#v, %v", compact, ok)
 	}
-	node, ok := compact.Nodes[0].(modutui.TextNode)
-	if !ok || node.Text != "------------- compact -------------" {
+	compactNode, ok := compact.Nodes[0].(modutui.TextNode)
+	if !ok || compactNode.Text != "------------- compact -------------" {
 		t.Fatalf("compact node = %#v", compact.Nodes)
 	}
 }
@@ -134,7 +147,7 @@ func TestEventPresenterCompactsSubagentLifecycle(t *testing.T) {
 	if !ok {
 		t.Fatal("subagent start not presented")
 	}
-	startText := start.Nodes[0].(modutui.MarkdownNode).Text
+	startText := start.Nodes[0].(modutui.TextNode).Text
 	if !strings.Contains(startText, "subagent start: goal-verifier") {
 		t.Fatalf("start missing name: %q", startText)
 	}
@@ -150,7 +163,7 @@ func TestEventPresenterCompactsSubagentLifecycle(t *testing.T) {
 		SubagentName: "goal-verifier",
 		ErrorMessage: "subagent \"goal-verifier\": subagent exceeded max_turns=20",
 	})
-	stopText := stop.Nodes[0].(modutui.MarkdownNode).Text
+	stopText := stop.Nodes[0].(modutui.TextNode).Text
 	if strings.Contains(stopText, "\n") {
 		t.Fatalf("stop should be a single line, got:\n%s", stopText)
 	}
@@ -171,7 +184,7 @@ func TestEventPresenterSubagentClosingStats(t *testing.T) {
 	if !ok {
 		t.Fatal("subagent start not presented")
 	}
-	startText := start.Nodes[0].(modutui.MarkdownNode).Text
+	startText := start.Nodes[0].(modutui.TextNode).Text
 	// The short label wins over the raw task text.
 	if !strings.Contains(startText, "map auth flow") || strings.Contains(startText, "Read every file") {
 		t.Fatalf("start should use the label: %q", startText)
@@ -186,7 +199,7 @@ func TestEventPresenterSubagentClosingStats(t *testing.T) {
 		SubagentTokens:     12400,
 		SubagentDurationMs: 8200,
 	})
-	stopText := stop.Nodes[0].(modutui.MarkdownNode).Text
+	stopText := stop.Nodes[0].(modutui.TextNode).Text
 	if !strings.Contains(stopText, "Done (3 turns · 12.4K tokens · 8s)") {
 		t.Fatalf("stop missing closing stats: %q", stopText)
 	}

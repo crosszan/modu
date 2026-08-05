@@ -13,6 +13,7 @@ var (
 	panelTitleStyle               = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 	panelSectionStyle             = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	dimStyle                      = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	statusStyle                   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	ruleStyle                     = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 	cardBorderStyle               = lipgloss.NewStyle().Foreground(lipgloss.Color("248"))
 	approvalBorderStyle           = cardBorderStyle
