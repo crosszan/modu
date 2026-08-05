@@ -131,6 +131,7 @@ type engine struct {
 	mcpManager       *mcpclient.Manager   // external MCP connections and tools
 	mcpWarnings      []error              // optional-server startup failures
 	extPrompts       extensionPrompts     // host confirm/select callbacks
+	askPrompts       askPrompts           // host callback for ask_user_question
 
 	// bgPromptDriver lets a host (e.g. the TUI) take over hidden extension
 	// prompts (goal continuations) that would otherwise run in a detached
@@ -419,6 +420,7 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 	cs.replaceTaskOutputTool()
 	cs.replacePlanTools()
 	cs.replaceWorktreeTools()
+	cs.replaceAskTool()
 	initialContexts := make([]string, 0, len(resourceSnapshot.ContextFiles))
 	for _, ctxFile := range resourceSnapshot.ContextFiles {
 		initialContexts = append(initialContexts, ctxFile.Path)
