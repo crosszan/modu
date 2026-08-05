@@ -447,7 +447,7 @@ Streamable HTTP 的 POST JSON/SSE 响应和可选 GET SSE 通道都由官方 SDK
 | `/tree` | 显示/跳转会话树，TUI 下支持搜索、summary 预览和 branched session 创建 |
 | `/fork <id>` | 从指定条目创建分支 |
 | `/branch-session <id>` | 抽取当前会话分支路径为新的会话文件 |
-| `/export [file]` | 导出当前会话为 HTML |
+| `/export [file]` | 将当前分支的完整会话记录导出为 HTML；消息支持 Markdown，每次工具调用单独成块，输入/输出合并并保留本地时间 |
 | `/copy` | 复制最后一条 assistant 回复到系统剪贴板 |
 | `/changelog` | 显示当前 git 仓库最近提交 |
 | `/settings` | 显示当前配置 |

@@ -16,6 +16,12 @@ High-priority gaps identified before this round:
 
 ## Completed In This Round
 
+- 2026-08-05: changed `/export` to render the persisted current-branch
+  transcript instead of the compacted in-memory model context. HTML exports now
+  preserve pre-compaction messages and markers, show local timestamps, identify
+  MCP and built-in tools by name, render every call as its own collapsible block
+  with combined input/output, render user/assistant messages as safe GFM
+  Markdown, and never emit the previous empty `unknown` message rows.
 - 2026-08-04: bundled Anthropic's official `skill-creator` directory without
   Modu-specific content changes. The binary materializes all 18 licensed
   resources under `<agent-dir>/builtin-skills/<upstream-commit>/skill-creator`
