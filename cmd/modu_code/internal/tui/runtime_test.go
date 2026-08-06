@@ -130,7 +130,7 @@ func TestRuntimeFollowUpContinuesActivePrompt(t *testing.T) {
 	session.mu.Unlock()
 	messagesMu.Lock()
 	defer messagesMu.Unlock()
-	if !containsRuntimeStatus(messages, "queued") || !containsRuntimeStatus(messages, "✓ Completed 1s") {
+	if !containsRuntimeStatus(messages, modutui.StatusQueued) || !containsRuntimeStatus(messages, "✓ Completed 1s") {
 		t.Fatalf("messages = %#v", messages)
 	}
 }

@@ -1738,12 +1738,30 @@ func (m *Model) render() string {
 }
 
 // steerFollowupHint is shown in the agent status line while a task is running
-// so the operator knows how a typed message will be delivered.
-const steerFollowupHint = "Enter follow-up · ⇧Enter steer"
+// so the operator knows how a typed message will be delivered. It names the
+// effect rather than the queue it lands in ("插话"/"排队", not
+// "steer"/"follow-up"), since what the user is deciding is when their message
+// takes effect. Esc belongs here too: stopping is the third thing they can do
+// with a running task, and it had no on-screen mention at all.
+const steerFollowupHint = "Enter 插话 · ⇧Enter 排队 · Esc 中断"
+
+// StatusInterjected and StatusQueued are the transient statuses a host sets
+// after a message is accepted mid-run. They say when the message takes
+// effect rather than which queue it entered, and are exported so the host
+// and this package cannot drift apart on the wording.
+const (
+	StatusInterjected = "↩ 已插话，下一步生效"
+	StatusQueued      = "⏳ 已排队，本轮结束后处理"
+)
+
+// TransientStatusTTL is how long those statuses stay before the status line
+// falls back to the key hint. Long enough to read, short enough that the
+// hint is not hidden for the rest of the turn.
+const TransientStatusTTL = 4 * time.Second
 
 // runStatusAllowsHint reports whether the running-state hint should be appended,
 // i.e. only during the plain running state, not while a transient status
-// (interrupting / steering / queued / completed) is being shown.
+// (interrupting / interjected / queued / completed) is being shown.
 func runStatusAllowsHint(status string) bool {
 	switch strings.TrimSpace(status) {
 	case "", "running", "idle":
