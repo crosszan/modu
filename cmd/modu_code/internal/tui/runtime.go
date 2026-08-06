@@ -224,7 +224,7 @@ func (r *Runtime) QueueFollowUp(text string, images []types.ImageContent, requir
 			r.client.SetStatus("error: "+err.Error(), r.terminalStatusTTL)
 			return
 		}
-		r.client.SetStatus("queued", 0)
+		r.client.SetStatus(modutui.StatusQueued, modutui.TransientStatusTTL)
 	})
 }
 
@@ -252,7 +252,7 @@ func (r *Runtime) QueueSteer(text string, images []types.ImageContent, requireAc
 		// would kill the in-flight tool and LLM request and restart the
 		// turn, which loses that work and bypasses the mechanism entirely.
 		// Esc remains the way to actually stop what's running.
-		r.client.SetStatus("steering", 0)
+		r.client.SetStatus(modutui.StatusInterjected, modutui.TransientStatusTTL)
 	})
 }
 

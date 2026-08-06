@@ -3085,3 +3085,89 @@ func TestAtMentionDoesNotOpenWithoutListFilesService(t *testing.T) {
 		t.Fatal("no popup should appear when the host provides no ListFiles service")
 	}
 }
+
+func TestRunningHintMatchesWhatTheKeysActuallyDo(t *testing.T) {
+	// This is the test that was missing when the keys were swapped: the hint
+	// kept advertising the old mapping. Deriving both from submitInput's real
+	// behavior means the hint cannot silently drift from it again.
+	keyKind := func(key tea.Key) SubmitKind {
+		var got SubmitEvent
+		var tm tea.Model = NewModel(Options{
+			IntentHandler: testIntentHandler(testIntentCallbacks{submit: func(ev SubmitEvent) { got = ev }}),
+		})
+		tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+		tm, _ = tm.Update(tea.PasteMsg{Content: "mid-run message"})
+		tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(key))
+		return got.Kind
+	}
+
+	enter := keyKind(tea.Key{Code: tea.KeyEnter})
+	shiftEnter := keyKind(tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift})
+	if enter != SubmitKindSteer || shiftEnter != SubmitKindFollowUp {
+		t.Fatalf("keys produce Enter=%q ⇧Enter=%q; the assertions below assume Enter steers", enter, shiftEnter)
+	}
+
+	// Enter steers, so the hint's Enter entry must describe interjecting and
+	// its ⇧Enter entry must describe queueing — not the reverse.
+	enterIdx := strings.Index(steerFollowupHint, "Enter 插话")
+	shiftIdx := strings.Index(steerFollowupHint, "⇧Enter 排队")
+	if enterIdx < 0 || shiftIdx < 0 {
+		t.Fatalf("hint %q should say Enter interjects and ⇧Enter queues", steerFollowupHint)
+	}
+	if !strings.Contains(steerFollowupHint, "Esc") {
+		t.Fatalf("hint %q should mention Esc, the third thing you can do to a running task", steerFollowupHint)
+	}
+}
+
+func TestRunningHintYieldsToTransientStatuses(t *testing.T) {
+	// The hint shares one line with the status, so a just-sent message's
+	// status must replace it rather than being appended after it.
+	for _, status := range []string{StatusInterjected, StatusQueued, "interrupting"} {
+		if runStatusAllowsHint(status) {
+			t.Fatalf("status %q should hide the key hint", status)
+		}
+	}
+	for _, status := range []string{"", "running", "idle"} {
+		if !runStatusAllowsHint(status) {
+			t.Fatalf("status %q should still show the key hint", status)
+		}
+	}
+}
+
+func TestTransientStatusReplacesHintThenRestoresIt(t *testing.T) {
+	var tm tea.Model = NewModel(Options{Width: 100, Height: 12})
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	busy := tm.(Model)
+	if !strings.Contains(ansi.Strip(busy.render()), "Enter 插话") {
+		t.Fatal("a running task should advertise the keys")
+	}
+
+	// A short TTL here so the test exercises the restore path without
+	// sleeping for TransientStatusTTL; the constant itself is checked below.
+	tm, _ = tm.Update(UpdateMsg{Update: SetStatusUpdate{Status: StatusInterjected, TTL: time.Millisecond}})
+	shown := tm.(Model)
+	rendered := ansi.Strip(shown.render())
+	if !strings.Contains(rendered, "已插话") {
+		t.Fatalf("the interjected status should be visible:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Enter 插话") {
+		t.Fatalf("the hint should step aside while the status shows:\n%s", rendered)
+	}
+
+	// Expiry restores the hint, so the keys are not hidden for the rest of
+	// the turn.
+	time.Sleep(5 * time.Millisecond)
+	tm, _ = tm.Update(statusExpireMsg{status: StatusInterjected})
+	restored := tm.(Model)
+	if !strings.Contains(ansi.Strip(restored.render()), "Enter 插话") {
+		t.Fatal("the hint should come back once the transient status expires")
+	}
+}
+
+func TestTransientStatusTTLIsReadableButNotSticky(t *testing.T) {
+	// Long enough to read the status, short enough that the key hint is not
+	// hidden for the rest of a long turn.
+	if TransientStatusTTL < time.Second || TransientStatusTTL > 10*time.Second {
+		t.Fatalf("TransientStatusTTL = %v, want a few seconds", TransientStatusTTL)
+	}
+}
