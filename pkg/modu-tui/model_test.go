@@ -1401,8 +1401,12 @@ func TestPOC2SubmitMessageReportsPromptFollowUpAndSteer(t *testing.T) {
 		want SubmitKind
 	}{
 		{name: "prompt", key: tea.Key{Code: tea.KeyEnter}, want: SubmitKindPrompt},
-		{name: "followup", busy: true, key: tea.Key{Code: tea.KeyEnter}, want: SubmitKindFollowUp},
-		{name: "steer", busy: true, key: tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift}, want: SubmitKindSteer},
+		// Typing mid-run almost always means "also do this" or "no, not like
+		// that", so plain Enter steers: the message joins the running turn at
+		// its next tool boundary instead of waiting for the whole turn to end.
+		{name: "enter steers while busy", busy: true, key: tea.Key{Code: tea.KeyEnter}, want: SubmitKindSteer},
+		// Shift+Enter is the deliberate "queue this for after you're done".
+		{name: "shift enter queues a follow-up while busy", busy: true, key: tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift}, want: SubmitKindFollowUp},
 		{name: "idle shift enter prompts", key: tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift}, want: SubmitKindPrompt},
 	}
 

@@ -191,13 +191,23 @@ func (m Model) Lines() []string {
 	return append([]string(nil), m.lines...)
 }
 
-func (m *Model) submitInput(steer bool) tea.Cmd {
+// submitInput sends the composed input. alt reports Shift+Enter rather than
+// plain Enter.
+//
+// While the agent is working, plain Enter steers: the message joins the
+// running turn at its next tool boundary. That is the common case — a user
+// typing mid-run almost always means "also do this" or "no, not like that",
+// and waiting for the whole turn to finish makes it land too late to matter.
+// Shift+Enter is the deliberate "queue this for after you're done" instead.
+func (m *Model) submitInput(alt bool) tea.Cmd {
 	v := strings.TrimSpace(m.input.ExpandedValue())
 	images := m.input.ImageAttachments()
 	if v == "" && len(images) == 0 {
 		return nil
 	}
-	if len(m.slashMatches) > 0 && len(images) == 0 && !steer {
+	// Slash completion stays on plain Enter, independent of which queue the
+	// message would land in.
+	if len(m.slashMatches) > 0 && len(images) == 0 && !alt {
 		v = m.slashMatches[clamp(m.slashIndex, 0, len(m.slashMatches)-1)].Name
 	}
 
@@ -205,10 +215,10 @@ func (m *Model) submitInput(steer bool) tea.Cmd {
 	display := strings.TrimSpace(m.input.DisplayValue())
 	kind := SubmitKindPrompt
 	if m.streaming || m.busy {
-		if steer {
-			kind = SubmitKindSteer
-		} else {
+		if alt {
 			kind = SubmitKindFollowUp
+		} else {
+			kind = SubmitKindSteer
 		}
 	}
 
