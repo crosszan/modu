@@ -13,15 +13,16 @@ import (
 type runtimeSessionStub struct {
 	mu sync.Mutex
 
-	promptStarted  chan struct{}
-	promptRelease  chan struct{}
-	promptOnce     sync.Once
-	queued         bool
-	continueCalls  int
-	followUps      []string
-	steers         []string
-	abortCalls     int
-	abortBashCalls int
+	promptStarted   chan struct{}
+	promptRelease   chan struct{}
+	promptOnce      sync.Once
+	queued          bool
+	continueCalls   int
+	followUps       []string
+	steers          []string
+	abortCalls      int
+	abortBashCalls  int
+	promptCancelled bool
 }
 
 func newRuntimeSessionStub() *runtimeSessionStub {
@@ -37,6 +38,9 @@ func (s *runtimeSessionStub) PromptWithImages(ctx context.Context, text string, 
 	case <-s.promptRelease:
 		return nil
 	case <-ctx.Done():
+		s.mu.Lock()
+		s.promptCancelled = true
+		s.mu.Unlock()
 		return ctx.Err()
 	}
 }
@@ -131,7 +135,12 @@ func TestRuntimeFollowUpContinuesActivePrompt(t *testing.T) {
 	}
 }
 
-func TestRuntimeSteerCancelsAndContinues(t *testing.T) {
+func TestRuntimeSteerDoesNotAbortTheRunningTurn(t *testing.T) {
+	// Steering must not throw away in-flight work. The agent loop already
+	// collects steering after each tool batch and skips the calls queued
+	// behind it (pkg/agent/tools.go), so the message joins the running turn
+	// at its next boundary. Cancelling here would kill the in-flight tool
+	// and LLM request and bypass that mechanism entirely.
 	session := newRuntimeSessionStub()
 	runtime, err := NewRuntime(RuntimeOptions{
 		Context: context.Background(),
@@ -148,16 +157,19 @@ func TestRuntimeSteerCancelsAndContinues(t *testing.T) {
 	waitRuntimeCondition(t, func() bool {
 		session.mu.Lock()
 		defer session.mu.Unlock()
-		return session.continueCalls == 1
+		return len(session.steers) == 1
 	})
 
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	if len(session.steers) != 1 || session.steers[0] != "change direction" {
+	if session.steers[0] != "change direction" {
 		t.Fatalf("steers = %#v", session.steers)
 	}
-	if session.abortCalls != 1 || session.abortBashCalls != 1 {
-		t.Fatalf("abort calls = %d, bash = %d", session.abortCalls, session.abortBashCalls)
+	if session.abortCalls != 0 || session.abortBashCalls != 0 {
+		t.Fatalf("steering must not abort: abort = %d, bash = %d", session.abortCalls, session.abortBashCalls)
+	}
+	if session.promptCancelled {
+		t.Fatal("steering must not cancel the running turn's context")
 	}
 }
 

@@ -45,11 +45,10 @@ type Runtime struct {
 	formatDuration    func(time.Duration) string
 	refreshFooter     func()
 
-	promptMu                  sync.Mutex
-	currentCancel             context.CancelFunc
-	currentPromptID           int
-	nextPromptID              int
-	continueQueuedAfterCancel bool
+	promptMu        sync.Mutex
+	currentCancel   context.CancelFunc
+	currentPromptID int
+	nextPromptID    int
 
 	foregroundMu   sync.Mutex
 	foregroundRuns int
@@ -176,9 +175,9 @@ func (r *Runtime) run(run func(context.Context) error, complete func(error), con
 		nextRun := run
 		for {
 			started := r.now()
-			err, steeringCancel := r.runTurn(nextRun)
+			err := r.runTurn(nextRun)
 
-			if continueMainQueue && r.session.HasQueuedMessages() && (err == nil || steeringCancel) {
+			if continueMainQueue && r.session.HasQueuedMessages() && err == nil {
 				r.client.SetStatus("running", 0)
 				nextRun = r.session.Continue
 				continue
@@ -197,11 +196,11 @@ func (r *Runtime) run(run func(context.Context) error, complete func(error), con
 // deferred cleanup releases the context and clears prompt state even if run
 // panics, so a panic cannot leave IsPromptActive stuck true; the panic then
 // propagates to the agent-loop recovery in Go.
-func (r *Runtime) runTurn(run func(context.Context) error) (err error, steeringCancel bool) {
+func (r *Runtime) runTurn(run func(context.Context) error) (err error) {
 	promptCtx, cancel := context.WithCancel(r.ctx)
 	promptID := r.beginPrompt(cancel)
 	defer func() {
-		steeringCancel = r.finishPrompt(promptID, err)
+		r.finishPrompt(promptID)
 		cancel()
 	}()
 	err = run(promptCtx)
@@ -246,17 +245,13 @@ func (r *Runtime) QueueSteer(text string, images []types.ImageContent, requireAc
 			r.client.SetStatus("error: "+err.Error(), r.terminalStatusTTL)
 			return
 		}
-		r.promptMu.Lock()
-		cancel := r.currentCancel
-		if cancel != nil {
-			r.continueQueuedAfterCancel = true
-		}
-		r.promptMu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
-		r.session.Abort()
-		r.session.AbortBash()
+		// Deliberately no cancel/Abort here. The agent loop already collects
+		// steering after each tool batch and skips the calls it had queued
+		// behind it (see pkg/agent/tools.go), so the message joins the turn
+		// at the next tool boundary with nothing thrown away. Cancelling
+		// would kill the in-flight tool and LLM request and restart the
+		// turn, which loses that work and bypasses the mechanism entirely.
+		// Esc remains the way to actually stop what's running.
 		r.client.SetStatus("steering", 0)
 	})
 }
@@ -268,7 +263,6 @@ func (r *Runtime) Interrupt() {
 	r.Go("interrupt", func() {
 		r.promptMu.Lock()
 		cancel := r.currentCancel
-		r.continueQueuedAfterCancel = false
 		r.promptMu.Unlock()
 		if cancel != nil {
 			cancel()
@@ -288,16 +282,13 @@ func (r *Runtime) beginPrompt(cancel context.CancelFunc) int {
 	return r.currentPromptID
 }
 
-func (r *Runtime) finishPrompt(promptID int, err error) bool {
+func (r *Runtime) finishPrompt(promptID int) {
 	r.promptMu.Lock()
 	defer r.promptMu.Unlock()
 	if r.currentPromptID == promptID {
 		r.currentCancel = nil
 		r.currentPromptID = 0
 	}
-	steeringCancel := errors.Is(err, context.Canceled) && r.continueQueuedAfterCancel
-	r.continueQueuedAfterCancel = false
-	return steeringCancel
 }
 
 func (r *Runtime) finishRun(started time.Time, err error) {
