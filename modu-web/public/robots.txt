@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://modu.crosszan.com/sitemap.xml

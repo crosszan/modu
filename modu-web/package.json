@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check": "npm run build && node scripts/check-site.mjs",
     "preview": "vite preview",
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name modu-web",
     "deploy:preview": "npm run build && npx wrangler pages deploy dist --project-name modu-web --branch preview"

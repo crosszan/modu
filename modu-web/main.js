@@ -1,9 +1,11 @@
 const root = document.documentElement;
 const themeButtons = document.querySelectorAll('.theme-toggle');
-const languageButtons = document.querySelectorAll('.language-toggle');
 const mobileMenuButton = document.querySelector('.mobile-menu-button');
 const navMenu = document.querySelector('.nav-menu');
 const toast = document.querySelector('.copy-toast');
+const docsIndexButton = document.querySelector('.docs-index-toggle');
+const docsNav = document.querySelector('.docs-nav');
+const isEnglish = root.lang.startsWith('en');
 
 const savedTheme = localStorage.getItem('modu-theme');
 if (savedTheme === 'dark') {
@@ -13,7 +15,16 @@ if (savedTheme === 'dark') {
 function syncThemeButtons() {
   const isDark = root.dataset.theme === 'dark';
   themeButtons.forEach((button) => {
-    button.setAttribute('aria-label', isDark ? '切换浅色模式' : '切换深色模式');
+    button.setAttribute(
+      'aria-label',
+      isEnglish
+        ? isDark
+          ? 'Switch to light theme'
+          : 'Switch to dark theme'
+        : isDark
+          ? '切换浅色模式'
+          : '切换深色模式'
+    );
     const icon = button.querySelector('i');
     if (icon) {
       icon.className = isDark ? 'ti ti-sun' : 'ti ti-moon';
@@ -37,21 +48,33 @@ themeButtons.forEach((button) => {
 });
 
 if (mobileMenuButton && navMenu) {
-  mobileMenuButton.addEventListener('click', () => {
-    const open = navMenu.classList.toggle('open');
+  const setMenuOpen = (open) => {
+    navMenu.classList.toggle('open', open);
+    document.body.classList.toggle('menu-open', open);
     mobileMenuButton.setAttribute('aria-expanded', String(open));
-    mobileMenuButton.setAttribute('aria-label', open ? '关闭导航' : '打开导航');
+    mobileMenuButton.setAttribute(
+      'aria-label',
+      isEnglish ? (open ? 'Close navigation' : 'Open navigation') : open ? '关闭导航' : '打开导航'
+    );
     const icon = mobileMenuButton.querySelector('i');
     if (icon) {
       icon.className = open ? 'ti ti-x' : 'ti ti-menu-2';
     }
+  };
+
+  mobileMenuButton.addEventListener('click', () => {
+    setMenuOpen(!navMenu.classList.contains('open'));
   });
 
   navMenu.querySelectorAll('a').forEach((link) => {
-    link.addEventListener('click', () => {
-      navMenu.classList.remove('open');
-      mobileMenuButton.setAttribute('aria-expanded', 'false');
-    });
+    link.addEventListener('click', () => setMenuOpen(false));
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && navMenu.classList.contains('open')) {
+      setMenuOpen(false);
+      mobileMenuButton.focus();
+    }
   });
 }
 
@@ -71,42 +94,44 @@ document.querySelectorAll('[data-copy]').forEach((button) => {
     try {
       await navigator.clipboard.writeText(text);
       button.classList.add('copied');
-      if (label) label.textContent = '已复制';
-      showToast('已复制到剪贴板');
+      if (label) label.textContent = isEnglish ? 'Copied' : '已复制';
+      showToast(isEnglish ? 'Copied to clipboard' : '已复制到剪贴板');
       window.setTimeout(() => {
         button.classList.remove('copied');
-        if (label) label.textContent = '复制';
+        if (label) label.textContent = isEnglish ? 'Copy' : '复制';
       }, 1800);
     } catch {
-      showToast('复制失败，请手动选择命令');
+      showToast(isEnglish ? 'Copy failed. Select the command manually.' : '复制失败，请手动选择命令');
     }
   });
 });
 
-const originalText = new WeakMap();
-document.querySelectorAll('[data-en]').forEach((element) => {
-  originalText.set(element, element.innerHTML);
-});
+if (docsIndexButton && docsNav) {
+  const setDocsIndexOpen = (open) => {
+    docsNav.classList.toggle('open', open);
+    docsIndexButton.setAttribute('aria-expanded', String(open));
+    const label = docsIndexButton.querySelector('span');
+    if (label) {
+      label.textContent = isEnglish
+        ? open
+          ? 'Hide documentation index'
+          : 'Browse documentation'
+        : open
+          ? '收起文档目录'
+          : '浏览文档目录';
+    }
+  };
 
-function applyLanguage(language) {
-  root.lang = language === 'en' ? 'en' : 'zh-CN';
-  document.querySelectorAll('[data-en]').forEach((element) => {
-    element.innerHTML = language === 'en' ? element.dataset.en : originalText.get(element);
+  docsIndexButton.addEventListener('click', () => {
+    setDocsIndexOpen(!docsNav.classList.contains('open'));
   });
-  languageButtons.forEach((button) => {
-    button.textContent = language === 'en' ? 'EN / 中' : '中 / EN';
-    button.setAttribute('aria-label', language === 'en' ? '切换到中文' : 'Switch to English');
+
+  docsNav.querySelectorAll('a').forEach((link) => {
+    link.addEventListener('click', () => {
+      if (window.matchMedia('(max-width: 820px)').matches) setDocsIndexOpen(false);
+    });
   });
-  localStorage.setItem('modu-language', language);
 }
-
-applyLanguage(localStorage.getItem('modu-language') === 'en' ? 'en' : 'zh');
-
-languageButtons.forEach((button) => {
-  button.addEventListener('click', () => {
-    applyLanguage(root.lang === 'en' ? 'zh' : 'en');
-  });
-});
 
 const docsSearch = document.querySelector('.docs-search input');
 if (docsSearch) {

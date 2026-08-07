@@ -4,6 +4,16 @@ This file tracks small user-facing website changes for `modu-web`.
 
 ## Done
 
+- 2026-08-07: refactored the public site for crawlable bilingual content and
+  reliable mobile layouts. Added complete Chinese/English static routes,
+  reciprocal canonical/hreflang metadata, Open Graph and Twitter metadata,
+  homepage structured data, `robots.txt`, `sitemap.xml`, and a standalone
+  noindex 404 page. Replaced partial client-side translation with real locale
+  links, unified legal pages with the current editorial design system, rebuilt
+  the mobile documentation index as an accessible disclosure, increased
+  mobile code text to 12 px, and added navigation scroll locking and localized
+  copy feedback. Added `npm run check` to validate all 10 localized production
+  pages and completed desktop/mobile browser QA with no console errors.
 - 2026-08-03: redesigned the public landing page around a warm editorial
   developer-docs system, added a searchable interactive documentation page,
   responsive navigation, code-copy actions, light/dark themes, bilingual
