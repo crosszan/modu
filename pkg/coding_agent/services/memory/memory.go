@@ -18,6 +18,21 @@ import (
 //
 // Both scopes store a MEMORY.md for long-term facts and
 // daily notes under YYYYMM/YYYYMMDD.md.
+//
+// The layout is deliberately fixed and flat. Nothing here lets the model
+// invent directories, and that is the point rather than an omission: a
+// model-maintained folder tree degrades on its own over a long-running
+// session — a new folder per almost-synonymous topic, two folders meaning
+// the same thing, and later notes filed somewhere their own path no longer
+// describes, at which point retrieval by path stops finding them. Smaller
+// local models reach that state much sooner than frontier ones, and modu is
+// explicitly used with local models.
+//
+// What a tree actually buys is a narrower search space, and the global vs
+// project split already provides that at the level that matters. So if you
+// are here to add nested categories, add the guardrails that keep them
+// coherent (merging, renaming, re-filing) in the same change — the tree
+// alone is the easy half.
 type Store struct {
 	globalDir  string // e.g. ~/.modu/memory
 	projectDir string // e.g. <cwd>/memory
@@ -110,6 +125,101 @@ func (ms *Store) WriteProjectSummary(content string) error {
 
 func (ms *Store) WriteGlobalSummary(content string) error {
 	return os.WriteFile(filepath.Join(ms.globalDir, "memory_summary.md"), []byte(content), 0o600)
+}
+
+// ── long-term entry editing ───────────────────────────────────────────────────
+
+// ErrMemoryEntryNotFound and ErrMemoryEntryAmbiguous report why an entry could
+// not be addressed. Ambiguity is an error rather than a "first match wins"
+// because the caller is trying to correct or remove a specific memory, and
+// silently picking one of several candidates would corrupt the others.
+var (
+	ErrMemoryEntryNotFound  = errors.New("no long-term memory entry matches")
+	ErrMemoryEntryAmbiguous = errors.New("match is ambiguous")
+)
+
+// LongTermEntries returns the long-term memory of a scope split into entries.
+// Entries are the blank-line-separated blocks that record_long_term appends,
+// so this is the same unit the model wrote in.
+func (ms *Store) LongTermEntries(scope string) []string {
+	return splitMemoryEntries(ms.readLongTermForScope(scope))
+}
+
+// UpdateLongTerm replaces the single entry containing match with content.
+//
+// Until this existed a memory could only be appended to: a wrong preference or
+// a stale path stayed until the next Organize pass happened to merge it away,
+// and Organize only promises to drop duplicates and superseded repetition —
+// it has no way to know a fact is simply wrong.
+func (ms *Store) UpdateLongTerm(scope, match, content string) error {
+	return ms.rewriteLongTermEntry(scope, match, content, false)
+}
+
+// DeleteLongTerm removes the single entry containing match.
+func (ms *Store) DeleteLongTerm(scope, match string) error {
+	return ms.rewriteLongTermEntry(scope, match, "", true)
+}
+
+func (ms *Store) rewriteLongTermEntry(scope, match, content string, remove bool) error {
+	match = strings.TrimSpace(match)
+	if match == "" {
+		return ErrMemoryEntryNotFound
+	}
+	entries := splitMemoryEntries(ms.readLongTermForScope(scope))
+
+	var found int
+	var index int
+	for i, entry := range entries {
+		if strings.Contains(entry, match) {
+			found++
+			index = i
+		}
+	}
+	switch {
+	case found == 0:
+		return ErrMemoryEntryNotFound
+	case found > 1:
+		return fmt.Errorf("%w: %d entries contain that text", ErrMemoryEntryAmbiguous, found)
+	}
+
+	if remove {
+		entries = append(entries[:index], entries[index+1:]...)
+	} else {
+		entries[index] = strings.TrimSpace(content)
+	}
+	return ms.writeLongTermForScope(scope, joinMemoryEntries(entries))
+}
+
+func (ms *Store) readLongTermForScope(scope string) string {
+	if strings.EqualFold(scope, "global") || strings.EqualFold(scope, "user") {
+		return ms.ReadGlobalLongTerm()
+	}
+	return ms.ReadProjectLongTerm()
+}
+
+func (ms *Store) writeLongTermForScope(scope, content string) error {
+	if strings.EqualFold(scope, "global") || strings.EqualFold(scope, "user") {
+		return ms.WriteGlobalLongTerm(content)
+	}
+	return ms.WriteProjectLongTerm(content)
+}
+
+// splitMemoryEntries splits on blank lines, matching how record_long_term
+// joins entries. Blank runs of any length are treated as one separator so a
+// file a human has edited still splits the way it looks on screen.
+func splitMemoryEntries(content string) []string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	var entries []string
+	for _, block := range strings.Split(content, "\n\n") {
+		if trimmed := strings.TrimSpace(block); trimmed != "" {
+			entries = append(entries, trimmed)
+		}
+	}
+	return entries
+}
+
+func joinMemoryEntries(entries []string) string {
+	return strings.Join(entries, "\n\n")
 }
 
 // ── daily notes ───────────────────────────────────────────────────────────────

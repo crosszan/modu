@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -189,5 +190,130 @@ func TestScopedReadPathRejectsTraversal(t *testing.T) {
 	}
 	if _, _, err := m.Read("project", ".hidden", 1, 1); err == nil {
 		t.Fatal("expected hidden path to fail")
+	}
+}
+
+func TestLongTermEntriesSplitsOnBlankLines(t *testing.T) {
+	m := New(t.TempDir(), t.TempDir())
+	// Matches how record_long_term joins: entries separated by a blank line.
+	if err := m.WriteLongTerm("first fact\n\nsecond fact\nwith a wrapped line\n\nthird fact"); err != nil {
+		t.Fatal(err)
+	}
+	got := m.LongTermEntries("project")
+	if len(got) != 3 {
+		t.Fatalf("entries = %#v, want 3", got)
+	}
+	if got[1] != "second fact\nwith a wrapped line" {
+		t.Fatalf("a multi-line entry should stay whole, got %q", got[1])
+	}
+}
+
+func TestLongTermEntriesToleratesHandEditedSpacing(t *testing.T) {
+	m := New(t.TempDir(), t.TempDir())
+	// A human editing MEMORY.md leaves runs of blank lines and trailing
+	// newlines; those should not become empty entries.
+	if err := m.WriteLongTerm("\n\nfirst\n\n\n\nsecond\n\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.LongTermEntries("project"); len(got) != 2 || got[0] != "first" || got[1] != "second" {
+		t.Fatalf("entries = %#v, want [first second]", got)
+	}
+}
+
+func TestUpdateLongTermReplacesOnlyTheMatchedEntry(t *testing.T) {
+	m := New(t.TempDir(), t.TempDir())
+	if err := m.WriteLongTerm("uses yarn\n\nruns tests with go test\n\ndeploys on fridays"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.UpdateLongTerm("project", "uses yarn", "uses pnpm"); err != nil {
+		t.Fatalf("UpdateLongTerm: %v", err)
+	}
+	got := m.LongTermEntries("project")
+	want := []string{"uses pnpm", "runs tests with go test", "deploys on fridays"}
+	if len(got) != len(want) {
+		t.Fatalf("entries = %#v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("entries = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestDeleteLongTermRemovesOnlyTheMatchedEntry(t *testing.T) {
+	m := New(t.TempDir(), t.TempDir())
+	if err := m.WriteLongTerm("keep me\n\nstale fact\n\nkeep me too"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DeleteLongTerm("project", "stale fact"); err != nil {
+		t.Fatalf("DeleteLongTerm: %v", err)
+	}
+	got := m.LongTermEntries("project")
+	if len(got) != 2 || got[0] != "keep me" || got[1] != "keep me too" {
+		t.Fatalf("entries = %#v", got)
+	}
+	// The neighbours must still be separated, not run together.
+	if !strings.Contains(m.ReadLongTerm(), "keep me\n\nkeep me too") {
+		t.Fatalf("remaining file = %q", m.ReadLongTerm())
+	}
+}
+
+func TestLongTermEditRefusesAmbiguousMatchWithoutChangingAnything(t *testing.T) {
+	m := New(t.TempDir(), t.TempDir())
+	original := "deploy uses docker\n\ntest uses docker"
+	if err := m.WriteLongTerm(original); err != nil {
+		t.Fatal(err)
+	}
+	// "docker" is in both entries. Picking one would silently corrupt the
+	// other, so this has to fail and leave the file untouched.
+	err := m.UpdateLongTerm("project", "docker", "uses podman")
+	if !errors.Is(err, ErrMemoryEntryAmbiguous) {
+		t.Fatalf("err = %v, want ErrMemoryEntryAmbiguous", err)
+	}
+	if m.ReadLongTerm() != original {
+		t.Fatalf("memory changed despite the ambiguous match: %q", m.ReadLongTerm())
+	}
+
+	// A longer match disambiguates it.
+	if err := m.UpdateLongTerm("project", "deploy uses docker", "deploy uses podman"); err != nil {
+		t.Fatalf("UpdateLongTerm with a unique match: %v", err)
+	}
+	if got := m.LongTermEntries("project"); got[0] != "deploy uses podman" || got[1] != "test uses docker" {
+		t.Fatalf("entries = %#v", got)
+	}
+}
+
+func TestLongTermEditReportsMissingMatch(t *testing.T) {
+	m := New(t.TempDir(), t.TempDir())
+	if err := m.WriteLongTerm("only fact"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.UpdateLongTerm("project", "nothing like this", "x"); !errors.Is(err, ErrMemoryEntryNotFound) {
+		t.Fatalf("err = %v, want ErrMemoryEntryNotFound", err)
+	}
+	if err := m.DeleteLongTerm("project", ""); !errors.Is(err, ErrMemoryEntryNotFound) {
+		t.Fatalf("empty match err = %v, want ErrMemoryEntryNotFound", err)
+	}
+	if m.ReadLongTerm() != "only fact" {
+		t.Fatalf("memory changed on a failed match: %q", m.ReadLongTerm())
+	}
+}
+
+func TestLongTermEditKeepsScopesSeparate(t *testing.T) {
+	m := New(t.TempDir(), t.TempDir())
+	if err := m.WriteLongTerm("shared wording"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.WriteGlobalLongTerm("shared wording"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DeleteLongTerm("global", "shared wording"); err != nil {
+		t.Fatalf("DeleteLongTerm: %v", err)
+	}
+	if m.ReadGlobalLongTerm() != "" {
+		t.Fatalf("global should be empty, got %q", m.ReadGlobalLongTerm())
+	}
+	if m.ReadLongTerm() != "shared wording" {
+		t.Fatalf("editing global must not touch project memory, got %q", m.ReadLongTerm())
 	}
 }
