@@ -86,6 +86,15 @@ const sidebar = [
     ]
   },
   {
+    heading: { 'zh-CN': '指南', en: 'Guides' },
+    items: [
+      {
+        path: '/guides/go-agent-framework',
+        label: { 'zh-CN': 'Go Agent 开发指南', en: 'Go agent development guide' }
+      }
+    ]
+  },
+  {
     heading: { 'zh-CN': '多 Agent 协作', en: 'Multi-agent' },
     items: [
       { path: '/docs#mailbox', label: { 'zh-CN': 'Mailbox Teams', en: 'Mailbox teams' } },

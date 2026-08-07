@@ -19,7 +19,9 @@ export default defineConfig({
         docsCli: resolve(__dirname, 'docs/cli.html'),
         docsModels: resolve(__dirname, 'docs/models.html'),
         englishDocsCli: resolve(__dirname, 'en/docs/cli.html'),
-        englishDocsModels: resolve(__dirname, 'en/docs/models.html')
+        englishDocsModels: resolve(__dirname, 'en/docs/models.html'),
+        guideGoAgent: resolve(__dirname, 'guides/go-agent-framework.html'),
+        englishGuideGoAgent: resolve(__dirname, 'en/guides/go-agent-framework.html')
       }
     }
   }

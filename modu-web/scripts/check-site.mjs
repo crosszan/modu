@@ -16,7 +16,9 @@ const pages = [
   ['docs/cli.html', 'zh-CN', 'https://modu.crosszan.com/docs/cli', 'https://modu.crosszan.com/en/docs/cli'],
   ['docs/models.html', 'zh-CN', 'https://modu.crosszan.com/docs/models', 'https://modu.crosszan.com/en/docs/models'],
   ['en/docs/cli.html', 'en', 'https://modu.crosszan.com/en/docs/cli', 'https://modu.crosszan.com/docs/cli'],
-  ['en/docs/models.html', 'en', 'https://modu.crosszan.com/en/docs/models', 'https://modu.crosszan.com/docs/models']
+  ['en/docs/models.html', 'en', 'https://modu.crosszan.com/en/docs/models', 'https://modu.crosszan.com/docs/models'],
+  ['guides/go-agent-framework.html', 'zh-CN', 'https://modu.crosszan.com/guides/go-agent-framework', 'https://modu.crosszan.com/en/guides/go-agent-framework'],
+  ['en/guides/go-agent-framework.html', 'en', 'https://modu.crosszan.com/en/guides/go-agent-framework', 'https://modu.crosszan.com/guides/go-agent-framework']
 ];
 
 const failures = [];
