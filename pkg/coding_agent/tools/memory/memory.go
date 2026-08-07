@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -22,6 +23,9 @@ type MemoryStore interface {
 	List(scope, path string, maxResults int) ([]memsvc.Entry, bool, error)
 	Read(scope, path string, lineOffset, maxLines int) (string, bool, error)
 	Search(scope, query, path string, contextLines, maxResults int) ([]memsvc.SearchMatch, bool, error)
+	LongTermEntries(scope string) []string
+	UpdateLongTerm(scope, match, content string) error
+	DeleteLongTerm(scope, match string) error
 }
 
 // MemoryTool allows the model to write data to long-term memory or daily notes.
@@ -48,8 +52,14 @@ Use this tool proactively to record architectural choices, project rules, or rec
 so that you can remember them across server restarts and context compactions. Use list/read/search
 to inspect detailed memory when the prompt only includes a summary.
 
+Memory is meant to stay correct, not just grow: when you learn that something
+you recorded is wrong or no longer true, fix or remove that entry instead of
+appending a contradiction and leaving both for a reader to reconcile.
+
 Operations:
 - 'record_long_term': Appends critical facts to MEMORY.md. Use scope 'global' for cross-project facts (user preferences, personal rules) or 'project' (default) for project-specific facts.
+- 'update_long_term': Replaces one existing entry. Give 'match' (text that appears in exactly one entry) and the corrected 'content'.
+- 'forget_long_term': Removes one existing entry, identified the same way by 'match'. Use it when a fact stopped being true, not merely because it is old.
 - 'record_daily': Appends a scratchpad note or daily log to today's date (project scope).
 - 'write_summary': Overwrites memory_summary.md for the selected scope with a concise bounded summary of important memory.
 - 'list': Lists memory files under the selected scope.
@@ -63,8 +73,8 @@ func (t *MemoryTool) Parameters() any {
 		"properties": map[string]any{
 			"operation": map[string]any{
 				"type":        "string",
-				"description": "Must be 'record_long_term', 'record_daily', 'write_summary', 'list', 'read', or 'search'",
-				"enum":        []string{"record_long_term", "record_daily", "write_summary", "list", "read", "search"},
+				"description": "Must be 'record_long_term', 'update_long_term', 'forget_long_term', 'record_daily', 'write_summary', 'list', 'read', or 'search'",
+				"enum":        []string{"record_long_term", "update_long_term", "forget_long_term", "record_daily", "write_summary", "list", "read", "search"},
 			},
 			"content": map[string]any{
 				"type":        "string",
@@ -77,6 +87,10 @@ func (t *MemoryTool) Parameters() any {
 			"query": map[string]any{
 				"type":        "string",
 				"description": "Substring query for search.",
+			},
+			"match": map[string]any{
+				"type":        "string",
+				"description": "Text identifying which long-term entry to update or forget. Must appear in exactly one entry; add surrounding words if it is ambiguous.",
 			},
 			"line_offset": map[string]any{
 				"type":        "integer",
@@ -145,6 +159,40 @@ func (t *MemoryTool) Execute(ctx context.Context, toolCallID string, args map[st
 			return textResult(fmt.Sprintf("Failed to write to long-term memory: %v", writeErr)), nil
 		}
 		return textResult(fmt.Sprintf("Successfully recorded to %s long-term memory.", scope)), nil
+
+	case "update_long_term", "forget_long_term":
+		match, _ := args["match"].(string)
+		if strings.TrimSpace(match) == "" {
+			return textResult("Error: match is required and identifies which entry to change"), nil
+		}
+		forget := operation == "forget_long_term"
+		if !forget && content == "" {
+			return textResult("Error: content cannot be empty"), nil
+		}
+
+		var err error
+		if forget {
+			err = t.store.DeleteLongTerm(scope, match)
+		} else {
+			err = t.store.UpdateLongTerm(scope, match, content)
+		}
+		switch {
+		case errors.Is(err, memsvc.ErrMemoryEntryNotFound):
+			// Report what is actually there: the model is working from a
+			// remembered snapshot and the file may have moved on.
+			return textResult(fmt.Sprintf(
+				"No %s long-term entry contains %q. Current entries:\n%s",
+				scope, match, formatEntryList(t.store.LongTermEntries(scope)))), nil
+		case errors.Is(err, memsvc.ErrMemoryEntryAmbiguous):
+			return textResult(fmt.Sprintf(
+				"%v for %q — nothing was changed. Add surrounding words so it identifies one entry.", err, match)), nil
+		case err != nil:
+			return textResult(fmt.Sprintf("Failed to change long-term memory: %v", err)), nil
+		}
+		if forget {
+			return textResult(fmt.Sprintf("Removed the matching entry from %s long-term memory.", scope)), nil
+		}
+		return textResult(fmt.Sprintf("Updated the matching entry in %s long-term memory.", scope)), nil
 
 	case "record_daily":
 		if content == "" {
@@ -301,4 +349,24 @@ func memoryResult(text string, details map[string]any) types.ToolResult {
 		Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: text}},
 		Details: details,
 	}
+}
+
+// formatEntryList renders the current entries compactly so a failed match can
+// be retried against what is actually stored, rather than guessing.
+func formatEntryList(entries []string) string {
+	if len(entries) == 0 {
+		return "(none)"
+	}
+	var b strings.Builder
+	for i, entry := range entries {
+		first := entry
+		if idx := strings.IndexByte(first, '\n'); idx >= 0 {
+			first = first[:idx]
+		}
+		if len([]rune(first)) > 100 {
+			first = string([]rune(first)[:100]) + "…"
+		}
+		fmt.Fprintf(&b, "%d. %s\n", i+1, first)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

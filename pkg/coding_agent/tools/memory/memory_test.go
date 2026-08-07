@@ -153,3 +153,126 @@ func resultDetails(t *testing.T, res types.ToolResult) map[string]any {
 	}
 	return details
 }
+
+func TestMemoryToolUpdatesAndForgetsEntries(t *testing.T) {
+	store := memsvc.New(t.TempDir(), t.TempDir())
+	if err := store.WriteProjectLongTerm("uses yarn\n\ndeploys on fridays"); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewMemoryTool(store)
+
+	res, err := tool.Execute(context.Background(), "c1", map[string]any{
+		"operation": "update_long_term",
+		"match":     "uses yarn",
+		"content":   "uses pnpm",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := resultText(res); !strings.Contains(text, "Updated") {
+		t.Fatalf("update result = %q", text)
+	}
+	if got := store.ReadLongTerm(); !strings.Contains(got, "uses pnpm") || strings.Contains(got, "yarn") {
+		t.Fatalf("memory after update = %q", got)
+	}
+
+	res, err = tool.Execute(context.Background(), "c2", map[string]any{
+		"operation": "forget_long_term",
+		"match":     "deploys on fridays",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := resultText(res); !strings.Contains(text, "Removed") {
+		t.Fatalf("forget result = %q", text)
+	}
+	if got := store.ReadLongTerm(); strings.Contains(got, "fridays") {
+		t.Fatalf("entry should be gone, memory = %q", got)
+	}
+}
+
+func TestMemoryToolEditFailuresAreActionable(t *testing.T) {
+	store := memsvc.New(t.TempDir(), t.TempDir())
+	if err := store.WriteProjectLongTerm("deploy uses docker\n\ntest uses docker"); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewMemoryTool(store)
+
+	t.Run("ambiguous match changes nothing and says why", func(t *testing.T) {
+		res, err := tool.Execute(context.Background(), "c1", map[string]any{
+			"operation": "update_long_term",
+			"match":     "docker",
+			"content":   "uses podman",
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := resultText(res)
+		if !strings.Contains(text, "ambiguous") || !strings.Contains(text, "nothing was changed") {
+			t.Fatalf("result should explain the refusal: %q", text)
+		}
+		if !strings.Contains(store.ReadLongTerm(), "deploy uses docker") {
+			t.Fatal("memory must be untouched after an ambiguous match")
+		}
+	})
+
+	t.Run("missing match lists what is actually stored", func(t *testing.T) {
+		res, err := tool.Execute(context.Background(), "c2", map[string]any{
+			"operation": "forget_long_term",
+			"match":     "kubernetes",
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The model is acting on a remembered snapshot, so a failed match
+		// should show the current entries rather than just saying "not found".
+		text := resultText(res)
+		if !strings.Contains(text, "deploy uses docker") || !strings.Contains(text, "test uses docker") {
+			t.Fatalf("result should list current entries: %q", text)
+		}
+	})
+
+	t.Run("missing match argument is rejected", func(t *testing.T) {
+		res, err := tool.Execute(context.Background(), "c3", map[string]any{
+			"operation": "update_long_term",
+			"content":   "something",
+		}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(resultText(res), "match is required") {
+			t.Fatalf("result = %q", resultText(res))
+		}
+	})
+}
+
+func TestMemoryToolAdvertisesTheEditOperations(t *testing.T) {
+	tool := NewMemoryTool(memsvc.New(t.TempDir(), t.TempDir()))
+	params, ok := tool.Parameters().(map[string]any)
+	if !ok {
+		t.Fatal("unexpected parameters shape")
+	}
+	props := params["properties"].(map[string]any)
+	operation := props["operation"].(map[string]any)
+	enum := operation["enum"].([]string)
+
+	for _, want := range []string{"update_long_term", "forget_long_term"} {
+		found := false
+		for _, value := range enum {
+			if value == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%q missing from the operation enum: %#v", want, enum)
+		}
+	}
+	// A model cannot use an operation it is never told about.
+	if !strings.Contains(tool.Description(), "update_long_term") {
+		t.Fatal("description should document update_long_term")
+	}
+	if _, ok := props["match"]; !ok {
+		t.Fatal("the match parameter should be declared")
+	}
+}
