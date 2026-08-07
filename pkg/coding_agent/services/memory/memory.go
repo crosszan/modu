@@ -39,6 +39,34 @@ type Store struct {
 
 	organizeMu sync.Mutex
 	organizing bool
+
+	contextMu    sync.RWMutex
+	contextStats ContextStats
+}
+
+// ContextStats describes the memory block most recently injected into a
+// prompt. It is the per-turn retrieval cost, and Source is what makes the
+// saving legible: "summary" means an organized summary was used, "raw" means
+// there was none and the full long-term memory plus recent daily notes went
+// in instead. Comparing the two sizes is how you tell whether organizing is
+// buying anything.
+type ContextStats struct {
+	Bytes  int    `json:"bytes"`
+	Source string `json:"source"` // "summary", "raw", or "empty"
+}
+
+// ContextStats returns the stats for the last GetMemoryContext call.
+func (ms *Store) ContextStats() ContextStats {
+	ms.contextMu.RLock()
+	defer ms.contextMu.RUnlock()
+	return ms.contextStats
+}
+
+func (ms *Store) recordContext(content, source string) string {
+	ms.contextMu.Lock()
+	ms.contextStats = ContextStats{Bytes: len(content), Source: source}
+	ms.contextMu.Unlock()
+	return content
 }
 
 var errMemorySearchTruncated = errors.New("memory search truncated")
@@ -429,7 +457,7 @@ func (ms *Store) GetMemoryContext() string {
 			sb.WriteString("### Project\n\n")
 			sb.WriteString(projectSummary)
 		}
-		return sb.String()
+		return ms.recordContext(sb.String(), "summary")
 	}
 
 	global := ms.ReadGlobalLongTerm()
@@ -437,7 +465,7 @@ func (ms *Store) GetMemoryContext() string {
 	recent := ms.GetRecentDailyNotes(3)
 
 	if global == "" && project == "" && recent == "" {
-		return ""
+		return ms.recordContext("", "empty")
 	}
 
 	var sb strings.Builder
@@ -463,7 +491,7 @@ func (ms *Store) GetMemoryContext() string {
 		sb.WriteString(recent)
 	}
 
-	return sb.String()
+	return ms.recordContext(sb.String(), "raw")
 }
 
 func (ms *Store) GetGlobalMemoryContext() string {

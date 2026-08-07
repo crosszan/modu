@@ -63,6 +63,30 @@ type OrganizationState struct {
 	ProjectSummaryBytes int       `json:"projectSummaryBytes,omitempty"`
 	LastError           string    `json:"lastError,omitempty"`
 	Running             bool      `json:"running"`
+
+	// Cost of the most recent run, and the running totals behind it.
+	//
+	// Organizing is not free: it is an LLM call whose whole purpose is to
+	// make later prompts cheaper. Without recording what it spends there is
+	// no way to tell whether it is actually paying for itself, so these are
+	// the numbers that answer that — per run, and cumulatively, since one
+	// cheap run says nothing about a session that reorganizes daily.
+	LastDurationMs   int64 `json:"lastDurationMs,omitempty"`
+	LastInputTokens  int   `json:"lastInputTokens,omitempty"`
+	LastOutputTokens int   `json:"lastOutputTokens,omitempty"`
+	LastTotalTokens  int   `json:"lastTotalTokens,omitempty"`
+	TotalRuns        int   `json:"totalRuns,omitempty"`
+	TotalTokens      int   `json:"totalTokens,omitempty"`
+}
+
+// CompressionRatio reports how much smaller the summaries are than the memory
+// they were built from — the saving that has to outweigh what organizing
+// costs. 0 when nothing has been organized yet.
+func (s OrganizationState) CompressionRatio() float64 {
+	if s.SourceBytes <= 0 {
+		return 0
+	}
+	return float64(s.GlobalSummaryBytes+s.ProjectSummaryBytes) / float64(s.SourceBytes)
 }
 
 // OrganizationResult explains whether a pass changed the generated summaries.
@@ -175,17 +199,35 @@ func (ms *Store) Organize(ctx context.Context, opts OrganizeOptions) (Organizati
 		SourceFingerprint: source.Fingerprint,
 		SourceBytes:       source.Bytes,
 		Running:           true,
+		TotalRuns:         previous.TotalRuns,
+		TotalTokens:       previous.TotalTokens,
 	}
 	if err := ms.writeOrganizationState(running); err != nil {
 		return OrganizationResult{}, fmt.Errorf("record memory organization start: %w", err)
 	}
 
-	output, organizeErr := generateOrganization(ctx, source, opts)
+	started := time.Now()
+	output, usage, organizeErr := generateOrganization(ctx, source, opts)
+	elapsed := time.Since(started)
 	if organizeErr == nil {
 		organizeErr = ms.writeOrganizationOutput(source, output)
 	}
+
+	// A failed run still spent tokens, so its cost is recorded too —
+	// otherwise a model that keeps failing to produce valid JSON would look
+	// free while burning the budget every interval.
+	recordCost := func(state OrganizationState) OrganizationState {
+		state.LastDurationMs = elapsed.Milliseconds()
+		state.LastInputTokens = usage.Input
+		state.LastOutputTokens = usage.Output
+		state.LastTotalTokens = usage.TotalTokens
+		state.TotalRuns = previous.TotalRuns + 1
+		state.TotalTokens = previous.TotalTokens + usage.TotalTokens
+		return state
+	}
+
 	if organizeErr != nil {
-		failed := running
+		failed := recordCost(running)
 		failed.Status = "failed"
 		failed.Running = false
 		failed.LastError = organizeErr.Error()
@@ -193,7 +235,7 @@ func (ms *Store) Organize(ctx context.Context, opts OrganizeOptions) (Organizati
 		return OrganizationResult{Reason: "failed", State: failed}, organizeErr
 	}
 
-	succeeded := running
+	succeeded := recordCost(running)
 	succeeded.Status = "succeeded"
 	succeeded.Running = false
 	succeeded.LastSuccess = time.Now().UTC()
@@ -252,7 +294,7 @@ func (ms *Store) organizationSource(recentDays int) organizationSource {
 	return source
 }
 
-func generateOrganization(ctx context.Context, source organizationSource, opts OrganizeOptions) (organizationOutput, error) {
+func generateOrganization(ctx context.Context, source organizationSource, opts OrganizeOptions) (organizationOutput, types.AgentUsage, error) {
 	payload, err := json.Marshal(struct {
 		GlobalMemory  string `json:"global_memory"`
 		ProjectMemory string `json:"project_memory"`
@@ -261,7 +303,7 @@ func generateOrganization(ctx context.Context, source organizationSource, opts O
 		ProjectMemory: boundedSource(strings.TrimSpace(strings.Join([]string{source.Project, source.Daily}, "\n\n---\n\n"))),
 	})
 	if err != nil {
-		return organizationOutput{}, fmt.Errorf("encode memory organization input: %w", err)
+		return organizationOutput{}, types.AgentUsage{}, fmt.Errorf("encode memory organization input: %w", err)
 	}
 	llmCtx := &types.LLMContext{
 		SystemPrompt: organizationSystemPrompt,
@@ -279,7 +321,7 @@ func generateOrganization(ctx context.Context, source organizationSource, opts O
 		StreamOptions: types.StreamOptions{APIKey: apiKey, MaxTokens: &maxTokens},
 	})
 	if err != nil {
-		return organizationOutput{}, fmt.Errorf("create memory organization stream: %w", err)
+		return organizationOutput{}, types.AgentUsage{}, fmt.Errorf("create memory organization stream: %w", err)
 	}
 	defer stream.Close()
 	go func() {
@@ -288,10 +330,10 @@ func generateOrganization(ctx context.Context, source organizationSource, opts O
 	}()
 	message, err := stream.Result()
 	if err != nil {
-		return organizationOutput{}, fmt.Errorf("generate memory summaries: %w", err)
+		return organizationOutput{}, types.AgentUsage{}, fmt.Errorf("generate memory summaries: %w", err)
 	}
 	if message == nil {
-		return organizationOutput{}, errors.New("generate memory summaries: empty model response")
+		return organizationOutput{}, types.AgentUsage{}, errors.New("generate memory summaries: empty model response")
 	}
 	var response strings.Builder
 	for _, block := range message.Content {
@@ -301,14 +343,14 @@ func generateOrganization(ctx context.Context, source organizationSource, opts O
 	}
 	output, err := parseOrganizationOutput(response.String())
 	if err != nil {
-		return organizationOutput{}, err
+		return organizationOutput{}, message.Usage, err
 	}
 	if strings.TrimSpace(source.Global) != "" && strings.TrimSpace(output.GlobalSummary) == "" {
-		return organizationOutput{}, errors.New("memory organizer returned an empty global summary")
+		return organizationOutput{}, message.Usage, errors.New("memory organizer returned an empty global summary")
 	}
 	if strings.TrimSpace(source.Project) != "" || strings.TrimSpace(source.Daily) != "" {
 		if strings.TrimSpace(output.ProjectSummary) == "" {
-			return organizationOutput{}, errors.New("memory organizer returned an empty project summary")
+			return organizationOutput{}, message.Usage, errors.New("memory organizer returned an empty project summary")
 		}
 	}
 	if strings.TrimSpace(source.Global) == "" {
@@ -319,7 +361,7 @@ func generateOrganization(ctx context.Context, source organizationSource, opts O
 	}
 	output.GlobalSummary = truncateUTF8(strings.TrimSpace(output.GlobalSummary), maxMemorySummaryBytes)
 	output.ProjectSummary = truncateUTF8(strings.TrimSpace(output.ProjectSummary), maxMemorySummaryBytes)
-	return output, nil
+	return output, message.Usage, nil
 }
 
 func parseOrganizationOutput(value string) (organizationOutput, error) {
