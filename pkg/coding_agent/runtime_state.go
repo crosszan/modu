@@ -104,6 +104,7 @@ func (s *engine) RuntimeState() RuntimeStateSnapshot {
 	todos := s.GetTodos()
 	tasks := s.GetBackgroundTasks()
 	memoryStatus := s.GetMemoryOrganizationStatus()
+	memoryContext := s.MemoryContextStats()
 	return RuntimeStateSnapshot{
 		UpdatedAt: time.Now().UnixMilli(),
 		SessionID: s.GetSessionID(),
@@ -134,6 +135,19 @@ func (s *engine) RuntimeState() RuntimeStateSnapshot {
 			"global_summary_bytes":  memoryStatus.GlobalSummaryBytes,
 			"project_summary_bytes": memoryStatus.ProjectSummaryBytes,
 			"last_error":            memoryStatus.LastError,
+			// What organizing costs, against what it saves. compression_ratio
+			// is summary bytes over source bytes; context_bytes is what memory
+			// actually adds to a prompt, and context_source says whether that
+			// came from a summary or from raw memory for want of one.
+			"last_duration_ms":   memoryStatus.LastDurationMs,
+			"last_input_tokens":  memoryStatus.LastInputTokens,
+			"last_output_tokens": memoryStatus.LastOutputTokens,
+			"last_total_tokens":  memoryStatus.LastTotalTokens,
+			"total_runs":         memoryStatus.TotalRuns,
+			"total_tokens":       memoryStatus.TotalTokens,
+			"compression_ratio":  memoryStatus.CompressionRatio(),
+			"context_bytes":      memoryContext.Bytes,
+			"context_source":     memoryContext.Source,
 		},
 		Counts: map[string]int{
 			"messages": len(s.GetMessages()),

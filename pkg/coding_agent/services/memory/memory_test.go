@@ -317,3 +317,42 @@ func TestLongTermEditKeepsScopesSeparate(t *testing.T) {
 		t.Fatalf("editing global must not touch project memory, got %q", m.ReadLongTerm())
 	}
 }
+
+func TestContextStatsDistinguishSummaryFromRawMemory(t *testing.T) {
+	m := New(t.TempDir(), t.TempDir())
+
+	// Nothing stored: memory costs a prompt nothing.
+	m.GetMemoryContext()
+	if got := m.ContextStats(); got.Source != "empty" || got.Bytes != 0 {
+		t.Fatalf("stats with no memory = %#v", got)
+	}
+
+	// No summary yet, so the whole long-term memory goes into every prompt.
+	bulk := strings.Repeat("a long remembered fact\n", 200)
+	if err := m.WriteProjectLongTerm(bulk); err != nil {
+		t.Fatal(err)
+	}
+	m.GetMemoryContext()
+	raw := m.ContextStats()
+	if raw.Source != "raw" {
+		t.Fatalf("source = %q, want raw", raw.Source)
+	}
+	if raw.Bytes < len(bulk) {
+		t.Fatalf("raw context (%d) should carry the full memory (%d)", raw.Bytes, len(bulk))
+	}
+
+	// Once organized, the summary is what gets injected instead.
+	if err := m.WriteProjectSummary("one short summary line"); err != nil {
+		t.Fatal(err)
+	}
+	m.GetMemoryContext()
+	summarized := m.ContextStats()
+	if summarized.Source != "summary" {
+		t.Fatalf("source = %q, want summary", summarized.Source)
+	}
+	// This comparison is the whole point of the instrumentation: it is what
+	// tells you organizing bought anything at all.
+	if summarized.Bytes >= raw.Bytes {
+		t.Fatalf("summary context (%d) should be smaller than raw (%d)", summarized.Bytes, raw.Bytes)
+	}
+}

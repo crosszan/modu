@@ -36,6 +36,15 @@ func (s *engine) GetMemoryOrganizationStatus() memory.OrganizationState {
 	return s.memoryStore.OrganizationStatus()
 }
 
+// MemoryContextStats reports the size and source of the memory block most
+// recently injected into a prompt.
+func (s *engine) MemoryContextStats() memory.ContextStats {
+	if s == nil || s.memoryStore == nil {
+		return memory.ContextStats{}
+	}
+	return s.memoryStore.ContextStats()
+}
+
 func (s *engine) maybeAutoOrganizeMemory() {
 	if s == nil || s.memoryStore == nil || s.config == nil ||
 		!memoryFeatureEnabled(s.config) || !s.config.MemoryAutoOrganize() {
