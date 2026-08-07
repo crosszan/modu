@@ -7,6 +7,12 @@
     <loc>https://modu.crosszan.com/docs</loc>
   </url>
   <url>
+    <loc>https://modu.crosszan.com/docs/cli</loc>
+  </url>
+  <url>
+    <loc>https://modu.crosszan.com/docs/models</loc>
+  </url>
+  <url>
     <loc>https://modu.crosszan.com/pricing</loc>
   </url>
   <url>
@@ -20,6 +26,12 @@
   </url>
   <url>
     <loc>https://modu.crosszan.com/en/docs</loc>
+  </url>
+  <url>
+    <loc>https://modu.crosszan.com/en/docs/cli</loc>
+  </url>
+  <url>
+    <loc>https://modu.crosszan.com/en/docs/models</loc>
   </url>
   <url>
     <loc>https://modu.crosszan.com/en/pricing</loc>

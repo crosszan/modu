@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for interjecting or queueing while it runs." />
+    <link rel="canonical" href="https://modu.crosszan.com/en/docs/cli" />
+    <link rel="alternate" hreflang="zh-CN" href="https://modu.crosszan.com/docs/cli" />
+    <link rel="alternate" hreflang="en" href="https://modu.crosszan.com/en/docs/cli" />
+    <link rel="alternate" hreflang="x-default" href="https://modu.crosszan.com/docs/cli" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="stylesheet" href="/site.css" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Modu" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="modu_code CLI guide · Modu Docs" />
+    <meta property="og:description" content="The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for interjecting or queueing while it runs." />
+    <meta property="og:url" content="https://modu.crosszan.com/en/docs/cli" />
+    <meta property="og:image" content="https://modu.crosszan.com/logo.png" />
+    <meta property="og:image:width" content="1024" />
+    <meta property="og:image:height" content="1024" />
+    <meta property="og:image:alt" content="Modu — Go toolkit for building agent applications" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="modu_code CLI guide · Modu Docs" />
+    <meta name="twitter:description" content="The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for interjecting or queueing while it runs." />
+    <meta name="twitter:image" content="https://modu.crosszan.com/logo.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "TechArticle",
+            "headline": "modu_code CLI guide · Modu Docs",
+            "description": "The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for interjecting or queueing while it runs.",
+            "inLanguage": "en",
+            "url": "https://modu.crosszan.com/en/docs/cli",
+            "mainEntityOfPage": "https://modu.crosszan.com/en/docs/cli",
+            "isPartOf": {
+              "@id": "https://modu.crosszan.com/#website"
+            },
+            "publisher": {
+              "@id": "https://modu.crosszan.com/#organization"
+            },
+            "about": {
+              "@type": "SoftwareSourceCode",
+              "name": "Modu",
+              "programmingLanguage": "Go"
+            }
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Home",
+                "item": "https://modu.crosszan.com/en/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Docs",
+                "item": "https://modu.crosszan.com/en/docs"
+              },
+              {
+                "@type": "ListItem",
+                "position": 3,
+                "name": "CLI (modu_code)",
+                "item": "https://modu.crosszan.com/en/docs/cli"
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+    <title>modu_code CLI guide · Modu Docs</title>
+  </head>
+  <body class="site-page docs-page">
+    <a class="skip-link" href="#docs-content">Skip to documentation</a>
+
+    <header class="site-header">
+      <nav class="nav-shell" aria-label="Documentation navigation">
+        <a class="brand" href="/en/">
+          <img src="/logo.png" width="34" height="34" alt="" />
+          <span>Modu</span>
+          <em>Docs</em>
+        </a>
+
+        <button class="icon-button mobile-menu-button" type="button" aria-label="Open navigation" aria-expanded="false">
+          <i class="ti ti-menu-2" aria-hidden="true"></i>
+        </button>
+
+        <div class="nav-menu">
+          <div class="nav-links">
+            <a class="active" href="/en/docs">Docs</a>
+            <a href="/en/#runtime">Agent runtime</a>
+            <a href="/en/#teams">Multi-agent teams</a>
+            <a href="https://github.com/openmodu/modu/tree/main/examples" target="_blank" rel="noreferrer">Examples</a>
+            <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
+          </div>
+          <div class="nav-actions">
+            <button class="icon-button theme-toggle" type="button" aria-label="Toggle dark mode">
+              <i class="ti ti-moon" aria-hidden="true"></i>
+            </button>
+            <a class="language-toggle" href="/docs/cli" lang="zh-CN" hreflang="zh-CN" aria-label="切换到中文">中文</a>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <div class="docs-layout shell">
+      <aside class="docs-sidebar" aria-label="Documentation contents">
+        <label class="docs-search">
+          <i class="ti ti-search" aria-hidden="true"></i>
+          <input type="search" placeholder="Filter contents" aria-label="Filter contents" />
+          <kbd>⌘ K</kbd>
+        </label>
+        <button class="docs-index-toggle" type="button" aria-expanded="false">
+          <span>Browse contents</span>
+          <i class="ti ti-chevron-right" aria-hidden="true"></i>
+        </button>
+        <nav class="docs-nav">
+          <div>
+            <strong>Start</strong>
+            <a href="/en/docs">Quickstart</a>
+            <a class="active" href="/en/docs/cli">CLI (modu_code)</a>
+            <a href="/en/docs/models">Models &amp; providers</a>
+          </div>
+          <div>
+            <strong>Agent runtime</strong>
+            <a href="/en/docs#runtime">Agent loop</a>
+            <a href="/en/docs#recovery">Session recovery</a>
+            <a href="/en/docs#events">Events &amp; state</a>
+          </div>
+          <div>
+            <strong>Multi-agent</strong>
+            <a href="/en/docs#mailbox">Mailbox teams</a>
+            <a href="/en/docs#architecture">Architecture</a>
+          </div>
+          <p class="search-empty" hidden>No matching pages</p>
+        </nav>
+      </aside>
+
+      <main class="docs-article" id="docs-content">
+        <p class="breadcrumb">Docs <i class="ti ti-chevron-right" aria-hidden="true"></i> CLI (modu_code)</p>
+        <header>
+          <p class="eyebrow">CLI</p>
+          <h1>Using modu_code in the terminal</h1>
+          <p class="article-lede">modu_code is Modu’s terminal coding agent. This page covers installation, the four run modes, resuming sessions, and what the keys do while the agent works.</p>
+        </header>
+
+        <section id="install">
+          <h2>Install</h2>
+          <p>Requires Go (see <code>go.mod</code> in the repository for the exact version). Run straight from source:</p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button class="copy-button" type="button" data-copy="go run ./cmd/modu_code">
+                <span data-copy-label>Copy</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted">$</span> go run ./cmd/modu_code</code></pre>
+          </div>
+          <p>Or build a single binary and put it on your <code>PATH</code>:</p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button class="copy-button" type="button" data-copy="go build -o modu_code ./cmd/modu_code
+./modu_code">
+                <span data-copy-label>Copy</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted">$</span> go build -o modu_code ./cmd/modu_code
+<span class="syntax-muted">$</span> ./modu_code</code></pre>
+          </div>
+          <p>Below, <code>go run ./cmd/modu_code</code> and <code>modu_code</code> are interchangeable.</p>
+        </section>
+
+        <section id="quickstart">
+          <h2>Zero-config start</h2>
+          <p>The fastest path is one environment variable and no config file. <code>modu_code</code> picks the first provider that matches, in this order:</p>
+          <ul>
+            <li><code>ANTHROPIC_API_KEY</code> — Anthropic (over the OpenAI-compatible endpoint)</li>
+            <li><code>OPENAI_API_KEY</code> — OpenAI Responses; model from <code>$OPENAI_MODEL</code>, default <code>gpt-4o</code></li>
+            <li><code>DEEPSEEK_API_KEY</code> — DeepSeek; model from <code>$DEEPSEEK_MODEL</code>, default <code>deepseek-chat</code></li>
+            <li><code>OLLAMA_HOST</code> — Ollama; model from <code>$OLLAMA_MODEL</code> (required)</li>
+          </ul>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button class="copy-button" type="button" data-copy="export DEEPSEEK_API_KEY=sk-xxx
+go run ./cmd/modu_code">
+                <span data-copy-label>Copy</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted">$</span> export DEEPSEEK_API_KEY=sk-xxx
+<span class="syntax-muted">$</span> go run ./cmd/modu_code</code></pre>
+          </div>
+          <div class="article-note">
+            <i class="ti ti-info-circle" aria-hidden="true"></i>
+            <p>You can enter the TUI with no provider at all: it offers <code>/config</code> to set up a provider, API key, and model on the spot. For multiple models, roles, and reasoning levels see <a href="/en/docs/models">Models &amp; providers</a>.</p>
+          </div>
+        </section>
+
+        <section id="modes">
+          <h2>Run modes and flags</h2>
+          <p>Without <code>-p</code>/<code>--rpc</code>/<code>--acp</code> you get the interactive TUI. The other three are non-interactive modes for scripts and editor integrations.</p>
+          <ul>
+            <li><code>(none)</code> — interactive TUI (default)</li>
+            <li><code>-p "&lt;prompt&gt;"</code> — print mode: send one prompt, write the result to stdout, exit</li>
+            <li><code>--json</code> — with <code>-p</code>: emit an NDJSON event stream instead of plain text</li>
+            <li><code>--rpc</code> — RPC mode: JSON-line protocol over stdin/stdout</li>
+            <li><code>--acp</code> — ACP stdio server: JSON-RPC 2.0 LDJSON, for ACP clients such as Zed</li>
+            <li><code>--no-approve</code> — skip tool-execution approval and auto-allow every tool</li>
+            <li><code>--resume &lt;id&gt;</code> — resume a saved session (full id or a unique prefix)</li>
+            <li><code>--worktree</code> — start inside an isolated git worktree</li>
+          </ul>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button class="copy-button" type="button" data-copy="go run ./cmd/modu_code -p &quot;Summarize what cmd/modu_code does&quot; --no-approve">
+                <span data-copy-label>Copy</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted">$</span> go run ./cmd/modu_code -p &quot;Summarize what cmd/modu_code does&quot; --no-approve</code></pre>
+          </div>
+          <div class="article-note">
+            <i class="ti ti-info-circle" aria-hidden="true"></i>
+            <p>The non-interactive modes exit with an error when no provider is configured rather than opening the setup flow — scripted runs need the model configured up front.</p>
+          </div>
+        </section>
+
+        <section id="sessions">
+          <h2>Sessions and resuming</h2>
+          <p>Every start creates a new session id; the previous conversation in the same directory is not picked up automatically. On exit the terminal prints the session id and the command to resume it:</p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button class="copy-button" type="button" data-copy="go run ./cmd/modu_code --resume &lt;session-id&gt;">
+                <span data-copy-label>Copy</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted">$</span> go run ./cmd/modu_code --resume &lt;session-id&gt;</code></pre>
+          </div>
+          <p>A unique prefix works, so you do not have to paste the whole UUID.</p>
+        </section>
+
+        <section id="keys">
+          <h2>Keys while it runs</h2>
+          <p>While the agent is working, what you type can be delivered two ways. The status line shows which is which:</p>
+          <ul>
+            <li><strong>Enter</strong> — interject: the message joins the current turn at its next tool boundary, and work in flight is not thrown away</li>
+            <li><strong>⇧Enter</strong> — queue: the message waits until the turn finishes</li>
+            <li><strong>Esc</strong> — interrupt the running task</li>
+            <li><strong>Ctrl+V</strong> — paste an image from the clipboard (dragging an image file into the terminal also works)</li>
+          </ul>
+          <div class="article-note">
+            <i class="ti ti-info-circle" aria-hidden="true"></i>
+            <p>On macOS use <strong>Ctrl+V</strong> rather than Cmd+V to paste an image: the terminal intercepts Cmd+V itself, so the program never sees the keypress.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="site-footer docs-footer">
+      <div class="shell footer-content">
+        <div class="footer-brand">
+          <a class="brand" href="/en/">
+            <img src="/logo.png" width="34" height="34" alt="" />
+            <span>Modu</span>
+          </a>
+          <p>Go-native building blocks for agent applications.</p>
+        </div>
+        <div class="footer-links">
+          <a href="/en/">Home</a>
+          <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="/en/privacy">Privacy</a>
+          <a href="/en/terms">Terms</a>
+        </div>
+      </div>
+    </footer>
+
+    <div class="copy-toast" role="status" aria-live="polite">Copied to clipboard</div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

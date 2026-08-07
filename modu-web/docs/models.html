@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Modu 的模型配置：环境变量快速起步，以及 ~/.modu/config.toml 中的多模型、provider、role、capabilities 与上下文窗口设置。" />
+    <link rel="canonical" href="https://modu.crosszan.com/docs/models" />
+    <link rel="alternate" hreflang="zh-CN" href="https://modu.crosszan.com/docs/models" />
+    <link rel="alternate" hreflang="en" href="https://modu.crosszan.com/en/docs/models" />
+    <link rel="alternate" hreflang="x-default" href="https://modu.crosszan.com/docs/models" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="stylesheet" href="/site.css" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Modu" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:title" content="模型与 Provider 配置 · Modu 文档" />
+    <meta property="og:description" content="Modu 的模型配置：环境变量快速起步，以及 ~/.modu/config.toml 中的多模型、provider、role、capabilities 与上下文窗口设置。" />
+    <meta property="og:url" content="https://modu.crosszan.com/docs/models" />
+    <meta property="og:image" content="https://modu.crosszan.com/logo.png" />
+    <meta property="og:image:width" content="1024" />
+    <meta property="og:image:height" content="1024" />
+    <meta property="og:image:alt" content="Modu — 用于构建 Agent 应用的 Go 工具箱" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="模型与 Provider 配置 · Modu 文档" />
+    <meta name="twitter:description" content="Modu 的模型配置：环境变量快速起步，以及 ~/.modu/config.toml 中的多模型、provider、role、capabilities 与上下文窗口设置。" />
+    <meta name="twitter:image" content="https://modu.crosszan.com/logo.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "TechArticle",
+            "headline": "模型与 Provider 配置 · Modu 文档",
+            "description": "Modu 的模型配置：环境变量快速起步，以及 ~/.modu/config.toml 中的多模型、provider、role、capabilities 与上下文窗口设置。",
+            "inLanguage": "zh-CN",
+            "url": "https://modu.crosszan.com/docs/models",
+            "mainEntityOfPage": "https://modu.crosszan.com/docs/models",
+            "isPartOf": {
+              "@id": "https://modu.crosszan.com/#website"
+            },
+            "publisher": {
+              "@id": "https://modu.crosszan.com/#organization"
+            },
+            "about": {
+              "@type": "SoftwareSourceCode",
+              "name": "Modu",
+              "programmingLanguage": "Go"
+            }
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "首页",
+                "item": "https://modu.crosszan.com/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "文档",
+                "item": "https://modu.crosszan.com/docs"
+              },
+              {
+                "@type": "ListItem",
+                "position": 3,
+                "name": "模型与 Provider 配置",
+                "item": "https://modu.crosszan.com/docs/models"
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+    <title>模型与 Provider 配置 · Modu 文档</title>
+  </head>
+  <body class="site-page docs-page">
+    <a class="skip-link" href="#docs-content">跳到文档正文</a>
+
+    <header class="site-header">
+      <nav class="nav-shell" aria-label="文档导航">
+        <a class="brand" href="/">
+          <img src="/logo.png" width="34" height="34" alt="" />
+          <span>Modu</span>
+          <em>文档</em>
+        </a>
+
+        <button class="icon-button mobile-menu-button" type="button" aria-label="打开导航" aria-expanded="false">
+          <i class="ti ti-menu-2" aria-hidden="true"></i>
+        </button>
+
+        <div class="nav-menu">
+          <div class="nav-links">
+            <a class="active" href="/docs">文档</a>
+            <a href="/#runtime">Agent Runtime</a>
+            <a href="/#teams">多 Agent 协作</a>
+            <a href="https://github.com/openmodu/modu/tree/main/examples" target="_blank" rel="noreferrer">示例</a>
+            <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
+          </div>
+          <div class="nav-actions">
+            <button class="icon-button theme-toggle" type="button" aria-label="切换深色模式">
+              <i class="ti ti-moon" aria-hidden="true"></i>
+            </button>
+            <a class="language-toggle" href="/en/docs/models" lang="en" hreflang="en" aria-label="Switch to English">EN</a>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <div class="docs-layout shell">
+      <aside class="docs-sidebar" aria-label="文档目录">
+        <label class="docs-search">
+          <i class="ti ti-search" aria-hidden="true"></i>
+          <input type="search" placeholder="筛选文档目录" aria-label="筛选文档目录" />
+          <kbd>⌘ K</kbd>
+        </label>
+        <button class="docs-index-toggle" type="button" aria-expanded="false">
+          <span>浏览文档目录</span>
+          <i class="ti ti-chevron-right" aria-hidden="true"></i>
+        </button>
+        <nav class="docs-nav">
+          <div>
+            <strong>开始</strong>
+            <a href="/docs">快速开始</a>
+            <a href="/docs/cli">命令行 (modu_code)</a>
+            <a class="active" href="/docs/models">模型与 Provider 配置</a>
+          </div>
+          <div>
+            <strong>Agent Runtime</strong>
+            <a href="/docs#runtime">Agent Loop</a>
+            <a href="/docs#recovery">会话恢复</a>
+            <a href="/docs#events">事件与状态</a>
+          </div>
+          <div>
+            <strong>多 Agent 协作</strong>
+            <a href="/docs#mailbox">Mailbox Teams</a>
+            <a href="/docs#architecture">协作架构</a>
+          </div>
+          <p class="search-empty" hidden>没有匹配的文档</p>
+        </nav>
+      </aside>
+
+      <main class="docs-article" id="docs-content">
+        <p class="breadcrumb">文档 <i class="ti ti-chevron-right" aria-hidden="true"></i> 模型与 Provider 配置</p>
+        <header>
+          <p class="eyebrow">CONFIG</p>
+          <h1>配置模型与 Provider</h1>
+          <p class="article-lede">从一个环境变量起步，到用 config.toml 管理多个模型、provider 和专用 role。</p>
+        </header>
+
+        <section id="env">
+          <h2>最简单：环境变量</h2>
+          <p>只用一个模型时不需要配置文件，设一个环境变量即可，命中顺序见<a href="/docs/cli">命令行指南</a>。</p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button class="copy-button" type="button" data-copy="export DEEPSEEK_API_KEY=sk-xxx
+go run ./cmd/modu_code">
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted">$</span> export DEEPSEEK_API_KEY=sk-xxx
+<span class="syntax-muted">$</span> go run ./cmd/modu_code</code></pre>
+          </div>
+          <p>辅助变量：<code>OPENAI_BASE_URL</code> 覆盖 OpenAI Responses 的 base URL；<code>THINKING_LEVEL</code> 设推理档位（<code>off|low|medium|high</code>，默认 <code>off</code>）。</p>
+        </section>
+
+        <section id="config">
+          <h2>配置文件：多模型</h2>
+          <p>需要多个模型、模型切换或专用 role 时，写 <code>~/.modu/config.toml</code>。它的优先级高于环境变量。</p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>~/.modu/config.toml</span>
+              <button class="copy-button" type="button" data-copy="version = 2
+active = &quot;local-qwen&quot;
+scopedModels = [&quot;local-qwen&quot;, &quot;deepseek&quot;]
+
+[roles]
+summary = &quot;local-qwen&quot;
+dispatcher = &quot;deepseek&quot;
+
+[reasoning]
+level = &quot;off&quot;
+
+[providers.lmstudio]
+type = &quot;openai-compatible&quot;
+baseUrl = &quot;http://127.0.0.1:1234/v1&quot;
+apiKey = &quot;lm-studio&quot;
+
+[providers.deepseek]
+type = &quot;openai-compatible&quot;
+baseUrl = &quot;https://api.deepseek.com/v1&quot;
+apiKeyEnv = &quot;DEEPSEEK_API_KEY&quot;
+
+[[models]]
+name = &quot;local-qwen&quot;
+description = &quot;local coding model&quot;
+provider = &quot;lmstudio&quot;
+model = &quot;qwen/qwen3.6-35b-a3b&quot;
+capabilities = [&quot;tools&quot;]
+contextWindow = 262144
+
+[[models]]
+name = &quot;deepseek&quot;
+description = &quot;remote fallback model&quot;
+provider = &quot;deepseek&quot;
+model = &quot;deepseek-chat&quot;
+capabilities = [&quot;tools&quot;]
+contextWindow = 1000000">
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code>version = 2
+active = &quot;local-qwen&quot;
+scopedModels = [&quot;local-qwen&quot;, &quot;deepseek&quot;]
+
+[roles]
+summary = &quot;local-qwen&quot;
+dispatcher = &quot;deepseek&quot;
+
+[reasoning]
+level = &quot;off&quot;
+
+[providers.lmstudio]
+type = &quot;openai-compatible&quot;
+baseUrl = &quot;http://127.0.0.1:1234/v1&quot;
+apiKey = &quot;lm-studio&quot;
+
+[providers.deepseek]
+type = &quot;openai-compatible&quot;
+baseUrl = &quot;https://api.deepseek.com/v1&quot;
+apiKeyEnv = &quot;DEEPSEEK_API_KEY&quot;
+
+[[models]]
+name = &quot;local-qwen&quot;
+description = &quot;local coding model&quot;
+provider = &quot;lmstudio&quot;
+model = &quot;qwen/qwen3.6-35b-a3b&quot;
+capabilities = [&quot;tools&quot;]
+contextWindow = 262144
+
+[[models]]
+name = &quot;deepseek&quot;
+description = &quot;remote fallback model&quot;
+provider = &quot;deepseek&quot;
+model = &quot;deepseek-chat&quot;
+capabilities = [&quot;tools&quot;]
+contextWindow = 1000000</code></pre>
+          </div>
+        </section>
+
+        <section id="fields">
+          <h2>各字段的职责</h2>
+          <ul>
+            <li><code>providers</code> — 只描述<strong>怎么连</strong>：base URL、API key。<code>apiKeyEnv</code> 让 key 留在环境变量里，不落到配置文件。</li>
+            <li><code>models</code> — 只描述<strong>有哪些模型可选</strong>，每个绑定一个 provider。</li>
+            <li><code>active</code> — 默认使用的模型。</li>
+            <li><code>scopedModels</code> — 模型循环切换的范围。</li>
+            <li><code>roles</code> — 给 summary、dispatcher 这类专用场景指定模型。</li>
+            <li><code>capabilities</code> — 模型支持的能力，例如 <code>tools</code>、<code>image</code>。带 <code>image</code> 才允许发图片。</li>
+            <li><code>contextWindow</code> — 显式覆盖上下文窗口；不写时内置厂商会按其最大窗口补默认值。</li>
+          </ul>
+        </section>
+
+        <section id="responses">
+          <h2>OpenAI Responses</h2>
+          <p>OpenAI Responses 用的是独立的 provider 类型：</p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>~/.modu/config.toml</span>
+              <button class="copy-button" type="button" data-copy="[providers.openai]
+type = &quot;openai-responses&quot;
+baseUrl = &quot;https://api.openai.com/v1&quot;
+apiKeyEnv = &quot;OPENAI_API_KEY&quot;
+
+[[models]]
+name = &quot;gpt-5&quot;
+provider = &quot;openai&quot;
+model = &quot;gpt-5&quot;
+capabilities = [&quot;text&quot;, &quot;image&quot;, &quot;tools&quot;]">
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code>[providers.openai]
+type = &quot;openai-responses&quot;
+baseUrl = &quot;https://api.openai.com/v1&quot;
+apiKeyEnv = &quot;OPENAI_API_KEY&quot;
+
+[[models]]
+name = &quot;gpt-5&quot;
+provider = &quot;openai&quot;
+model = &quot;gpt-5&quot;
+capabilities = [&quot;text&quot;, &quot;image&quot;, &quot;tools&quot;]</code></pre>
+          </div>
+        </section>
+
+        <section id="switching">
+          <h2>运行中切换模型</h2>
+          <p>在 TUI 里用 <code>/model</code> 切换，或用 <code>/config</code> 现场增删 provider 与模型，无需重启。切换范围由 <code>scopedModels</code> 决定。</p>
+        </section>
+      </main>
+    </div>
+
+    <footer class="site-footer docs-footer">
+      <div class="shell footer-content">
+        <div class="footer-brand">
+          <a class="brand" href="/">
+            <img src="/logo.png" width="34" height="34" alt="" />
+            <span>Modu</span>
+          </a>
+          <p>Go-native building blocks for agent applications.</p>
+        </div>
+        <div class="footer-links">
+          <a href="/">首页</a>
+          <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="/privacy">隐私协议</a>
+          <a href="/terms">服务条款</a>
+        </div>
+      </div>
+    </footer>
+
+    <div class="copy-toast" role="status" aria-live="polite">已复制到剪贴板</div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
