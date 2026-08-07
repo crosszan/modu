@@ -23,8 +23,36 @@
     />
     <meta property="og:url" content="https://modu.crosszan.com/docs" />
     <meta property="og:image" content="https://modu.crosszan.com/logo.png" />
+    <meta property="og:image:width" content="1024" />
+    <meta property="og:image:height" content="1024" />
+    <meta property="og:image:alt" content="Modu — 用于构建 Agent 应用的 Go 工具箱" />
     <meta name="twitter:card" content="summary" />
     <title>Modu 文档 · 快速开始</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "TechArticle",
+            "headline": "构建第一个 Modu Agent",
+            "description": "安装 Modu，构建第一个 Agent，并了解运行时恢复、多 Agent 协作与 Coding Agent。",
+            "inLanguage": "zh-CN",
+            "url": "https://modu.crosszan.com/docs",
+            "mainEntityOfPage": "https://modu.crosszan.com/docs",
+            "isPartOf": { "@id": "https://modu.crosszan.com/#website" },
+            "publisher": { "@id": "https://modu.crosszan.com/#organization" },
+            "about": { "@type": "SoftwareSourceCode", "name": "Modu", "programmingLanguage": "Go" }
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "首页", "item": "https://modu.crosszan.com/" },
+              { "@type": "ListItem", "position": 2, "name": "文档", "item": "https://modu.crosszan.com/docs" }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body class="site-page docs-page">
     <a class="skip-link" href="#docs-content">跳到文档正文</a>
@@ -44,9 +72,9 @@
         <div class="nav-menu">
           <div class="nav-links">
             <a class="active" href="/docs">文档</a>
+            <a href="/guides/go-agent-framework">Go Agent 指南</a>
             <a href="/#runtime">Agent Runtime</a>
             <a href="/#teams">多 Agent 协作</a>
-            <a href="https://github.com/openmodu/modu/tree/main/examples" target="_blank" rel="noreferrer">示例</a>
             <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
           </div>
           <div class="nav-actions">
@@ -77,6 +105,9 @@
             <a href="#install">安装</a>
             <a href="#first-agent">第一个 Agent</a>
             <a href="#examples">运行示例</a>
+            <a href="/docs/cli">命令行 (modu_code)</a>
+            <a href="/docs/models">模型与 Provider 配置</a>
+            <a href="/guides/go-agent-framework">Go Agent 开发指南</a>
           </div>
           <div>
             <strong>Agent Runtime</strong>
@@ -339,9 +370,9 @@ resumed, err := rt.Resume(ctx)</code></pre>
             <span>上一页</span>
             <strong>← 项目首页</strong>
           </a>
-          <a href="https://github.com/openmodu/modu/tree/main/examples" target="_blank" rel="noreferrer">
+          <a href="/guides/go-agent-framework">
             <span>下一步</span>
-            <strong>运行示例 →</strong>
+            <strong>Go Agent 开发指南 →</strong>
           </a>
         </nav>
       </main>
@@ -368,6 +399,7 @@ resumed, err := rt.Resume(ctx)</code></pre>
         </div>
         <div class="footer-links">
           <a href="/">首页</a>
+          <a href="/guides/go-agent-framework">Go Agent 指南</a>
           <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
           <a href="/privacy">隐私协议</a>
           <a href="/terms">服务条款</a>

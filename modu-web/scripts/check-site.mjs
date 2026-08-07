@@ -12,7 +12,13 @@ const pages = [
   ['en/docs.html', 'en', 'https://modu.crosszan.com/en/docs', 'https://modu.crosszan.com/docs'],
   ['en/pricing.html', 'en', 'https://modu.crosszan.com/en/pricing', 'https://modu.crosszan.com/pricing'],
   ['en/privacy.html', 'en', 'https://modu.crosszan.com/en/privacy', 'https://modu.crosszan.com/privacy'],
-  ['en/terms.html', 'en', 'https://modu.crosszan.com/en/terms', 'https://modu.crosszan.com/terms']
+  ['en/terms.html', 'en', 'https://modu.crosszan.com/en/terms', 'https://modu.crosszan.com/terms'],
+  ['docs/cli.html', 'zh-CN', 'https://modu.crosszan.com/docs/cli', 'https://modu.crosszan.com/en/docs/cli'],
+  ['docs/models.html', 'zh-CN', 'https://modu.crosszan.com/docs/models', 'https://modu.crosszan.com/en/docs/models'],
+  ['en/docs/cli.html', 'en', 'https://modu.crosszan.com/en/docs/cli', 'https://modu.crosszan.com/docs/cli'],
+  ['en/docs/models.html', 'en', 'https://modu.crosszan.com/en/docs/models', 'https://modu.crosszan.com/docs/models'],
+  ['guides/go-agent-framework.html', 'zh-CN', 'https://modu.crosszan.com/guides/go-agent-framework', 'https://modu.crosszan.com/en/guides/go-agent-framework'],
+  ['en/guides/go-agent-framework.html', 'en', 'https://modu.crosszan.com/en/guides/go-agent-framework', 'https://modu.crosszan.com/guides/go-agent-framework']
 ];
 
 const failures = [];
@@ -30,8 +36,29 @@ for (const [file, lang, canonical, counterpart] of pages) {
   assert(html.includes('property="og:title"'), `${file}: missing Open Graph title`);
   assert(html.includes('property="og:description"'), `${file}: missing Open Graph description`);
   assert(html.includes('name="twitter:card"'), `${file}: missing Twitter card`);
+  assert(html.includes('property="og:image:width"'), `${file}: missing og:image dimensions`);
+  assert(html.includes('property="og:image:alt"'), `${file}: missing og:image alt text`);
   assert(!html.includes('data-en='), `${file}: contains obsolete partial translation attributes`);
   assert(!/href="\/[^"#?]*\.html/.test(html), `${file}: contains a public .html link`);
+}
+
+// Every docs page should carry TechArticle + BreadcrumbList, and the JSON-LD
+// must parse — a malformed block is silently ignored by crawlers.
+for (const file of ['docs.html', 'docs/cli.html', 'docs/models.html', 'en/docs.html', 'en/docs/cli.html', 'en/docs/models.html']) {
+  const html = await readFile(new URL(file, dist), 'utf8');
+  const match = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  if (!match) {
+    failures.push(`${file}: missing JSON-LD`);
+    continue;
+  }
+  try {
+    const parsed = JSON.parse(match[1]);
+    const types = (parsed['@graph'] ?? []).map((node) => node['@type']);
+    assert(types.includes('TechArticle'), `${file}: JSON-LD missing TechArticle`);
+    assert(types.includes('BreadcrumbList'), `${file}: JSON-LD missing BreadcrumbList`);
+  } catch (error) {
+    failures.push(`${file}: JSON-LD does not parse (${error.message})`);
+  }
 }
 
 const robots = await readFile(new URL('robots.txt', dist), 'utf8');

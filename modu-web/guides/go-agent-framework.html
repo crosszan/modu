@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="用 Go 构建 Agent 的实战指南：拆分 Agent Loop、工具调用、会话恢复与多 Agent 协作，并说明 Modu 各模块的职责边界。"
+    />
+    <link rel="canonical" href="https://modu.crosszan.com/guides/go-agent-framework" />
+    <link rel="alternate" hreflang="zh-CN" href="https://modu.crosszan.com/guides/go-agent-framework" />
+    <link rel="alternate" hreflang="en" href="https://modu.crosszan.com/en/guides/go-agent-framework" />
+    <link rel="alternate" hreflang="x-default" href="https://modu.crosszan.com/guides/go-agent-framework" />
+    <link
+      rel="alternate"
+      hreflang="zh-CN"
+      href="https://modu.crosszan.com/guides/go-agent-framework"
+    />
+    <link
+      rel="alternate"
+      hreflang="en"
+      href="https://modu.crosszan.com/en/guides/go-agent-framework"
+    />
+    <link
+      rel="alternate"
+      hreflang="x-default"
+      href="https://modu.crosszan.com/guides/go-agent-framework"
+    />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="stylesheet" href="/site.css" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Modu" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:title" content="Go Agent 开发指南：Loop、工具调用与多 Agent 协作" />
+    <meta
+      property="og:description"
+      content="从一个最小 Agent Loop 开始，逐步加入工具调用、检查点恢复与多 Agent 协作。"
+    />
+    <meta property="og:url" content="https://modu.crosszan.com/guides/go-agent-framework" />
+    <meta property="og:image" content="https://modu.crosszan.com/logo.png" />
+    <meta property="og:image:width" content="1024" />
+    <meta property="og:image:height" content="1024" />
+    <meta property="og:image:alt" content="Modu — Go Agent 开发指南" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Go Agent 开发指南：Loop、工具调用与多 Agent 协作" />
+    <meta
+      name="twitter:description"
+      content="从一个最小 Agent Loop 开始，逐步加入工具调用、检查点恢复与多 Agent 协作。"
+    />
+    <meta name="twitter:image" content="https://modu.crosszan.com/logo.png" />
+    <title>Go Agent 开发指南：Loop、工具调用与多 Agent 协作 | Modu</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "TechArticle",
+            "headline": "Go Agent 开发指南：Loop、工具调用与多 Agent 协作",
+            "description": "用 Go 构建 Agent 的实战指南：拆分 Agent Loop、工具调用、会话恢复与多 Agent 协作，并说明 Modu 各模块的职责边界。",
+            "inLanguage": "zh-CN",
+            "datePublished": "2026-08-07",
+            "dateModified": "2026-08-07",
+            "url": "https://modu.crosszan.com/guides/go-agent-framework",
+            "mainEntityOfPage": "https://modu.crosszan.com/guides/go-agent-framework",
+            "author": { "@id": "https://modu.crosszan.com/#organization" },
+            "publisher": { "@id": "https://modu.crosszan.com/#organization" },
+            "isPartOf": { "@id": "https://modu.crosszan.com/#website" },
+            "about": [
+              { "@type": "Thing", "name": "AI agent" },
+              { "@type": "ComputerLanguage", "name": "Go" }
+            ]
+          },
+          {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "首页",
+                "item": "https://modu.crosszan.com/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "指南",
+                "item": "https://modu.crosszan.com/guides/go-agent-framework"
+              },
+              {
+                "@type": "ListItem",
+                "position": 3,
+                "name": "Go Agent 开发指南",
+                "item": "https://modu.crosszan.com/guides/go-agent-framework"
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body class="site-page docs-page">
+    <a class="skip-link" href="#guide-content">跳到指南正文</a>
+
+    <header class="site-header">
+      <nav class="nav-shell" aria-label="指南导航">
+        <a class="brand" href="/" aria-label="Modu 首页">
+          <img src="/logo.png" width="34" height="34" alt="" />
+          <span>Modu</span>
+          <em>指南</em>
+        </a>
+        <button class="icon-button mobile-menu-button" type="button" aria-label="打开导航" aria-expanded="false">
+          <i class="ti ti-menu-2" aria-hidden="true"></i>
+        </button>
+        <div class="nav-menu">
+          <div class="nav-links">
+            <a href="/docs">文档</a>
+            <a class="active" href="/guides/go-agent-framework">Go Agent 指南</a>
+            <a href="/#runtime">Agent Runtime</a>
+            <a href="/#teams">多 Agent 协作</a>
+            <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
+          </div>
+          <div class="nav-actions">
+            <button class="icon-button theme-toggle" type="button" aria-label="切换深色模式">
+              <i class="ti ti-moon" aria-hidden="true"></i>
+            </button>
+            <a
+              class="language-toggle"
+              href="/en/guides/go-agent-framework"
+              lang="en"
+              hreflang="en"
+              aria-label="Switch to English"
+            >EN</a>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <div class="docs-layout shell">
+      <aside class="docs-sidebar" aria-label="指南目录">
+        <button class="docs-index-toggle" type="button" aria-expanded="false">
+          <span>浏览指南目录</span>
+          <i class="ti ti-chevron-right" aria-hidden="true"></i>
+        </button>
+        <nav class="docs-nav">
+          <div>
+            <strong>先做边界决策</strong>
+            <a class="active" href="#overview">什么是 Go Agent 框架</a>
+            <a href="#layers">四层职责</a>
+          </div>
+          <div>
+            <strong>逐层实现</strong>
+            <a href="#loop">Agent Loop</a>
+            <a href="#tools">工具调用</a>
+            <a href="#recovery">状态与恢复</a>
+            <a href="#multi-agent">多 Agent 协作</a>
+          </div>
+          <div>
+            <strong>上线前</strong>
+            <a href="#production">生产检查清单</a>
+            <a href="#next">运行与深入阅读</a>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="docs-article" id="guide-content">
+        <p class="breadcrumb">
+          <a href="/">首页</a>
+          <i class="ti ti-chevron-right" aria-hidden="true"></i>
+          指南
+          <i class="ti ti-chevron-right" aria-hidden="true"></i>
+          Go Agent
+        </p>
+        <header id="overview">
+          <p class="eyebrow">GO AGENT 开发指南</p>
+          <h1>用 Go 构建 Agent：从 Loop 到多 Agent 协作</h1>
+          <p class="article-lede">
+            一个能上线的 Agent 不只是一次模型请求。它需要控制循环、验证工具参数、记录可恢复状态，并在多
+            Agent 场景中明确任务所有权。本文用 Modu 的真实模块边界说明这四层如何组合。
+          </p>
+        </header>
+
+        <div class="article-note">
+          <i class="ti ti-info-circle" aria-hidden="true"></i>
+          <p>
+            本文适合已经会写 Go、正在评估 Agent 框架或准备从单次 LLM 调用升级到可恢复工作流的开发者。
+            如果只想先跑起来，请直接看
+            <a href="/docs#quickstart">Modu 快速开始</a>。
+          </p>
+        </div>
+
+        <section id="layers">
+          <p class="section-label">01 · ARCHITECTURE</p>
+          <h2>先把 Agent 拆成四层</h2>
+          <p>
+            “Agent 框架”容易被误解为一个模型 SDK。真正困难的部分是：模型决定调用工具之后，谁验证参数、谁
+            执行副作用、失败后从哪里继续、多个执行者如何交接。把这些职责混在一个函数里，短期代码少，长期却
+            很难测试和恢复。
+          </p>
+          <div class="module-table">
+            <div>
+              <strong>模型接入</strong>
+              <span><code>pkg/providers</code> 处理协议、流式响应与 Provider 注册，不持有业务状态。</span>
+            </div>
+            <div>
+              <strong>执行循环</strong>
+              <span><code>pkg/agent</code> 负责 ReAct 风格循环、工具执行、事件、中断与队列。</span>
+            </div>
+            <div>
+              <strong>会话恢复</strong>
+              <span><code>pkg/runtime</code> 为已提交消息追加检查点，支持恢复与回退分支。</span>
+            </div>
+            <div>
+              <strong>协作状态</strong>
+              <span><code>pkg/mailbox</code> 管理注册、收件箱、任务、项目、验收与会话记录。</span>
+            </div>
+          </div>
+          <p>
+            应用仍然拥有 Prompt、工具目录、持久化策略和部署。这个边界很重要：框架提供执行机制，不应该替应用
+            决定业务权限或数据生命周期。
+          </p>
+        </section>
+
+        <section id="loop">
+          <p class="section-label">02 · AGENT LOOP</p>
+          <h2>从最小 Agent Loop 开始</h2>
+          <p>
+            先只接一个模型和一个 Prompt，确认 Provider、模型 ID 与事件流都能工作。下面的结构与仓库中的
+            <a href="https://github.com/openmodu/modu/tree/main/examples/agent_demo" target="_blank" rel="noreferrer">agent_demo</a>
+            一致；Ollama 和 LM Studio 可以通过 OpenAI 兼容端点接入。
+          </p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>main.go</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy='providers.Register(openai.New("ollama", openai.WithBaseURL("http://localhost:11434/v1")))&#10;model := &amp;types.Model{ID: "llama3.2", Name: "Llama 3.2", ProviderID: "ollama"}&#10;a := agent.NewAgent(types.Config{InitialState: &amp;types.State{SystemPrompt: "你是一个有帮助的助手。", Model: model}})&#10;err := a.Prompt(context.Background(), "用三句话解释 Modu")'
+                aria-label="复制最小 Agent 代码"
+              >
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code>providers.Register(openai.New(
+  <span class="syntax-green">"ollama"</span>,
+  openai.WithBaseURL(<span class="syntax-green">"http://localhost:11434/v1"</span>),
+))
+
+model := &amp;types.Model{
+  ID: <span class="syntax-green">"llama3.2"</span>, Name: <span class="syntax-green">"Llama 3.2"</span>, ProviderID: <span class="syntax-green">"ollama"</span>,
+}
+a := agent.NewAgent(types.Config{
+  InitialState: &amp;types.State{
+    SystemPrompt: <span class="syntax-green">"你是一个有帮助的助手。"</span>,
+    Model: model,
+  },
+})
+
+err := a.Prompt(context.Background(), <span class="syntax-green">"用三句话解释 Modu"</span>)</code></pre>
+          </div>
+          <p>
+            需要自己管理消息状态时，可以直接使用 <code>agent.Loop</code>；需要 Prompt 助手、订阅、队列与中断
+            状态时，使用 <code>agent.Agent</code>。不要在第一步就引入持久化或多 Agent。
+          </p>
+        </section>
+
+        <section id="tools">
+          <p class="section-label">03 · TOOLS</p>
+          <h2>把工具视为受控副作用</h2>
+          <p>
+            工具不是普通函数注册表。每个工具都要提供名称、说明、参数 Schema 和执行方法；循环会在执行前检查
+            参数。对文件写入、外部 API 或命令执行，还应通过 <code>ApproveTool</code> 明确审批边界。
+          </p>
+          <div class="module-table">
+            <div><strong>描述</strong><span>让模型知道何时调用；名称要稳定，说明要包含明确适用条件。</span></div>
+            <div><strong>参数</strong><span>用 JSON Schema 限制必填字段、类型与枚举，避免把校验留给业务代码。</span></div>
+            <div><strong>执行</strong><span>接收 <code>context.Context</code>，让超时和取消能传递到外部请求。</span></div>
+            <div><strong>审批</strong><span>高风险工具先询问宿主应用，不把授权决定交给模型。</span></div>
+          </div>
+          <p>
+            如果工具已经修改外部系统，但结果还没写入会话就发生崩溃，恢复对话并不能撤销副作用。需要“恰好一次”
+            的操作必须在工具自己的 API 或数据库边界上使用幂等键或事务。
+          </p>
+        </section>
+
+        <section id="recovery">
+          <p class="section-label">04 · RECOVERY</p>
+          <h2>状态恢复要和业务事务分开</h2>
+          <p>
+            <code>pkg/runtime</code> 在每条已提交消息后写入检查点。进程重启后，<code>Resume</code> 会加载最新
+            状态并修复没有结果的中断工具调用；<code>Rewind</code> 则把旧检查点作为新的分支头，不删除后续历史。
+          </p>
+          <div class="article-code compact">
+            <div class="article-code-bar">
+              <span>runtime.go</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy='store, err := runtime.NewFileStore("./checkpoints")&#10;rt := runtime.New(agent.NewAgent(cfg), store, "session-123")&#10;err = rt.Run(ctx, "完成这项任务")&#10;resumed, err := rt.Resume(ctx)'
+                aria-label="复制恢复代码"
+              >
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code>store, err := runtime.NewFileStore(<span class="syntax-green">"./checkpoints"</span>)
+rt := runtime.New(agent.NewAgent(cfg), store, <span class="syntax-green">"session-123"</span>)
+
+err = rt.Run(ctx, <span class="syntax-green">"完成这项任务"</span>)
+resumed, err := rt.Resume(ctx)</code></pre>
+          </div>
+          <p>
+            内存 Store 适合测试；FileStore 使用每会话一个追加式 JSONL 文件并在追加后执行
+            <code>fsync</code>。对数据库或对象存储，实现同一个 Store 接口即可。
+          </p>
+        </section>
+
+        <section id="multi-agent">
+          <p class="section-label">05 · MULTI-AGENT</p>
+          <h2>只有任务边界清晰时才增加 Agent</h2>
+          <p>
+            多 Agent 不等于让多个模型自由聊天。先定义谁分派、谁执行、谁验收以及失败后回到哪个状态。Mailbox
+            本身不调用 LLM，它只维护协调状态，因此可以独立测试任务流转。
+          </p>
+          <div class="module-table">
+            <div>
+              <strong>Agent Teams</strong>
+              <span>适合有明确角色和一个协调者的工作；协调者拆分任务并合并结果。</span>
+            </div>
+            <div>
+              <strong>独立验收</strong>
+              <span>适合输出必须由另一执行者接受的队列；Worker 提交，Validator 接受或要求重试。</span>
+            </div>
+          </div>
+          <p>
+            <code>mailbox.NewHub()</code> 默认使用进程内状态。需要跨进程恢复任务、项目、角色与对话时，选择
+            SQLite Store；调用方还要处理收件箱已满、目标不存在和重试策略。
+          </p>
+        </section>
+
+        <section id="production">
+          <p class="section-label">06 · PRODUCTION</p>
+          <h2>上线前检查这七件事</h2>
+          <div class="module-table">
+            <div><strong>终止条件</strong><span>设置最大步骤数，并区分用户取消、模型错误与工具错误。</span></div>
+            <div><strong>工具权限</strong><span>默认最小权限；对写操作、命令执行和外部发送设置审批。</span></div>
+            <div><strong>参数校验</strong><span>Schema 只负责结构，业务层仍需验证资源归属和允许范围。</span></div>
+            <div><strong>可观测性</strong><span>订阅 Agent、Turn、Message 与 Tool Execution 事件，记录耗时和失败点。</span></div>
+            <div><strong>恢复语义</strong><span>明确哪些状态可重放，哪些外部副作用必须幂等。</span></div>
+            <div><strong>上下文成本</strong><span>检查点保存完整消息历史；长会话要设计压缩和保留策略。</span></div>
+            <div><strong>协作背压</strong><span>对满队列定义重试、丢弃或降级，不假设消息一定送达。</span></div>
+          </div>
+        </section>
+
+        <section id="next">
+          <p class="section-label">NEXT</p>
+          <h2>用可运行示例验证选型</h2>
+          <p>不要先搭完整平台。按目标选择一个示例，用真实模型端点走通最短链路：</p>
+          <div class="article-code">
+            <div class="article-code-bar">
+              <span>terminal</span>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy="go run ./examples/agent_demo&#10;go run ./examples/runtime_demo&#10;go run ./examples/agent_teams"
+                aria-label="复制示例命令"
+              >
+                <span data-copy-label>复制</span>
+                <i class="ti ti-copy" aria-hidden="true"></i>
+              </button>
+            </div>
+            <pre><code><span class="syntax-muted"># 单 Agent 与工具调用</span>
+go run ./examples/agent_demo
+
+<span class="syntax-muted"># 检查点、恢复与回退</span>
+go run ./examples/runtime_demo
+
+<span class="syntax-muted"># 协调者驱动的多 Agent 工作</span>
+go run ./examples/agent_teams</code></pre>
+          </div>
+          <div class="article-links">
+            <a href="/docs">
+              <span><strong>Modu 完整快速开始</strong><small>安装、Provider、Runtime 与 Mailbox 用法</small></span>
+              <i class="ti ti-arrow-right" aria-hidden="true"></i>
+            </a>
+            <a href="https://github.com/openmodu/modu/blob/main/pkg/agent/README_zh.md" target="_blank" rel="noreferrer">
+              <span><strong>Agent Core 参考</strong><small>Loop、Agent 与宿主应用的职责边界</small></span>
+              <i class="ti ti-external-link" aria-hidden="true"></i>
+            </a>
+            <a href="https://github.com/openmodu/modu/blob/main/pkg/runtime/README_zh.md" target="_blank" rel="noreferrer">
+              <span><strong>Runtime 恢复语义</strong><small>检查点、恢复、回退和外部副作用边界</small></span>
+              <i class="ti ti-external-link" aria-hidden="true"></i>
+            </a>
+          </div>
+        </section>
+
+        <nav class="article-pagination" aria-label="指南分页">
+          <a href="/">
+            <span>上一页</span>
+            <strong>← 项目首页</strong>
+          </a>
+          <a href="/docs">
+            <span>下一步</span>
+            <strong>开始使用 Modu →</strong>
+          </a>
+        </nav>
+      </main>
+
+      <aside class="docs-toc" aria-label="本页目录">
+        <strong>本页目录</strong>
+        <a class="active" href="#overview">概览</a>
+        <a href="#layers">职责分层</a>
+        <a href="#loop">Agent Loop</a>
+        <a href="#tools">工具调用</a>
+        <a href="#recovery">状态恢复</a>
+        <a href="#multi-agent">多 Agent</a>
+        <a href="#production">生产检查</a>
+      </aside>
+    </div>
+
+    <footer class="site-footer docs-footer">
+      <div class="shell footer-content">
+        <div class="footer-brand">
+          <a class="brand" href="/">
+            <img src="/logo.png" width="34" height="34" alt="" />
+            <span>Modu</span>
+          </a>
+          <p>用于构建 Agent 应用的 Go 原生组件。</p>
+        </div>
+        <div class="footer-links">
+          <a href="/">首页</a>
+          <a href="/docs">文档</a>
+          <a href="/guides/go-agent-framework">Go Agent 指南</a>
+          <a href="https://github.com/openmodu/modu" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="/privacy">隐私协议</a>
+          <a href="/terms">服务条款</a>
+        </div>
+      </div>
+    </footer>
+
+    <div class="copy-toast" role="status" aria-live="polite">已复制到剪贴板</div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
