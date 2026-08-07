@@ -4,6 +4,14 @@ This file tracks small user-facing website changes for `modu-web`.
 
 ## Done
 
+- 2026-08-07: added a bilingual Go Agent development guide covering agent
+  loops, tool safety, checkpoint recovery, and multi-agent coordination with
+  concrete Modu package boundaries. Linked both guides from their localized
+  home and documentation pages, added canonical/hreflang and TechArticle
+  metadata, included the routes in the Vite build and sitemap, and added
+  permanent redirects for legacy `/zh` routes. Expanded `npm run check` to
+  validate unique metadata, JSON-LD syntax, internal discovery links, sitemap
+  coverage, and redirects across all 16 localized pages.
 - 2026-08-07: refactored the public site for crawlable bilingual content and
   reliable mobile layouts. Added complete Chinese/English static routes,
   reciprocal canonical/hreflang metadata, Open Graph and Twitter metadata,

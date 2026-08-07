@@ -112,13 +112,11 @@ if (docsIndexButton && docsNav) {
     docsIndexButton.setAttribute('aria-expanded', String(open));
     const label = docsIndexButton.querySelector('span');
     if (label) {
-      label.textContent = isEnglish
-        ? open
-          ? 'Hide documentation index'
-          : 'Browse documentation'
-        : open
-          ? '收起文档目录'
-          : '浏览文档目录';
+      const defaultClosedLabel = isEnglish ? 'Browse documentation' : '浏览文档目录';
+      const defaultOpenLabel = isEnglish ? 'Hide documentation index' : '收起文档目录';
+      label.textContent = open
+        ? docsIndexButton.dataset.openLabel ?? defaultOpenLabel
+        : docsIndexButton.dataset.closedLabel ?? defaultClosedLabel;
     }
   };
 
