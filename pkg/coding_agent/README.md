@@ -68,6 +68,8 @@ Use `FollowUpWithImages` or `SteerWithImages` while a task is active. These meth
 
 Interactive hosts can build a non-persistent side conversation with `BeginSideThread`, `PromptSideThread`, and `GetSideThreadSnapshot`. The side thread inherits a copy of the current messages, model, thinking level, system prompt, and tools, but it has no session manager or context manager. Its messages therefore do not change the main transcript, session tree, token accounting, or compaction state. `AbortSideThread` cancels its active turn; `ClearSideThread` discards it. Tool side effects remain real.
 
+Cross-process communication is opt-in through `CodingSessionOptions.EnableSessionIPC`. A single local app-server exposes one UDS, while `session_list` includes both live and persisted sessions. `session_send` resumes a `notLoaded` target, starts an idle target, or queues a follow-up for a busy target. Interactive `modu_code` starts and connects to the daemon automatically; print, RPC, ACP, and embedded sessions remain disabled by default. See [Session IPC](sessionipc/README.md) for lifecycle, protocol, and security details.
+
 ## Operational controls
 
 - Background Bash calls return a `bash_id`; the default coding tool provider also registers `bash_output` and `kill_bash`.
@@ -77,6 +79,7 @@ Interactive hosts can build a non-persistent side conversation with `BeginSideTh
 - Prompt-template arguments support shell quoting, positional values, defaults, and slices while retaining legacy `{{input}}` / `{{args}}`.
 - `/skill-creator` is bundled from Anthropic's official Skill without Modu-specific rewrites. Its full resource directory is materialized under `<agent-dir>/builtin-skills/<revision>/skill-creator`; project, user, and package skills with the same name override it. Claude Code-specific evaluation steps still require the `claude` CLI and their original Python dependencies.
 - Memory above the configured threshold is summarized in the background without changing source notes; `OrganizeMemory` and `/memory` expose manual execution and status.
+- Session IPC reaches live and persisted sessions owned by the same local user through one app-server. It has no persistent offline queue, broadcast, remote transport, or preemption.
 
 ## Documentation
 

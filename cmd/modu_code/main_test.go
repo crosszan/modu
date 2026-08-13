@@ -29,6 +29,7 @@ func TestMain(m *testing.M) {
 	oldRunTUI := runTUI
 	oldInteractiveExitOutput := interactiveExitOutput
 	oldPromptResumeCwd := promptResumeCwd
+	oldInteractiveSessionIPCEnabled := interactiveSessionIPCEnabled
 	oldwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "get cwd: %v\n", err)
@@ -42,6 +43,7 @@ func TestMain(m *testing.M) {
 	runTUI = oldRunTUI
 	interactiveExitOutput = oldInteractiveExitOutput
 	promptResumeCwd = oldPromptResumeCwd
+	interactiveSessionIPCEnabled = oldInteractiveSessionIPCEnabled
 	if err := os.Chdir(oldwd); err != nil && code == 0 {
 		fmt.Fprintf(os.Stderr, "restore cwd: %v\n", err)
 		code = 1
@@ -848,6 +850,7 @@ func setupMainTestInvocation(t *testing.T, cwd string, args ...string) {
 	oldRunTUI := runTUI
 	oldInteractiveExitOutput := interactiveExitOutput
 	oldPromptResumeCwd := promptResumeCwd
+	oldInteractiveSessionIPCEnabled := interactiveSessionIPCEnabled
 	oldwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -858,6 +861,7 @@ func setupMainTestInvocation(t *testing.T, cwd string, args ...string) {
 		runTUI = oldRunTUI
 		interactiveExitOutput = oldInteractiveExitOutput
 		promptResumeCwd = oldPromptResumeCwd
+		interactiveSessionIPCEnabled = oldInteractiveSessionIPCEnabled
 		if err := os.Chdir(oldwd); err != nil {
 			t.Fatalf("restore cwd: %v", err)
 		}
@@ -868,6 +872,7 @@ func setupMainTestInvocation(t *testing.T, cwd string, args ...string) {
 	os.Args = append([]string(nil), args...)
 	flag.CommandLine = flag.NewFlagSet("modu_code", flag.ContinueOnError)
 	interactiveExitOutput = io.Discard
+	interactiveSessionIPCEnabled = false
 }
 
 func samePhysicalPath(a, b string) (bool, error) {

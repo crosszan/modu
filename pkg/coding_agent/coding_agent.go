@@ -33,6 +33,7 @@ import (
 	"github.com/openmodu/modu/pkg/coding_agent/services/todo"
 	trustservice "github.com/openmodu/modu/pkg/coding_agent/services/trust"
 	"github.com/openmodu/modu/pkg/coding_agent/services/worktree"
+	"github.com/openmodu/modu/pkg/coding_agent/sessionipc"
 	"github.com/openmodu/modu/pkg/coding_agent/tools"
 	toolcommon "github.com/openmodu/modu/pkg/coding_agent/tools/common"
 	"github.com/openmodu/modu/pkg/skills"
@@ -78,6 +79,12 @@ type CodingSessionOptions struct {
 	// prompt driver) before extensions react to it — notably an active goal
 	// auto-continuing. The host must call EmitStartupEvent once it is ready.
 	DeferStartupEvent bool
+	// EnableSessionIPC connects this session to the local Modu app-server and
+	// installs the session_list and session_send tools.
+	EnableSessionIPC bool
+	// SessionIPCRuntimeDir overrides the local UDS discovery directory. When
+	// empty, a short per-user path scoped by AgentDir is used.
+	SessionIPCRuntimeDir string
 }
 
 // engine is the L1 kernel: it owns all session state, runs agent turns, wires
@@ -130,6 +137,7 @@ type engine struct {
 	worktree         *worktree.Controller // isolated git worktree
 	mcpManager       *mcpclient.Manager   // external MCP connections and tools
 	mcpWarnings      []error              // optional-server startup failures
+	sessionIPC       *sessionipc.Client   // optional app-server client over UDS
 	extPrompts       extensionPrompts     // host confirm/select callbacks
 	askPrompts       askPrompts           // host callback for ask_user_question
 
@@ -211,8 +219,12 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 		return nil, fmt.Errorf("failed to initialize MCP: %w", err)
 	}
 	mcpReady := false
+	var sessionIPCClient *sessionipc.Client
 	defer func() {
 		if !mcpReady {
+			if sessionIPCClient != nil {
+				_ = sessionIPCClient.Close()
+			}
 			_ = mcpManager.Close()
 		}
 	}()
@@ -666,12 +678,41 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 		}
 	}
 
+	var sessionIPCReceiver *sessionIPCHandler
+	if opts.EnableSessionIPC {
+		runtimeDir := strings.TrimSpace(opts.SessionIPCRuntimeDir)
+		if runtimeDir == "" {
+			runtimeDir = sessionipc.DefaultRuntimeDir(agentDir)
+		}
+		sessionIPCReceiver = newSessionIPCHandler(cs)
+		client, err := sessionipc.NewClient(sessionipc.ClientOptions{
+			RuntimeDir: runtimeDir,
+			SessionID:  cs.GetSessionID(),
+			Cwd:        cs.cwd,
+			Handler:    sessionIPCReceiver,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize session IPC: %w", err)
+		}
+		sessionIPCClient = client
+		cs.sessionIPC = client
+		ipcTools := []types.Tool{sessionipc.NewListTool(client), sessionipc.NewSendTool(client)}
+		if hooks := extRunner.GetHooks(); len(hooks) > 0 {
+			ipcTools = extension.WrapTools(ipcTools, hooks)
+		}
+		cs.activeTools = append(cs.activeTools, ipcTools...)
+		ag.SetTools(cs.activeTools)
+	}
+
 	cs.installHarnessLayer()
 	cs.refreshDynamicSystemPrompt()
 	cs.writeRuntimeState()
 
 	sess := &CodingSession{engine: cs}
 	cs.self = sess
+	if sessionIPCReceiver != nil {
+		sessionIPCReceiver.activate()
+	}
 	mcpReady = true
 	return sess, nil
 }
@@ -901,6 +942,9 @@ func (s *engine) Continue(ctx context.Context) error {
 
 func (s *engine) Close(reason string) {
 	s.ClearSideThread()
+	if s.sessionIPC != nil {
+		_ = s.sessionIPC.Close()
+	}
 	if s.extensions != nil {
 		s.extensions.EmitEvent(types.Event{Type: types.EventType("session_shutdown")})
 	}

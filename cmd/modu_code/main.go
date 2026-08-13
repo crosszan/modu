@@ -50,6 +50,13 @@ var interactiveExitOutput io.Writer = os.Stdout
 const unconfiguredProviderID = "unconfigured"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "app-server" {
+		if err := runAppServerCommand(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintf(os.Stderr, "app-server: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "config" {
 		if err := runConfigCommand(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 			fmt.Fprintf(os.Stderr, "config: %v\n", err)
@@ -93,6 +100,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to resolve resume working directory: %v\n", err)
 		os.Exit(1)
 	}
+	ipcRuntimeDir := ""
+	if interactiveMode && interactiveSessionIPCEnabled {
+		ipcRuntimeDir, err = ensureInteractiveAppServer(agentDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to start app-server: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	// Out is intentionally nil here: writing to stderr from the goal
 	// extension bypasses the TUI's inline-mode widget management and
@@ -110,17 +125,19 @@ func main() {
 	}
 
 	sessionOpts := coding_agent.CodingSessionOptions{
-		Cwd:               sessionCwd,
-		AgentDir:          agentDir,
-		Model:             model,
-		ThinkingLevel:     thinkingLevel,
-		GetAPIKey:         getAPIKey,
-		ScopedModels:      provider.ConfiguredModelIDs(),
-		ModelConfigPath:   provider.ConfigPath(),
-		ResumeSessionID:   *resumeID,
-		Extensions:        exts,
-		ToolProvider:      newModuCodeToolProvider(),
-		DeferStartupEvent: interactiveMode,
+		Cwd:                  sessionCwd,
+		AgentDir:             agentDir,
+		Model:                model,
+		ThinkingLevel:        thinkingLevel,
+		GetAPIKey:            getAPIKey,
+		ScopedModels:         provider.ConfiguredModelIDs(),
+		ModelConfigPath:      provider.ConfigPath(),
+		ResumeSessionID:      *resumeID,
+		Extensions:           exts,
+		ToolProvider:         newModuCodeToolProvider(),
+		DeferStartupEvent:    interactiveMode,
+		EnableSessionIPC:     interactiveMode && interactiveSessionIPCEnabled,
+		SessionIPCRuntimeDir: ipcRuntimeDir,
 	}
 	session, err := coding_agent.NewCodingSession(sessionOpts)
 	if err != nil {

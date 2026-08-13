@@ -16,6 +16,22 @@ High-priority gaps identified before this round:
 
 ## Completed In This Round
 
+- 2026-08-13: added a Codex app-server-style local control plane for cross-
+  session communication. One persistent `modu_code app-server` owns one private
+  `ipc.sock`; interactive sessions register as WebSocket-over-UDS JSON-RPC
+  clients. `session_list` merges live state with every persisted Session from
+  `session.ListAll`, and `session_send` resumes a `notLoaded` target before
+  starting its turn, starts an idle target, or queues a busy target follow-up.
+  The daemon has serialized start, PID/status/stop commands, stale-socket
+  recovery, peer-UID validation, bounded frames, and process-local message-ID
+  deduplication. Background restores preserve saved `--no-approve` behavior and
+  otherwise deny tools that require an unavailable interactive approval. Print,
+  RPC, ACP, and embedded sessions remain disabled unless their host opts in.
+  Unit and integration tests cover single-socket routing, live busy/idle state,
+  historical resume, ownership transfer, lifecycle cleanup, size/self-send
+  rejection, and daemon PID state. Focused race tests, a real detached binary
+  start/start/status/stop check, `go vet`, `go run ./cmd/modu_code --help`, and
+  repository-wide `go test ./...` pass.
 - 2026-08-05: changed `/export` to render the persisted current-branch
   transcript instead of the compacted in-memory model context. HTML exports now
   preserve pre-compaction messages and markers, show local timestamps, identify

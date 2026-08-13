@@ -65,6 +65,8 @@ err := session.PromptWithImages(context.Background(), "解释这张截图", []ty
 
 交互式宿主可通过 `BeginSideThread`、`PromptSideThread` 和 `GetSideThreadSnapshot` 实现不持久化的旁路对话。旁路会复制当前消息、模型、推理档位、system prompt 和工具，但不挂载 session manager 与 context manager，因此不会改变主 transcript、session tree、token 统计和压缩状态。`AbortSideThread` 取消当前旁路回合，`ClearSideThread` 丢弃旁路历史；工具产生的真实副作用不在丢弃范围内。
 
+跨进程会话通信可通过 `CodingSessionOptions.EnableSessionIPC` 显式启用。单一本地 app-server 只暴露一个 UDS；`session_list` 同时发现在线和持久化 Session，`session_send` 会恢复 `notLoaded` 目标、启动空闲目标，或给忙碌目标追加 follow-up。交互式 `modu_code` 会自动启动并连接 daemon；print、RPC、ACP 和嵌入式会话默认关闭。生命周期、协议与安全边界见 [Session IPC](sessionipc/README.md)。
+
 ## 运行控制
 
 - 后台 Bash 返回 `bash_id`；默认编码工具集同时注册 `bash_output` 和 `kill_bash`。
@@ -74,6 +76,7 @@ err := session.PromptWithImages(context.Background(), "解释这张截图", []ty
 - Prompt template 参数支持 shell 引号、位置参数、默认值和切片；旧 `{{input}}` / `{{args}}` 继续可用。
 - `/skill-creator` 原样内置 Anthropic 官方 Skill，完整资源目录在运行时落到 `<agent-dir>/builtin-skills/<revision>/skill-creator`。项目、用户和资源包中的同名 Skill 可以覆盖内置版本；其中面向 Claude Code 的评测步骤仍依赖 `claude` CLI 及原有 Python 依赖。
 - Memory 达到配置阈值后会后台更新 bounded summary，原始记忆不变；`OrganizeMemory` 和 `/memory` 提供手动入口与状态。
+- Session IPC 通过一个 app-server 连接同机、同用户的在线与持久化会话；不提供持久化离线队列、广播、远程传输或抢占当前任务。
 
 ## 文档
 

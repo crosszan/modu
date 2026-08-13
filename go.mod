@@ -20,6 +20,7 @@ require (
 	github.com/go-rod/rod v0.116.2
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
 	github.com/markusmobius/go-trafilatura v1.12.2
@@ -33,6 +34,7 @@ require (
 	github.com/yuin/goldmark v1.7.17
 	golang.org/x/net v0.55.0
 	golang.org/x/sync v0.21.0
+	golang.org/x/sys v0.46.0
 	golang.org/x/term v0.43.0
 	golang.org/x/text v0.39.0
 	google.golang.org/genai v1.55.0
@@ -80,7 +82,6 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.15 // indirect
 	github.com/googleapis/gax-go/v2 v2.22.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hablullah/go-hijri v1.0.2 // indirect
 	github.com/hablullah/go-juliandays v1.0.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -127,7 +128,6 @@ require (
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
 	google.golang.org/api v0.277.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260427160629-7cedc36a6bc4 // indirect
 	google.golang.org/grpc v1.82.1 // indirect

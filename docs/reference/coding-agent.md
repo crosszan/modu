@@ -326,6 +326,23 @@ LLM 调用失败 → 瞬态错误？→ 是 → 等待(指数退避 + 抖动) �
 - **时间轴恢复**：`GetSessionTranscript()` 按 current path 的因果顺序返回持久化消息与 `compaction` marker，供 TUI 在 resume 后重建完整时间轴；`GetMessages()` 仍只返回实际发给模型的压缩后上下文
 - **消息序列化**：`messagePayload` 通过类型列表正确处理 `UserMessage` / `AssistantMessage` / `ToolResultMessage` 及其指针类型，恢复时识别持久化的 `toolResult` role，不丢失工具结果消息类型信息；resume 后会从最后一条已恢复 assistant usage 重建 session token window stats，避免 footer 和 `/session` 的 ctx/tokens 回到 0，同时不把历史轮次 usage 重复累加
 
+### 9.1 Session app-server IPC
+
+`CodingSessionOptions.EnableSessionIPC` 让 Session 连接同机 app-server，并注册两个工具：
+
+| 工具 | 功能 | 投递语义 |
+|------|------|----------|
+| `session_list` | 发现同一 `AgentDir` 范围内的在线与历史 Session | 返回 Session ID、cwd、名称和 `notLoaded` / `idle` / `busy` 状态 |
+| `session_send` | 向指定 Session ID 发送消息 | 历史目标先恢复；空闲目标启动新一轮；忙碌目标加入 follow-up 队列 |
+
+交互式 `modu_code` 会自动启动并连接 daemon；print、RPC、ACP 和嵌入式 `CodingSession` 默认关闭。服务生命周期可用 `modu_code app-server start|status|stop|serve` 管理。嵌入方可以自行创建 `sessionipc.Server`，再通过 `SessionIPCRuntimeDir` 连接同一控制面。
+
+V1 采用 Codex app-server 风格的单服务模型：一个 `<agent-dir>/ipc/ipc.sock`，UDS 上进行 WebSocket upgrade，随后双向传输 JSON-RPC text frame。客户端先执行 `initialize` / `initialized`，再使用 `session/register`、`thread/list` 和 `turn/start`；服务通过同一连接反向调用在线客户端的 `thread/status` 与 `turn/deliver`。协议字段使用 camelCase，且不带 `"jsonrpc":"2.0"` 字段。
+
+app-server 通过 `session.ListAll` 建立历史视图；列举历史不会加载模型，只有向 `notLoaded` 目标发送消息时才恢复 Session 并启动 turn。后台恢复沿用历史 Session 保存的 `--no-approve` 状态；未保存自动审批时，需要交互审批的工具会拒绝执行。
+
+runtime 目录固定为 `0700`，socket 和 PID 文件固定为 `0600`；macOS 与 Linux 还会校验连接对端 UID。正文上限 64 KiB，服务保留最近 1024 个消息 ID 做进程内去重。V1 只支持同机、同用户、点对点投递，不提供持久化离线队列、远程传输、广播、abort、steer 或任务抢占。完整线协议见 [`pkg/coding_agent/sessionipc/README.md`](../../pkg/coding_agent/sessionipc/README.md)。
+
 ### 10. 扩展系统
 
 通过 Go 接口注入方式注册扩展：

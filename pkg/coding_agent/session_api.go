@@ -491,6 +491,11 @@ func (s *CodingSession) switchSessionManager(newMgr *session.Manager) error {
 			messages = append(messages, msg)
 		}
 	}
+	if s.sessionIPC != nil {
+		if err := s.sessionIPC.Rebind(newMgr.SessionID(), s.cwd); err != nil {
+			return fmt.Errorf("rebind session IPC: %w", err)
+		}
+	}
 
 	s.sessionManager = newMgr
 	s.sessionTree = newTree
