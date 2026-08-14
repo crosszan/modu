@@ -2507,6 +2507,48 @@ func TestResolveSessionInfoByIDIncludesOriginalWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestLatestSessionIDForCwd(t *testing.T) {
+	agentDir := t.TempDir()
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok, err := LatestSessionIDForCwd(agentDir, project); err != nil || ok {
+		t.Fatalf("empty directory = (ok=%v, err=%v), want (false, nil)", ok, err)
+	}
+
+	older := newLatestSessionTestFile(t, agentDir, project, "older")
+	stale := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(older.FilePath(), stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	newer := newLatestSessionTestFile(t, agentDir, project, "newer")
+
+	id, ok, err := LatestSessionIDForCwd(agentDir, project)
+	if err != nil || !ok {
+		t.Fatalf("LatestSessionIDForCwd = (ok=%v, err=%v), want (true, nil)", ok, err)
+	}
+	if id != newer.SessionID() {
+		t.Fatalf("latest session id = %q, want %q (older %q)", id, newer.SessionID(), older.SessionID())
+	}
+}
+
+func newLatestSessionTestFile(t *testing.T, agentDir, cwd, prompt string) *sessionpkg.Manager {
+	t.Helper()
+	mgr, err := sessionpkg.NewFreshManager(agentDir, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Append(sessionpkg.NewEntry(sessionpkg.EntryTypeMessage, "", sessionpkg.MessageData{
+		Role:    types.RoleUser,
+		Content: prompt,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	return mgr
+}
+
 func TestNewCodingSessionResumesSessionIDWithoutCreatingExtraSession(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := t.TempDir()

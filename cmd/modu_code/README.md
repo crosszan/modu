@@ -55,7 +55,7 @@ go run ./cmd/modu_code
 | `--rpc` | 通过 stdin/stdout 使用 JSON-line RPC |
 | `--acp` | 作为 ACP stdio server 运行 |
 | `--no-approve` | 自动允许工具执行；仅在你信任输入和工作区时使用 |
-| `--resume <id>` | 用完整 session id 或唯一前缀恢复会话 |
+| `--resume [id]` | 用完整 session id 或唯一前缀恢复会话；不带 id 时恢复当前目录最近的 session |
 | `--worktree` | 在隔离的 Git worktree 中启动 |
 
 一次性执行示例：

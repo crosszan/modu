@@ -61,6 +61,14 @@ go run ./cmd/modu_code
 go run ./cmd/modu_code --resume <session-id>
 ```
 
+只想接着当前目录上一次的对话时，可以不带 id：
+
+```bash
+go run ./cmd/modu_code --resume
+```
+
+它会挑当前目录里最近修改的那个 session；该目录没有任何 session 时直接报错退出。恢复时也会带回这个 session 保存的审批模式——上次是 `--no-approve` 跑的，恢复后仍然自动放行工具，启动时会明确提示一行。
+
 交互 TUI 正常退出后会打印当前 session id 和可复制的 `modu_code --resume <session-id>` 命令；即使还没发过消息，退出时也会落盘一个可恢复的空 session。
 
 ---
@@ -77,7 +85,7 @@ go run ./cmd/modu_code --resume <session-id>
 | `--rpc` | RPC 模式：stdin/stdout 上的 JSON-line 协议 |
 | `--acp` | ACP stdio server：JSON-RPC 2.0 LDJSON（供 Zed 等 ACP 客户端接入） |
 | `--no-approve` | 跳过工具执行的人工确认，自动放行全部工具（print/rpc/acp 常用） |
-| `--resume <id>` | 恢复已保存的 session（完整 id 或唯一前缀均可） |
+| `--resume [id]` | 恢复已保存的 session（完整 id 或唯一前缀均可）；不带 id 时恢复当前目录最近修改的 session |
 | `--worktree` | 在隔离的 git worktree 中启动（见下） |
 
 print 模式的典型用法：

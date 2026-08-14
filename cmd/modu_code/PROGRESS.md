@@ -5,6 +5,20 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-08-14: `--resume` now works without an id, resuming the most recently
+  modified session saved for the current directory. A valueless `--resume` is
+  rewritten to a set-but-empty flag before parsing, so `--resume <id>` and
+  `--resume=<id>` keep their meaning while bare `--resume` no longer swallows
+  the next argument or fails with "flag needs an argument". The id is resolved
+  from session headers only, so a large session directory is not scanned. A
+  directory with no saved session exits with an error instead of silently
+  starting a fresh one. The resolved session flows through the existing resume
+  path, so the auto-approve mode it recorded is restored the same way an
+  explicit id does: resuming a session that ran with `--no-approve` keeps tool
+  executions auto-allowed and says so in the startup notice. Covered by flag
+  normalization, id resolution, `LatestSessionIDForCwd`, and an end-to-end
+  `main()` test.
+
 - 2026-08-04: added an independent OpenAI Responses provider. The default
   `OPENAI_API_KEY` path, the OpenAI `/config` preset, and
   `type = "openai-responses"` providers now call `/responses`; existing
