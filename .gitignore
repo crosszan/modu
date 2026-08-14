@@ -10,6 +10,11 @@ use.md
 /acp-gateway.db
 /comment.md
 /evals.jsonl
+# Default landing spots for /export and /trajectory html, which write into the
+# working directory unless given a path.
+/modu_code-session.html
+/modu_code-trajectory.html
+/modu_code-trajectory-*.html
 /eval/results/
 /eval/grader_helpers.py
 /eval/tasks/modu_code/golden_personal_assistant_100/
