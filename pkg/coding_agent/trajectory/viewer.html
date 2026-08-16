@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session Trajectory</title>
+<style>
+:root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: Canvas; color: CanvasText; font-size: 14px; }
+a { color: inherit; }
+
+/* The `hidden` attribute is only enforced by the UA stylesheet's low-specificity
+   `[hidden] { display: none }`, so any author rule that sets `display` on the
+   same element wins and the element stays visible however the attribute is set.
+   `#inspector { display: flex }` did exactly that: the panel could be opened but
+   never closed. Restate the rule so the attribute always wins. */
+[hidden] { display: none !important; }
+
+.line { border-color: color-mix(in srgb, CanvasText 16%, transparent); }
+.muted { color: color-mix(in srgb, CanvasText 55%, transparent); }
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+header { padding: 20px 24px 16px; border-bottom: 1px solid color-mix(in srgb, CanvasText 16%, transparent); }
+header h1 { margin: 0 0 4px; font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
+header .sub { font-size: 12px; color: color-mix(in srgb, CanvasText 55%, transparent); overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip { padding: 6px 10px; border: 1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius: 8px; line-height: 1.25; }
+.chip b { display: block; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.chip span { font-size: 11px; color: color-mix(in srgb, CanvasText 55%, transparent); }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 24px; border-bottom: 1px solid color-mix(in srgb, CanvasText 16%, transparent); }
+.toolbar input { flex: 1 1 220px; min-width: 0; padding: 6px 10px; border: 1px solid color-mix(in srgb, CanvasText 22%, transparent); border-radius: 7px; background: transparent; color: inherit; font: inherit; }
+.filter { padding: 5px 10px; border: 1px solid color-mix(in srgb, CanvasText 22%, transparent); border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.filter[aria-pressed="true"] { background: color-mix(in srgb, CanvasText 88%, transparent); color: Canvas; border-color: transparent; }
+
+main { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); align-items: start; }
+@media (max-width: 820px) { main { grid-template-columns: minmax(0, 1fr); } aside { border-right: none !important; border-bottom: 1px solid color-mix(in srgb, CanvasText 16%, transparent); } }
+
+aside { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 12px 12px calc(12px + var(--inspector-height, 0px)); border-right: 1px solid color-mix(in srgb, CanvasText 16%, transparent); }
+.turn-item { display: block; width: 100%; padding: 8px 10px; margin-bottom: 4px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.turn-item:hover { background: color-mix(in srgb, CanvasText 7%, transparent); }
+.turn-item[aria-current="true"] { border-color: color-mix(in srgb, CanvasText 30%, transparent); background: color-mix(in srgb, CanvasText 7%, transparent); }
+.turn-item .head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.turn-item .head span:last-child { white-space: nowrap; }
+.turn-item .prompt { margin-top: 3px; font-size: 12px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+section.timeline { padding: 12px 16px calc(64px + var(--inspector-height, 0px)); }
+.turn-block { margin-bottom: 20px; }
+.turn-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, CanvasText 6%, transparent); }
+.turn-head strong { font-size: 13px; }
+.turn-head .muted { font-size: 12px; font-variant-numeric: tabular-nums; }
+.step-head { margin: 12px 0 4px; padding-left: 8px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, CanvasText 50%, transparent); }
+
+.record { display: grid; grid-template-columns: 74px minmax(0, 1fr) 68px; gap: 10px; align-items: baseline; width: 100%; padding: 6px 8px; border: none; border-left: 3px solid transparent; border-radius: 0 7px 7px 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.record:hover { background: color-mix(in srgb, CanvasText 7%, transparent); }
+.record[aria-selected="true"] { background: color-mix(in srgb, CanvasText 11%, transparent); }
+.record .badge { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: color-mix(in srgb, CanvasText 60%, transparent); }
+.record .summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record .dur { font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; color: color-mix(in srgb, CanvasText 55%, transparent); }
+.record .bar { grid-column: 2 / 4; height: 3px; margin-top: 2px; border-radius: 2px; background: color-mix(in srgb, CanvasText 30%, transparent); }
+
+.k-user { border-left-color: #2563eb; }
+.k-assistant { border-left-color: #16a34a; }
+.k-reasoning { border-left-color: #9333ea; }
+.k-tool { border-left-color: #d97706; }
+.k-subagent { border-left-color: #0891b2; }
+.k-compaction { border-left-color: color-mix(in srgb, CanvasText 40%, transparent); }
+.s-error { border-left-color: #dc2626 !important; }
+.s-error .summary { color: #dc2626; }
+.s-running .dur::after { content: "…"; }
+
+#inspector { position: fixed; inset: auto 0 0 0; max-height: 55vh; min-height: 92px; display: flex; flex-direction: column; border-top: 1px solid color-mix(in srgb, CanvasText 22%, transparent); background: Canvas; box-shadow: 0 -8px 24px color-mix(in srgb, CanvasText 12%, transparent); }
+#inspector-resize { position: absolute; top: -4px; left: 0; right: 0; height: 9px; cursor: ns-resize; touch-action: none; }
+#inspector-resize::after { content: ""; position: absolute; top: 3px; left: 50%; width: 46px; height: 3px; border-radius: 2px; transform: translateX(-50%); background: color-mix(in srgb, CanvasText 26%, transparent); }
+#inspector-resize:hover::after, body.resizing #inspector-resize::after { background: color-mix(in srgb, CanvasText 60%, transparent); }
+body.resizing { user-select: none; cursor: ns-resize; }
+#inspector header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid color-mix(in srgb, CanvasText 16%, transparent); }
+#inspector h2 { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+#inspector .body { overflow-y: auto; padding: 12px 16px 20px; }
+#inspector button { border: 1px solid color-mix(in srgb, CanvasText 22%, transparent); border-radius: 7px; padding: 4px 10px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+#inspector h3 { margin: 12px 0 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, CanvasText 55%, transparent); }
+#inspector pre { margin: 0; padding: 10px 12px; overflow-x: auto; border-radius: 7px; background: color-mix(in srgb, CanvasText 7%, transparent); white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; line-height: 1.5; }
+#inspector dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 12px; }
+#inspector dt { color: color-mix(in srgb, CanvasText 55%, transparent); }
+#inspector dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* ── overview timeline ─────────────────────────────────────────────────── */
+.overview { padding: 10px 24px 12px; border-bottom: 1px solid color-mix(in srgb, CanvasText 16%, transparent); }
+.overview-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; }
+.overview-head .spacer { flex: 1 1 auto; }
+.overview-head .hint { color: color-mix(in srgb, CanvasText 50%, transparent); }
+.mode { padding: 4px 9px; border: 1px solid color-mix(in srgb, CanvasText 22%, transparent); border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.mode[aria-pressed="true"] { background: color-mix(in srgb, CanvasText 88%, transparent); color: Canvas; border-color: transparent; }
+#track { position: relative; height: 78px; border: 1px solid color-mix(in srgb, CanvasText 14%, transparent); border-radius: 8px; background: color-mix(in srgb, CanvasText 4%, transparent); overflow: hidden; cursor: crosshair; touch-action: none; user-select: none; }
+#track.panning { cursor: grabbing; }
+.lane-rule { position: absolute; left: 0; right: 0; height: 1px; background: color-mix(in srgb, CanvasText 10%, transparent); }
+.span { position: absolute; height: 10px; min-width: 2px; border-radius: 3px; background: color-mix(in srgb, CanvasText 45%, transparent); }
+.span.k-user { background: #2563eb; }
+.span.k-assistant, .span.k-reasoning { background: #16a34a; }
+.span.k-reasoning { background: #9333ea; }
+.span.k-tool { background: #d97706; }
+.span.k-subagent { background: #0891b2; }
+.span.k-compaction { background: color-mix(in srgb, CanvasText 45%, transparent); }
+.span.s-error { background: #dc2626; }
+.span.hit { outline: 2px solid CanvasText; outline-offset: 1px; }
+.turn-mark { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, CanvasText 32%, transparent); }
+.turn-mark span { position: absolute; top: 1px; left: 3px; font-size: 9px; color: color-mix(in srgb, CanvasText 55%, transparent); }
+#selection { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, CanvasText 14%, transparent); border-left: 1px solid color-mix(in srgb, CanvasText 45%, transparent); border-right: 1px solid color-mix(in srgb, CanvasText 45%, transparent); pointer-events: none; }
+#track-tip { position: absolute; z-index: 3; max-width: 320px; padding: 6px 8px; border-radius: 6px; background: CanvasText; color: Canvas; font-size: 11px; line-height: 1.45; white-space: pre-line; pointer-events: none; }
+.axis { display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: color-mix(in srgb, CanvasText 50%, transparent); font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; font-size: 11px; color: color-mix(in srgb, CanvasText 55%, transparent); }
+.legend i { display: inline-block; width: 9px; height: 9px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; }
+.derived { font-style: italic; }
+
+.empty { padding: 32px 8px; text-align: center; color: color-mix(in srgb, CanvasText 55%, transparent); }
+.warnings { margin: 12px 24px; padding: 10px 12px; border: 1px solid #d97706; border-radius: 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="sub" id="subtitle"></div>
+  <div class="chips" id="chips"></div>
+</header>
+<div class="warnings" id="warnings" hidden></div>
+<div class="toolbar">
+  <input id="search" type="search" placeholder="Filter records…" aria-label="Filter records">
+  <button class="filter" data-filter="all" aria-pressed="true">All</button>
+  <button class="filter" data-filter="tool" aria-pressed="false">Tools</button>
+  <button class="filter" data-filter="reasoning" aria-pressed="false">Reasoning</button>
+  <button class="filter" data-filter="error" aria-pressed="false">Failures</button>
+  <button class="filter" id="system-button" hidden>System prompt</button>
+</div>
+<div class="overview">
+  <div class="overview-head">
+    <button class="mode" data-mode="sequence" aria-pressed="false">Sequence</button>
+    <button class="mode" data-mode="compressed" aria-pressed="true">Compressed</button>
+    <button class="mode" data-mode="actual" aria-pressed="false">Actual</button>
+    <span class="spacer"></span>
+    <span class="hint">drag to focus · wheel to zoom · right-drag to pan · right-click to clear</span>
+    <button class="mode" id="reset-view">Reset</button>
+  </div>
+  <div id="track">
+    <div id="selection" hidden></div>
+    <div id="track-tip" hidden></div>
+  </div>
+  <div class="axis"><span id="axis-start"></span><span id="axis-mid"></span><span id="axis-end"></span></div>
+  <div class="legend">
+    <span><i style="background:#2563eb"></i>user</span>
+    <span><i style="background:#16a34a"></i>assistant</span>
+    <span><i style="background:#9333ea"></i>reasoning</span>
+    <span><i style="background:#d97706"></i>tool</span>
+    <span><i style="background:#0891b2"></i>subagent</span>
+    <span><i style="background:#dc2626"></i>failed</span>
+  </div>
+</div>
+<main>
+  <aside id="turns"></aside>
+  <section class="timeline" id="timeline"></section>
+</main>
+<div id="inspector" hidden>
+  <div id="inspector-resize" role="separator" aria-orientation="horizontal" aria-label="Resize the inspector"></div>
+  <header>
+    <h2 id="inspector-title"></h2>
+    <button type="button" id="inspector-close">Close</button>
+  </header>
+  <div class="body" id="inspector-body"></div>
+</div>
+
+<script type="application/json" id="trajectory-data">__TRAJECTORY_JSON__</script>
+<script>
+(function () {
+  "use strict";
+  var data = JSON.parse(document.getElementById("trajectory-data").textContent);
+  var records = data.records || [];
+  var turns = data.turns || [];
+  var stats = data.stats || {};
+  var state = { turn: 0, filter: "all", query: "" };
+  var selected = null;
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) { node.className = className; }
+    if (text !== undefined && text !== null) { node.textContent = String(text); }
+    return node;
+  }
+
+  function duration(ms) {
+    if (ms === null || ms === undefined || ms <= 0) { return "—"; }
+    if (ms < 1000) { return ms + "ms"; }
+    if (ms < 60000) { return (ms / 1000).toFixed(1) + "s"; }
+    if (ms < 3600000) {
+      return Math.floor(ms / 60000) + "m" + String(Math.floor((ms % 60000) / 1000)).padStart(2, "0") + "s";
+    }
+    if (ms < 86400000) {
+      return Math.floor(ms / 3600000) + "h" + String(Math.floor((ms % 3600000) / 60000)).padStart(2, "0") + "m";
+    }
+    return Math.floor(ms / 86400000) + "d" + String(Math.floor((ms % 86400000) / 3600000)).padStart(2, "0") + "h";
+  }
+
+  function count(value) {
+    return (value || 0).toLocaleString("en-US");
+  }
+
+  function clock(iso) {
+    if (!iso) { return ""; }
+    var parsed = new Date(iso);
+    return isNaN(parsed) ? "" : parsed.toLocaleString();
+  }
+
+  // ── header ────────────────────────────────────────────────────────────────
+  var session = data.session || {};
+  var heading = session.name || session.title || "Session trajectory";
+  document.title = "Trajectory · " + heading;
+  document.getElementById("title").textContent = heading;
+
+  var subtitleParts = [];
+  if (session.id) { subtitleParts.push(session.id); }
+  if (session.model) { subtitleParts.push((session.provider ? session.provider + "/" : "") + session.model); }
+  if (session.cwd) { subtitleParts.push(session.cwd); }
+  if (session.startedAt) { subtitleParts.push("started " + clock(session.startedAt)); }
+  document.getElementById("subtitle").textContent = subtitleParts.join("  ·  ");
+
+  var unfinished = (stats.tools || []).reduce(function (total, tool) { return total + (tool.unfinished || 0); }, 0);
+  var chips = [
+    ["Turns", count(stats.turns)],
+    ["Steps", count(stats.steps)],
+    ["Tool calls", count(stats.toolCalls) + (stats.toolFailures ? " · " + stats.toolFailures + " failed" : "")],
+    ["Active", duration(stats.activeMs)],
+    ["Span", duration(stats.durationMs)],
+    ["Tokens in / out", count(stats.tokens && stats.tokens.input) + " / " + count(stats.tokens && stats.tokens.output)],
+    ["Context", count(stats.contextTokens)]
+  ];
+  if (unfinished) { chips.push(["Unfinished", count(unfinished)]); }
+  if (stats.compactions) { chips.push(["Compactions", count(stats.compactions)]); }
+  var chipHost = document.getElementById("chips");
+  chips.forEach(function (chip) {
+    var box = el("div", "chip");
+    box.appendChild(el("b", null, chip[1]));
+    box.appendChild(el("span", null, chip[0]));
+    chipHost.appendChild(box);
+  });
+
+  if ((data.warnings || []).length) {
+    var warnBox = document.getElementById("warnings");
+    warnBox.hidden = false;
+    warnBox.textContent = data.warnings.length + " session line(s) could not be read: " +
+      data.warnings.map(function (warning) { return "line " + warning.line; }).join(", ");
+  }
+
+  // ── turn rail ─────────────────────────────────────────────────────────────
+  var turnHost = document.getElementById("turns");
+
+  function renderTurns() {
+    turnHost.textContent = "";
+    var all = el("button", "turn-item");
+    all.type = "button";
+    all.setAttribute("aria-current", state.turn === 0 ? "true" : "false");
+    var allHead = el("div", "head");
+    allHead.appendChild(el("span", null, "All turns"));
+    // Each turn row shows a duration in this slot, so a bare number here reads
+    // as one too — and it counts records, not turns, which the rail below
+    // already enumerates. Name the unit.
+    allHead.appendChild(el("span", "muted", count(records.length) + " records"));
+    all.appendChild(allHead);
+    all.addEventListener("click", function () { state.turn = 0; renderTurns(); renderTimeline(); });
+    turnHost.appendChild(all);
+
+    turns.forEach(function (turn) {
+      var item = el("button", "turn-item");
+      item.type = "button";
+      item.setAttribute("aria-current", state.turn === turn.index ? "true" : "false");
+      var head = el("div", "head");
+      head.appendChild(el("span", null, "Turn " + turn.index));
+      var meta = duration(turn.durationMs);
+      if (turn.failures) { meta += " · " + turn.failures + "✗"; }
+      if (turn.status === "running") { meta += " · running"; }
+      head.appendChild(el("span", "muted", meta));
+      item.appendChild(head);
+      item.appendChild(el("div", "prompt", turn.prompt || ""));
+      item.addEventListener("click", function () { state.turn = turn.index; renderTurns(); renderTimeline(); });
+      turnHost.appendChild(item);
+    });
+  }
+
+  // ── timeline ──────────────────────────────────────────────────────────────
+  var timelineHost = document.getElementById("timeline");
+  var longestRecord = records.reduce(function (longest, record) {
+    return Math.max(longest, record.durationMs || 0);
+  }, 0);
+
+  function matches(record) {
+    if (timelineState.focus && !timelineState.focus[record.index]) { return false; }
+    if (state.turn && record.turn !== state.turn) { return false; }
+    if (state.filter === "tool" && record.kind !== "tool" && record.kind !== "subagent") { return false; }
+    if (state.filter === "reasoning" && record.kind !== "reasoning") { return false; }
+    if (state.filter === "error" && record.status !== "error") { return false; }
+    if (state.query) {
+      var haystack = (record.summary + " " + (record.toolName || "") + " " + record.event).toLowerCase();
+      if (haystack.indexOf(state.query) === -1) { return false; }
+    }
+    return true;
+  }
+
+  function turnByIndex(index) {
+    for (var i = 0; i < turns.length; i++) {
+      if (turns[i].index === index) { return turns[i]; }
+    }
+    return null;
+  }
+
+  function recordRow(record) {
+    var row = el("button", "record k-" + record.kind + " s-" + record.status);
+    row.type = "button";
+    row.setAttribute("aria-selected", selected === record.index ? "true" : "false");
+    row.appendChild(el("span", "badge", record.toolName || record.kind));
+    row.appendChild(el("span", "summary", record.summary || record.event));
+    row.appendChild(el("span", "dur", duration(record.durationMs)));
+    if (record.durationMs && longestRecord > 0) {
+      var bar = el("span", "bar");
+      bar.style.width = Math.max(2, Math.round((record.durationMs / longestRecord) * 100)) + "%";
+      row.appendChild(bar);
+    }
+    row.addEventListener("click", function () {
+      selected = record.index;
+      renderTimeline();
+      showInspector(record);
+    });
+    return row;
+  }
+
+  function renderTimeline() {
+    timelineHost.textContent = "";
+    var visible = records.filter(matches);
+    if (!visible.length) {
+      timelineHost.appendChild(el("div", "empty", "No records match this filter."));
+      return;
+    }
+    var currentTurn = null;
+    var currentStep = null;
+    var block = null;
+    visible.forEach(function (record) {
+      if (record.turn !== currentTurn) {
+        currentTurn = record.turn;
+        currentStep = null;
+        block = el("div", "turn-block");
+        var head = el("div", "turn-head");
+        head.appendChild(el("strong", null, "Turn " + record.turn));
+        var turn = turnByIndex(record.turn);
+        if (turn) {
+          var meta = duration(turn.durationMs) + " · " + turn.steps + " steps · " + turn.toolCalls + " tools";
+          if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
+            meta += " · 1st response " + duration(turn.firstResponseMs);
+          }
+          if (turn.failures) { meta += " · " + turn.failures + " failed"; }
+          head.appendChild(el("span", "muted", meta));
+        }
+        block.appendChild(head);
+        timelineHost.appendChild(block);
+      }
+      if (record.step && record.step !== currentStep) {
+        currentStep = record.step;
+        block.appendChild(el("div", "step-head", "step " + record.step));
+      }
+      block.appendChild(recordRow(record));
+    });
+  }
+
+
+  // ── overview timeline ─────────────────────────────────────────────────────
+  // Three projections of the same records, after the harness this is modelled
+  // on: `sequence` gives every record equal width to read the operation order,
+  // `compressed` uses recorded durations but removes the gaps where nothing
+  // ran, and `actual` keeps real wall-clock spacing. A session resumed across
+  // days is unreadable in `actual`, which is why `compressed` is the default.
+  var LANES = { user: 0, compaction: 0, assistant: 1, reasoning: 1, tool: 2, subagent: 2 };
+  // A real click drifts a pixel or two. Without a threshold every click would
+  // register as a drag, and right-click-to-clear would never fire.
+  var MINIMUM_DRAG_PX = 3;
+  var track = document.getElementById("track");
+  var selectionBox = document.getElementById("selection");
+  var trackTip = document.getElementById("track-tip");
+  var timelineState = { mode: "compressed", view: null, selection: null, focus: null };
+  var spanNodes = [];
+
+  function epoch(iso) {
+    if (!iso) { return null; }
+    var parsed = Date.parse(iso);
+    return isNaN(parsed) ? null : parsed;
+  }
+
+  function buildSpans(mode) {
+    var raw = [];
+    records.forEach(function (record) {
+      var start = epoch(record.startedAt);
+      if (start === null) { return; }
+      var end = epoch(record.completedAt);
+      if (end === null || end < start) { end = start; }
+      raw.push({
+        record: record, rawStart: start, rawEnd: end,
+        lane: LANES[record.kind] === undefined ? 0 : LANES[record.kind]
+      });
+    });
+    if (!raw.length) { return null; }
+
+    if (mode === "sequence") {
+      raw.forEach(function (span, index) { span.start = index; span.end = index + 1; });
+      return { spans: raw, start: 0, end: raw.length, timed: false };
+    }
+
+    var shift = 0;
+    if (mode === "compressed") {
+      // Walk in start order and subtract every interval no record covered.
+      var ordered = raw.slice().sort(function (a, b) { return a.rawStart - b.rawStart || a.rawEnd - b.rawEnd; });
+      var covered = null;
+      ordered.forEach(function (span) {
+        if (covered !== null && span.rawStart > covered) { shift += span.rawStart - covered; }
+        span.shift = shift;
+        covered = covered === null ? span.rawEnd : Math.max(covered, span.rawEnd);
+      });
+    }
+    raw.forEach(function (span) {
+      var offset = span.shift || 0;
+      span.start = span.rawStart - offset;
+      span.end = span.rawEnd - offset;
+    });
+    var start = Math.min.apply(null, raw.map(function (s) { return s.start; }));
+    var end = Math.max.apply(null, raw.map(function (s) { return s.end; }));
+    return { spans: raw, start: start, end: end === start ? start + 1 : end, timed: true };
+  }
+
+  var model = null;
+
+  function turnMarks() {
+    var seen = {}, marks = [];
+    model.spans.forEach(function (span) {
+      var turn = span.record.turn;
+      if (turn && !seen[turn]) { seen[turn] = true; marks.push({ turn: turn, at: span.start }); }
+    });
+    return marks;
+  }
+
+  function view() {
+    if (!timelineState.view) { timelineState.view = { start: model.start, end: model.end }; }
+    return timelineState.view;
+  }
+
+  function fraction(value) {
+    var v = view();
+    return (value - v.start) / (v.end - v.start);
+  }
+
+  function valueAt(clientX) {
+    var box = track.getBoundingClientRect();
+    var v = view();
+    var ratio = Math.min(Math.max((clientX - box.left) / box.width, 0), 1);
+    return v.start + ratio * (v.end - v.start);
+  }
+
+  function axisLabel(value) {
+    if (!model.timed) { return "#" + Math.round(value - model.start + 1); }
+    if (timelineState.mode === "actual") {
+      return new Date(value).toLocaleTimeString();
+    }
+    return duration(Math.round(value - model.start));
+  }
+
+  function renderTrack() {
+    model = buildSpans(timelineState.mode);
+    spanNodes = [];
+    Array.prototype.slice.call(track.children).forEach(function (child) {
+      if (child !== selectionBox && child !== trackTip) { track.removeChild(child); }
+    });
+    if (!model) { return; }
+    var v = view();
+
+    [0, 1, 2].forEach(function (lane) {
+      var rule = el("div", "lane-rule");
+      rule.style.top = (18 + lane * 22) + "px";
+      track.appendChild(rule);
+    });
+
+    turnMarks().forEach(function (mark) {
+      var left = fraction(mark.at);
+      if (left < 0 || left > 1) { return; }
+      var node = el("div", "turn-mark");
+      node.style.left = (left * 100) + "%";
+      node.appendChild(el("span", null, "T" + mark.turn));
+      track.appendChild(node);
+    });
+
+    model.spans.forEach(function (span) {
+      var left = fraction(span.start), right = fraction(span.end);
+      if (right < 0 || left > 1) { return; }
+      var node = el("div", "span k-" + span.record.kind +
+        (span.record.status === "error" ? " s-error" : ""));
+      node.style.left = (Math.max(left, 0) * 100) + "%";
+      node.style.width = (Math.max(Math.min(right, 1) - Math.max(left, 0), 0) * 100) + "%";
+      node.style.top = (13 + span.lane * 22) + "px";
+      node.dataset.index = span.record.index;
+      track.appendChild(node);
+      spanNodes.push({ node: node, span: span });
+    });
+
+    document.getElementById("axis-start").textContent = axisLabel(v.start);
+    document.getElementById("axis-mid").textContent = axisLabel((v.start + v.end) / 2);
+    document.getElementById("axis-end").textContent = axisLabel(v.end);
+    renderSelectionBox();
+  }
+
+  function renderSelectionBox() {
+    var selection = timelineState.selection;
+    if (!selection) { selectionBox.hidden = true; return; }
+    var left = Math.max(fraction(selection.start), 0), right = Math.min(fraction(selection.end), 1);
+    if (right <= left) { selectionBox.hidden = true; return; }
+    selectionBox.hidden = false;
+    selectionBox.style.left = (left * 100) + "%";
+    selectionBox.style.width = ((right - left) * 100) + "%";
+  }
+
+  function applyFocus() {
+    var selection = timelineState.selection;
+    if (!selection || !model) { timelineState.focus = null; } else {
+      var focus = {};
+      model.spans.forEach(function (span) {
+        if (span.start <= selection.end && span.end >= selection.start) { focus[span.record.index] = true; }
+      });
+      timelineState.focus = focus;
+    }
+    renderSelectionBox();
+    renderTimeline();
+  }
+
+  function setMode(mode) {
+    timelineState.mode = mode;
+    timelineState.view = null;
+    timelineState.selection = null;
+    timelineState.focus = null;
+    Array.prototype.forEach.call(document.querySelectorAll(".mode[data-mode]"), function (button) {
+      button.setAttribute("aria-pressed", button.dataset.mode === mode ? "true" : "false");
+    });
+    renderTrack();
+    renderTimeline();
+  }
+
+  // Drag with the left button selects an interval; with the right button it
+  // pans an already-zoomed view. A right-click without movement clears.
+  var gesture = null;
+  // Capture only keeps the gesture alive past the track's edges. Establish the
+  // gesture first and treat a refused capture as cosmetic: letting it abort the
+  // handler would leave drag-to-focus dead wherever capture is unavailable.
+  function capture(element, pointerId) {
+    try { element.setPointerCapture(pointerId); } catch (error) { /* not fatal */ }
+  }
+  function release(element, pointerId) {
+    try {
+      if (element.hasPointerCapture(pointerId)) { element.releasePointerCapture(pointerId); }
+    } catch (error) { /* not fatal */ }
+  }
+
+  track.addEventListener("pointerdown", function (event) {
+    if (!model) { return; }
+    gesture = {
+      button: event.button, anchor: valueAt(event.clientX), anchorX: event.clientX,
+      viewStart: view().start, viewEnd: view().end, moved: false
+    };
+    if (event.button === 2) { track.classList.add("panning"); }
+    capture(track, event.pointerId);
+    event.preventDefault();
+  });
+  track.addEventListener("pointermove", function (event) {
+    if (!gesture) { hoverTrack(event); return; }
+    if (Math.abs(event.clientX - gesture.anchorX) >= MINIMUM_DRAG_PX) { gesture.moved = true; }
+    if (!gesture.moved) { return; }
+    if (gesture.button === 2) {
+      var v = view();
+      var perPixel = (v.end - v.start) / track.getBoundingClientRect().width;
+      var delta = (gesture.anchorX - event.clientX) * perPixel;
+      timelineState.view = { start: gesture.viewStart + delta, end: gesture.viewEnd + delta };
+      renderTrack();
+      return;
+    }
+    var current = valueAt(event.clientX);
+    timelineState.selection = {
+      start: Math.min(gesture.anchor, current), end: Math.max(gesture.anchor, current)
+    };
+    renderSelectionBox();
+  });
+  function finishGesture(event) {
+    if (!gesture) { return; }
+    var wasRight = gesture.button === 2, moved = gesture.moved;
+    gesture = null;
+    track.classList.remove("panning");
+    release(track, event.pointerId);
+    if (wasRight) {
+      if (!moved) { timelineState.selection = null; applyFocus(); }
+      return;
+    }
+    if (!moved) { timelineState.selection = null; }
+    applyFocus();
+  }
+  track.addEventListener("pointerup", finishGesture);
+  track.addEventListener("pointercancel", finishGesture);
+  track.addEventListener("contextmenu", function (event) { event.preventDefault(); });
+
+  track.addEventListener("wheel", function (event) {
+    if (!model) { return; }
+    event.preventDefault();
+    var v = view();
+    var pivot = valueAt(event.clientX);
+    var scale = event.deltaY > 0 ? 1.25 : 0.8;
+    var start = pivot - (pivot - v.start) * scale;
+    var end = pivot + (v.end - pivot) * scale;
+    // Never zoom out past the full domain, and keep a floor so a span stays hittable.
+    if (end - start >= model.end - model.start) {
+      timelineState.view = { start: model.start, end: model.end };
+    } else {
+      timelineState.view = { start: start, end: end };
+    }
+    renderTrack();
+  }, { passive: false });
+
+  // A 500 ms dwell reveals exact clock and duration, as in the original.
+  var tipTimer = null;
+  function hoverTrack(event) {
+    var box = track.getBoundingClientRect();
+    var hit = null;
+    spanNodes.forEach(function (entry) {
+      var rect = entry.node.getBoundingClientRect();
+      if (event.clientX >= rect.left - 2 && event.clientX <= rect.right + 2 &&
+          event.clientY >= rect.top - 4 && event.clientY <= rect.bottom + 4) { hit = entry; }
+    });
+    spanNodes.forEach(function (entry) { entry.node.classList.toggle("hit", entry === hit); });
+    if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
+    if (!hit) { trackTip.hidden = true; return; }
+    tipTimer = setTimeout(function () {
+      var record = hit.span.record;
+      var lines = [(record.toolName || record.kind).toUpperCase() + "  #" + record.index];
+      lines.push(record.summary || record.event);
+      if (record.startedAt) {
+        lines.push(clock(record.startedAt) + (record.completedAt ? " → " + clock(record.completedAt) : ""));
+      }
+      lines.push(duration(record.durationMs) +
+        (record.timing === "derived" ? "  (start inferred from the previous event)" : ""));
+      trackTip.textContent = lines.join("\n");
+      trackTip.hidden = false;
+      var left = Math.min(event.clientX - box.left + 12, box.width - 330);
+      trackTip.style.left = Math.max(left, 4) + "px";
+      trackTip.style.top = (hit.span.lane < 2 ? 46 : 4) + "px";
+    }, 500);
+  }
+  track.addEventListener("pointerleave", function () {
+    if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
+    trackTip.hidden = true;
+    spanNodes.forEach(function (entry) { entry.node.classList.remove("hit"); });
+  });
+
+  track.addEventListener("click", function (event) {
+    if (!model) { return; }
+    var hit = null;
+    spanNodes.forEach(function (entry) {
+      var rect = entry.node.getBoundingClientRect();
+      if (event.clientX >= rect.left - 2 && event.clientX <= rect.right + 2 &&
+          event.clientY >= rect.top - 4 && event.clientY <= rect.bottom + 4) { hit = entry; }
+    });
+    if (hit && !timelineState.selection) {
+      selected = hit.span.record.index;
+      renderTimeline();
+      showInspector(hit.span.record);
+    }
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".mode[data-mode]"), function (button) {
+    button.addEventListener("click", function () { setMode(button.dataset.mode); });
+  });
+  document.getElementById("reset-view").addEventListener("click", function () {
+    timelineState.view = null;
+    timelineState.selection = null;
+    timelineState.focus = null;
+    renderTrack();
+    renderTimeline();
+  });
+
+  // ── inspector ─────────────────────────────────────────────────────────────
+  var inspector = document.getElementById("inspector");
+  var inspectorBody = document.getElementById("inspector-body");
+
+  function field(list, label, value) {
+    if (value === undefined || value === null || value === "") { return; }
+    list.appendChild(el("dt", null, label));
+    list.appendChild(el("dd", null, value));
+  }
+
+  function showInspector(record) {
+    document.getElementById("inspector-title").textContent =
+      "#" + record.index + "  " + (record.toolName || record.kind) + " — " + record.event;
+    inspectorBody.textContent = "";
+
+    var list = el("dl");
+    field(list, "Turn", record.turn);
+    field(list, "Step", record.step);
+    field(list, "Status", record.status);
+    field(list, "Started", clock(record.startedAt));
+    field(list, "Completed", clock(record.completedAt));
+    field(list, "Duration", record.durationMs ? duration(record.durationMs) : null);
+    if (record.timing === "derived") {
+      // Say so rather than passing an inferred number off as a measurement.
+      var note = el("dd", "derived", "start inferred from the previous event");
+      list.appendChild(el("dt", null, "Timing"));
+      list.appendChild(note);
+    } else if (record.timing === "measured") {
+      field(list, "Timing", "measured call to result");
+    }
+    var usage = record.usage;
+    if (usage) {
+      field(list, "Input tokens", count(usage.input));
+      field(list, "Output tokens", count(usage.output));
+      if (usage.cacheRead) { field(list, "Cache read", count(usage.cacheRead)); }
+      if (usage.cacheWrite) { field(list, "Cache write", count(usage.cacheWrite)); }
+      if (usage.cost) { field(list, "Cost", usage.cost.toFixed(6)); }
+    }
+    var turn = turnByIndex(record.turn);
+    if (turn) {
+      field(list, "Turn duration", duration(turn.durationMs));
+      if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
+        field(list, "Turn first response", duration(turn.firstResponseMs));
+      }
+      field(list, "Turn steps", turn.steps + " · " + turn.toolCalls + " tools" +
+        (turn.failures ? " · " + turn.failures + " failed" : ""));
+    }
+    field(list, "Tool", record.toolName);
+    field(list, "Call id", record.callId);
+    field(list, "Event", record.event);
+    inspectorBody.appendChild(list);
+
+    if (record.summary) {
+      inspectorBody.appendChild(el("h3", null, "Summary"));
+      inspectorBody.appendChild(el("pre", null, record.summary));
+    }
+    if (record.input) {
+      inspectorBody.appendChild(el("h3", null, "Input"));
+      inspectorBody.appendChild(el("pre", null, record.input));
+    }
+    if (record.output) {
+      inspectorBody.appendChild(el("h3", null, "Output"));
+      inspectorBody.appendChild(el("pre", null, record.output));
+    }
+    if (!record.input && !record.output && data.detailLevel === "summary") {
+      inspectorBody.appendChild(el("p", "muted", "This trajectory was projected at summary detail, so tool inputs and outputs are not included."));
+    }
+    inspector.hidden = false;
+    syncInspectorHeight();
+  }
+
+  // The panel is fixed to the bottom, so it would sit on top of the timeline's
+  // last records with no way to scroll them clear. Publishing its height lets
+  // the timeline and the turn rail reserve exactly that much room.
+  function syncInspectorHeight() {
+    var height = inspector.hidden ? 0 : inspector.offsetHeight;
+    document.documentElement.style.setProperty("--inspector-height", height + "px");
+  }
+  if (window.ResizeObserver) {
+    new ResizeObserver(syncInspectorHeight).observe(inspector);
+  }
+  window.addEventListener("resize", syncInspectorHeight);
+
+  function closeInspector() {
+    inspector.hidden = true;
+    selected = null;
+    syncInspectorHeight();
+    renderTimeline();
+  }
+
+  document.getElementById("inspector-close").addEventListener("click", closeInspector);
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !inspector.hidden) {
+      closeInspector();
+    }
+  });
+
+  // ── drag the divider between the timeline and the panel ───────────────────
+  var resizer = document.getElementById("inspector-resize");
+  var dragging = false;
+
+  function applyHeight(clientY) {
+    // Leave the toolbar reachable no matter how far up the divider is dragged.
+    var height = Math.min(Math.max(window.innerHeight - clientY, 92), window.innerHeight - 120);
+    inspector.style.maxHeight = "none";
+    inspector.style.height = height + "px";
+    syncInspectorHeight();
+  }
+
+  resizer.addEventListener("pointerdown", function (event) {
+    dragging = true;
+    document.body.classList.add("resizing");
+    capture(resizer, event.pointerId);
+    event.preventDefault();
+  });
+  resizer.addEventListener("pointermove", function (event) {
+    if (dragging) { applyHeight(event.clientY); }
+  });
+  function endDrag(event) {
+    if (!dragging) { return; }
+    dragging = false;
+    release(resizer, event.pointerId);
+    document.body.classList.remove("resizing");
+  }
+  resizer.addEventListener("pointerup", endDrag);
+  resizer.addEventListener("pointercancel", endDrag);
+  // Keyboard parity: the divider is focusable, so arrows resize it too.
+  resizer.tabIndex = 0;
+  resizer.addEventListener("keydown", function (event) {
+    var step = event.shiftKey ? 80 : 24;
+    if (event.key === "ArrowUp") {
+      applyHeight(window.innerHeight - inspector.offsetHeight - step);
+    } else if (event.key === "ArrowDown") {
+      applyHeight(window.innerHeight - inspector.offsetHeight + step);
+    } else {
+      return;
+    }
+    event.preventDefault();
+  });
+
+  // ── toolbar ───────────────────────────────────────────────────────────────
+
+  // ── system prompt and tool catalog ────────────────────────────────────────
+  // The session log persists neither, so this is only present when a live
+  // session supplied it; a trajectory read back from a file alone has none.
+  var prompt = (data.session || {}).prompt;
+  var systemButton = document.getElementById("system-button");
+  if (prompt) {
+    systemButton.hidden = false;
+    systemButton.addEventListener("click", function () {
+      document.getElementById("inspector-title").textContent =
+        "System prompt — " + count(prompt.bytes) + " bytes · " +
+        count((prompt.tools || []).length) + " tools";
+      inspectorBody.textContent = "";
+      if (prompt.system) {
+        inspectorBody.appendChild(el("h3", null, "System prompt"));
+        inspectorBody.appendChild(el("pre", null, prompt.system));
+      }
+      (prompt.tools || []).forEach(function (tool) {
+        inspectorBody.appendChild(el("h3", null,
+          tool.name + (tool.label && tool.label !== tool.name ? " · " + tool.label : "")));
+        var body = tool.description || "";
+        if (tool.schema) { body += (body ? "\n\n" : "") + tool.schema; }
+        inspectorBody.appendChild(el("pre", null, body || "(no description)"));
+      });
+      selected = null;
+      renderTimeline();
+      inspector.hidden = false;
+      syncInspectorHeight();
+    });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".filter[data-filter]"), function (button) {
+    button.addEventListener("click", function () {
+      state.filter = button.dataset.filter;
+      Array.prototype.forEach.call(document.querySelectorAll(".filter[data-filter]"), function (other) {
+        other.setAttribute("aria-pressed", other === button ? "true" : "false");
+      });
+      renderTimeline();
+    });
+  });
+  document.getElementById("search").addEventListener("input", function (event) {
+    state.query = event.target.value.trim().toLowerCase();
+    renderTimeline();
+  });
+
+  renderTurns();
+  setMode(timelineState.mode);
+  window.addEventListener("resize", function () { renderTrack(); });
+})();
+</script>
+</body>
+</html>

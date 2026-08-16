@@ -465,6 +465,8 @@ Streamable HTTP 的 POST JSON/SSE 响应和可选 GET SSE 通道都由官方 SDK
 | `/fork <id>` | 从指定条目创建分支 |
 | `/branch-session <id>` | 抽取当前会话分支路径为新的会话文件 |
 | `/export [file]` | 将当前分支的完整会话记录导出为 HTML；消息支持 Markdown，每次工具调用单独成块，输入/输出合并并保留本地时间 |
+| `/trajectory` | 打印当前分支的轨迹：turn / 近似 model step / 工具耗时与失败 / token；`active` 为各 turn 时长之和，`span` 为首尾跨度。模型调用的起点由上一事件推导（日志只记消息写完的时刻），工具调用两端实测 |
+| `/trajectory html [file]` | 导出自包含交互式轨迹页：横向三-lane 时间轴（Sequence/Compressed/Actual 投影、拖选过滤、滚轮缩放、右键平移）+ turn 列表 + 按 step 分组的记录 + 检视面板；活跃会话导出时附 System prompt 与工具目录 |
 | `/copy` | 复制最后一条 assistant 回复到系统剪贴板 |
 | `/changelog` | 显示当前 git 仓库最近提交 |
 | `/settings` | 显示当前配置 |
