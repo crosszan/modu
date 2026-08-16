@@ -439,6 +439,22 @@ func ResolveSessionInfoByID(agentDir, id string) (SessionInfo, error) {
 	return info, nil
 }
 
+// LatestSessionIDForCwd returns the id of the most recently modified session
+// saved for cwd. ok is false when that directory has no saved session yet.
+// Only session headers are read, so this stays cheap against a session
+// directory holding large transcripts.
+func LatestSessionIDForCwd(agentDir, cwd string) (id string, ok bool, err error) {
+	path := session.FindMostRecentSession(session.DefaultSessionDir(agentDir, cwd))
+	if path == "" {
+		return "", false, nil
+	}
+	header, err := session.ReadSessionHeader(path)
+	if err != nil {
+		return "", false, fmt.Errorf("read session header: %w", err)
+	}
+	return header.ID, true, nil
+}
+
 func newSessionManager(agentDir, cwd, resumeID string) (*session.Manager, error) {
 	if strings.TrimSpace(resumeID) == "" {
 		return session.NewFreshManager(agentDir, cwd)

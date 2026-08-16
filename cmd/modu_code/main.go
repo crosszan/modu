@@ -72,9 +72,9 @@ func main() {
 		acpMode     = flag.Bool("acp", false, "run as ACP stdio server (JSON-RPC 2.0 LDJSON)")
 		worktree    = flag.Bool("worktree", false, "start in an isolated git worktree")
 		noWorktree  = flag.Bool("no-worktree", false, "deprecated: current checkout is already the default")
-		resumeID    = flag.String("resume", "", "resume a saved session by id (full id or unique prefix)")
+		resumeID    = flag.String("resume", "", "resume a saved session by id (full id or unique prefix); with no id, resume the latest session of the current directory")
 	)
-	flag.Parse()
+	_ = flag.CommandLine.Parse(normalizeResumeArgs(os.Args[1:]))
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -95,7 +95,12 @@ func main() {
 
 	thinkingLevel := provider.ResolveThinkingLevel()
 	agentDir := coding_agent.DefaultAgentDir()
-	sessionCwd, err := resolveStartupResumeCwd(agentDir, cwd, *resumeID, interactiveMode, promptResumeCwd)
+	resumeSessionID, err := resolveStartupResumeID(agentDir, cwd, *resumeID, flagWasSet("resume"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to resolve session to resume: %v\n", err)
+		os.Exit(1)
+	}
+	sessionCwd, err := resolveStartupResumeCwd(agentDir, cwd, resumeSessionID, interactiveMode, promptResumeCwd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to resolve resume working directory: %v\n", err)
 		os.Exit(1)
@@ -132,7 +137,7 @@ func main() {
 		GetAPIKey:            getAPIKey,
 		ScopedModels:         provider.ConfiguredModelIDs(),
 		ModelConfigPath:      provider.ConfigPath(),
-		ResumeSessionID:      *resumeID,
+		ResumeSessionID:      resumeSessionID,
 		Extensions:           exts,
 		ToolProvider:         newModuCodeToolProvider(),
 		DeferStartupEvent:    interactiveMode,

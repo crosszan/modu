@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -557,6 +558,56 @@ func TestMainResumeStartsRequestedSession(t *testing.T) {
 		}
 		if msgs := session.GetMessages(); len(msgs) != 1 {
 			t.Fatalf("expected resumed messages, got %#v", msgs)
+		}
+		return nil
+	}
+
+	main()
+	if !called {
+		t.Fatal("expected TUI runner to be called")
+	}
+}
+
+func TestMainResumeWithoutIDStartsLatestSessionOfCwdAndRestoresAutoApprove(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	var initOut bytes.Buffer
+	if err := runConfigCommand([]string{"init"}, &initOut, nil); err != nil {
+		t.Fatalf("runConfigCommand init: %v", err)
+	}
+	agentDir := filepath.Join(home, ".modu")
+
+	setupMainTestInvocation(t, project, "modu_code")
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	older := writeResumeFlagTestSession(t, agentDir, cwd, "older session")
+	stale := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(older.FilePath(), stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	latest := writeResumeFlagTestSession(t, agentDir, cwd, "latest session")
+	if err := latest.AppendAutoApprove(true); err != nil {
+		t.Fatal(err)
+	}
+	os.Args = []string{"modu_code", "--resume"}
+
+	called := false
+	runTUI = func(ctx context.Context, session *coding_agent.CodingSession, model *types.Model, noApprove bool, opts RunOptions) error {
+		called = true
+		if got := session.GetSessionID(); got != latest.SessionID() {
+			t.Fatalf("resumed session id = %s, want latest %s (older %s)", got, latest.SessionID(), older.SessionID())
+		}
+		if !noApprove {
+			t.Fatal("expected the session's saved --no-approve mode to be restored")
+		}
+		if !strings.Contains(opts.StartupNotice, "--no-approve") {
+			t.Fatalf("startup notice %q does not report the restored approval mode", opts.StartupNotice)
 		}
 		return nil
 	}

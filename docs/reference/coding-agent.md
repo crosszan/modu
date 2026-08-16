@@ -320,6 +320,7 @@ LLM 调用失败 → 瞬态错误？→ 是 → 等待(指数退避 + 抖动) �
 - **树形导航**：`/tree` 可查看并跳转到会话树中的任意条目，跳转后恢复目标路径并注入 branch summary；`/fork <id>` 创建分支
 - **会话摘要**：可列出会话文件、最近修改时间、首条消息、display name
 - **跨目录恢复**：`modu_code --resume <id>` 与 `/resume <file或id或唯一前缀>` 会在全部 cwd session 目录中查找历史。在目录 B 恢复目录 A 的 session 时，交互模式会提示选择“使用 session 目录 A”或“使用当前目录 B”，默认选择 A；无交互模式也使用 A。底部 cwd、运行时路径、工具、资源和 system prompt 都跟随选择结果，session 仍继续写入原 JSONL 文件。完整 ID 查找只探测目标文件，前缀查找只扫描目录项，不解析历史正文
+- **无 id 恢复**：`modu_code --resume` 不带 id 时取当前 cwd session 目录里最近修改的 session（只读各文件 header，不解析正文），等价于显式传该 session 的 id；目录里没有 session 时报错退出
 - pi-compatible JSONL header：第一行是 `{"type":"session","version":3,...}`
 - **Flush 方法**：`Flush()` 确保 session header 写入磁盘，即使还没有任何 entry 追加；退出时可保证空 session 也能被恢复
 - 9 种条目类型：`message`、`model_change`、`thinking_level_change`、`compaction`、`branch_summary`、`session_info` 等
