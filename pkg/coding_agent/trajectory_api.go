@@ -3,6 +3,7 @@ package coding_agent
 import (
 	"encoding/json"
 	"os"
+	"strings"
 
 	"github.com/openmodu/modu/pkg/coding_agent/trajectory"
 )
@@ -28,6 +29,7 @@ func (s *CodingSession) Trajectory(opts trajectory.Options) (trajectory.Trajecto
 		return trajectory.Trajectory{}, err
 	}
 	result.Session.Prompt = s.promptSnapshot()
+	s.resolveSubagentRuns(&result)
 	return result, nil
 }
 
@@ -79,4 +81,60 @@ func (s *CodingSession) promptSnapshot() *trajectory.Prompt {
 		return nil
 	}
 	return snapshot
+}
+
+// resolveSubagentRuns fills in each subagent record with statistics from the
+// session its child agent actually ran in.
+//
+// A subagent is a separate session: the parent's log records that the tool was
+// called and nothing about what happened inside. The background task registry
+// is the only link, holding the child's session file against the task id the
+// tool reported. Only asynchronous runs register a task and write that file,
+// so a synchronous subagent resolves to unavailable rather than to zeros.
+func (s *CodingSession) resolveSubagentRuns(result *trajectory.Trajectory) {
+	for i := range result.Records {
+		run := result.Records[i].Subagent
+		if run == nil || run.TaskID == "" {
+			continue
+		}
+		path, reason := s.subagentSessionFile(run.TaskID)
+		if path == "" {
+			run.Reason = reason
+			continue
+		}
+		child, err := trajectory.Project(path, trajectory.Options{MaxRecords: trajectory.AllRecords})
+		if err != nil {
+			run.Reason = "child session could not be read: " + err.Error()
+			continue
+		}
+		run.Available = true
+		run.Turns = child.Stats.Turns
+		run.Steps = child.Stats.Steps
+		run.Records = child.Stats.Records
+		run.ToolCalls = child.Stats.ToolCalls
+		run.Failures = child.Stats.ToolFailures
+		run.ActiveMs = child.Stats.ActiveMs
+		run.Tokens = child.Stats.Tokens
+		run.Tools = child.Stats.Tools
+	}
+}
+
+// subagentSessionFile locates a child session by background task id, returning
+// the reason when it cannot.
+func (s *CodingSession) subagentSessionFile(taskID string) (string, string) {
+	if s.taskManager == nil {
+		return "", "background tasks are not available in this session"
+	}
+	task, ok := s.taskManager.Get(taskID)
+	if !ok {
+		return "", "no background task is registered for this run"
+	}
+	if strings.TrimSpace(task.SessionFile) == "" {
+		return "", "this run recorded no session file"
+	}
+	if _, err := os.Stat(task.SessionFile); err != nil {
+		// A run still in flight has not written its session file yet.
+		return "", "the child session has not been written yet"
+	}
+	return task.SessionFile, ""
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/openmodu/modu/pkg/coding_agent/services/memory"
 	sessionpkg "github.com/openmodu/modu/pkg/coding_agent/services/session"
 	"github.com/openmodu/modu/pkg/coding_agent/tools"
+	"github.com/openmodu/modu/pkg/coding_agent/trajectory"
 	"github.com/openmodu/modu/pkg/providers"
 	"github.com/openmodu/modu/pkg/skills"
 	"github.com/openmodu/modu/pkg/types"
@@ -4276,6 +4277,68 @@ func streamingTestSession(t *testing.T, dir string) *CodingSession {
 		t.Fatal(err)
 	}
 	return session
+}
+
+func TestTrajectoryResolvesSubagentChildSession(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+	if err := session.Prompt(context.Background(), "spawn one"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stand in for a completed asynchronous subagent, through the same calls the
+	// real path uses: register a background task, then write the child's own
+	// conversation to the session file that task derives.
+	taskID := session.taskManager.CreateWithMetadataInDir(
+		"subagent", "explore", "explorer", "", "", "", filepath.Join(dir, "runs"))
+	task, ok := session.taskManager.Get(taskID)
+	if !ok || task.SessionFile == "" {
+		t.Fatalf("task %q has no session file", taskID)
+	}
+	childPath := task.SessionFile
+	childMessages := []types.AgentMessage{
+		types.UserMessage{Role: "user", Content: "explore"},
+		types.AssistantMessage{
+			Role: "assistant", StopReason: "tool_calls",
+			Content: []types.ContentBlock{
+				&types.ToolCallContent{Type: "toolCall", ID: "c1", Name: "ls", Arguments: map[string]any{}},
+			},
+			Usage: types.AgentUsage{Input: 500, Output: 30, TotalTokens: 530},
+		},
+		types.ToolResultMessage{
+			Role: types.RoleToolResult, ToolCallID: "c1", ToolName: "ls",
+			Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: "a\nb"}},
+		},
+	}
+	if err := writeSubagentSessionFile(childPath, dir, session.GetSessionID(), taskID, childMessages); err != nil {
+		t.Fatal(err)
+	}
+
+	result := trajectory.Trajectory{Records: []trajectory.Record{
+		{Index: 1, Kind: trajectory.KindSubagent, Subagent: &trajectory.SubagentRun{TaskID: taskID, Agent: "explorer"}},
+		{Index: 2, Kind: trajectory.KindSubagent, Subagent: &trajectory.SubagentRun{TaskID: "missing"}},
+	}}
+	session.resolveSubagentRuns(&result)
+
+	run := result.Records[0].Subagent
+	if !run.Available {
+		t.Fatalf("child session was not resolved: %+v", run)
+	}
+	if run.Turns != 1 || run.ToolCalls != 1 {
+		t.Errorf("child stats = %+v, want 1 turn and 1 tool call", run)
+	}
+	if run.Tokens.Input != 500 || run.Tokens.Output != 30 {
+		t.Errorf("child tokens = %+v", run.Tokens)
+	}
+
+	// A run with no registered task must say why rather than report zeros.
+	absent := result.Records[1].Subagent
+	if absent.Available {
+		t.Error("an unregistered task must not resolve")
+	}
+	if absent.Reason == "" {
+		t.Error("an unresolved run must explain itself")
+	}
 }
 
 func TestPromptPersistsModelCallTiming(t *testing.T) {

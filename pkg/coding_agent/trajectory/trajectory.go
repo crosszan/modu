@@ -219,6 +219,9 @@ type Record struct {
 	// Prompt is present on a system record: the instruction state introduced
 	// at that point, with the previous one for comparison.
 	Prompt *Prompt `json:"prompt,omitempty"`
+	// Subagent is present on a record that ran a nested agent, summarising the
+	// child's own session.
+	Subagent *SubagentRun `json:"subagent,omitempty"`
 
 	startedMs   int64
 	completedMs int64
@@ -257,6 +260,7 @@ type Stats struct {
 	Reasoning     int `json:"reasoning"`
 	Compactions   int `json:"compactions"`
 	PromptChanges int `json:"promptChanges"`
+	Subagents     int `json:"subagents"`
 	// DurationMs spans the first and last projected event. A session resumed
 	// across days spans far more wall clock than it spent working, so ActiveMs
 	// sums the turns' own durations and is the one to read as "time spent".
@@ -277,6 +281,27 @@ type ToolStat struct {
 	TotalMs    int64  `json:"totalMs"`
 	MaxMs      int64  `json:"maxMs"`
 	Unfinished int    `json:"unfinished,omitempty"`
+}
+
+// SubagentRun summarises the session a nested agent ran in.
+//
+// A subagent gets its own session file, so the parent's log records only that
+// the tool was called. Available reports whether that file could be read: a
+// subagent run synchronously never writes one, and saying so is better than
+// showing a run with all-zero statistics.
+type SubagentRun struct {
+	TaskID    string     `json:"taskId,omitempty"`
+	Agent     string     `json:"agent,omitempty"`
+	Available bool       `json:"available"`
+	Reason    string     `json:"reason,omitempty"`
+	Turns     int        `json:"turns,omitempty"`
+	Steps     int        `json:"steps,omitempty"`
+	Records   int        `json:"records,omitempty"`
+	ToolCalls int        `json:"toolCalls,omitempty"`
+	Failures  int        `json:"failures,omitempty"`
+	ActiveMs  int64      `json:"activeMs,omitempty"`
+	Tokens    Usage      `json:"tokens"`
+	Tools     []ToolStat `json:"tools,omitempty"`
 }
 
 // Warning reports a line the projection could not use.

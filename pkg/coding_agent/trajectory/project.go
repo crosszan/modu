@@ -319,6 +319,7 @@ func (p *projector) toolCall(e entry, block wireBlock, step int) int {
 	kind := KindTool
 	if subagentTools[block.Name] {
 		kind = KindSubagent
+		p.stats.Subagents++
 	}
 	index := p.add(Record{
 		ID:       e.ID,
@@ -372,6 +373,17 @@ func (p *projector) toolResult(e entry) {
 	delete(p.pending, message.ToolCallID)
 
 	record := &p.records[index]
+	// The subagent tool reports its background task id on the result; carry it
+	// to the call record so the child session can be found later.
+	if record.Kind == KindSubagent {
+		if taskID, ok := message.Details["task_id"].(string); ok && taskID != "" {
+			run := &SubagentRun{TaskID: taskID}
+			if agent, ok := message.Details["subagent"].(string); ok {
+				run.Agent = agent
+			}
+			record.Subagent = run
+		}
+	}
 	record.Status = resultStatus(message.IsError)
 	record.CompletedAt = isoTime(e.TimeMs)
 	record.Output = p.detail(message.text())

@@ -475,3 +475,53 @@ func TestViewerSwitchesLanguage(t *testing.T) {
 	expect(t, probe, "bothKnown", "true")
 	expect(t, probe, "restored", "true")
 }
+
+func TestViewerReportsSubagentRuns(t *testing.T) {
+	source := fullSession(t)
+	source.Records = append(source.Records, Record{
+		Index: 90, Turn: 1, Step: 2, Kind: KindSubagent, Event: "tool_call",
+		ToolName: "subagent", Summary: "subagent explore", Status: StatusComplete,
+		Subagent: &SubagentRun{
+			TaskID: "task-7", Agent: "explorer", Available: true,
+			Turns: 3, Steps: 8, ToolCalls: 11, Failures: 1, ActiveMs: 42000,
+			Tokens: Usage{Input: 9000, Output: 400},
+			Tools:  []ToolStat{{Name: "read", Calls: 9, TotalMs: 300}},
+		},
+	}, Record{
+		Index: 91, Turn: 1, Step: 2, Kind: KindSubagent, Event: "tool_call",
+		ToolName: "subagent", Summary: "subagent inline", Status: StatusComplete,
+		Subagent: &SubagentRun{TaskID: "task-8", Reason: "this run recorded no session file"},
+	})
+	probe := runViewerProbeOn(t, source, `
+		var open=function(text){
+			var rows=document.querySelectorAll('.record.k-subagent');
+			for (var i=0;i<rows.length;i++){
+				if (rows[i].textContent.indexOf(text)>=0){ rows[i].click(); return; }
+			}
+		};
+		var tab=function(id){
+			var tabs=document.querySelectorAll('#inspector-body .tab');
+			for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab===id){tabs[i].click();return true;} }
+			return false;
+		};
+		open('explore');
+		out.push('offersTab='+tab('subagent'));
+		var body=document.getElementById('inspector-body').textContent;
+		out.push('childTurns='+(body.indexOf('3')>=0));
+		out.push('childTokens='+(body.indexOf('9,000')>=0));
+		out.push('childTools='+(body.indexOf('read')>=0));
+		document.getElementById('inspector-close').click();
+		open('inline');
+		tab('subagent');
+		var second=document.getElementById('inspector-body').textContent;
+		out.push('explainsAbsence='+(second.indexOf('no session file')>=0));
+		out.push('noFakeZeros='+(second.indexOf('9,000')<0));
+	`)
+	expect(t, probe, "offersTab", "true")
+	expect(t, probe, "childTurns", "true")
+	expect(t, probe, "childTokens", "true")
+	expect(t, probe, "childTools", "true")
+	// An unresolved run must say why instead of rendering a run of zeros.
+	expect(t, probe, "explainsAbsence", "true")
+	expect(t, probe, "noFakeZeros", "true")
+}

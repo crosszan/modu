@@ -224,6 +224,10 @@ body.resizing { user-select: none; cursor: ns-resize; }
         "This trajectory was projected at summary detail, so tool inputs and outputs are not included.",
       noPrevious: "Nothing to compare against: this is the first snapshot.",
       turnDuration: "Turn duration", turnFirst: "Turn first response", turnSteps: "Turn steps",
+      subagent: "Subagent run", subagentUnavailable: "Child session unavailable",
+      childTurns: "Child turns", childSteps: "Child steps", childTools: "Child tool calls",
+      childFailures: "Child failures", childActive: "Child active time", childTokens: "Child tokens",
+      childTools2: "Child tools", agent: "Agent",
       lang: "中文"
     },
     zh: {
@@ -247,6 +251,10 @@ body.resizing { user-select: none; cursor: ns-resize; }
         "该轨迹以摘要精度投影，未包含工具输入与输出。",
       noPrevious: "这是首个快照，没有可对比的对象。",
       turnDuration: "本轮耗时", turnFirst: "本轮首次响应", turnSteps: "本轮步数",
+      subagent: "子代理运行", subagentUnavailable: "子会话不可用",
+      childTurns: "子会话轮次", childSteps: "子会话步数", childTools: "子会话工具调用",
+      childFailures: "子会话失败", childActive: "子会话工作时长", childTokens: "子会话 token",
+      childTools2: "子会话工具", agent: "代理",
       lang: "English"
     }
   };
@@ -313,6 +321,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
   if (unfinished) { chips.push(["Unfinished", count(unfinished)]); }
   if (stats.compactions) { chips.push(["Compactions", count(stats.compactions)]); }
   if (stats.promptChanges) { chips.push(["Prompt changes", count(stats.promptChanges)]); }
+  if (stats.subagents) { chips.push(["Subagent runs", count(stats.subagents)]); }
   var chipHost = document.getElementById("chips");
   chipHost.textContent = "";
   chips.forEach(function (chip) {
@@ -838,6 +847,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
       }
       return tabs;
     }
+    if (record.subagent) { tabs.push({ id: "subagent", label: t("subagent") }); }
     if (record.input) { tabs.push({ id: "input", label: t("input") }); }
     if (record.output) { tabs.push({ id: "output", label: t("output") }); }
     tabs.push({ id: "timing", label: t("timing") });
@@ -932,6 +942,37 @@ body.resizing { user-select: none; cursor: ns-resize; }
     host.appendChild(block);
   }
 
+  // A subagent's work happens in a session of its own, so the parent ledger
+  // sees one opaque tool call. This reports the child's own totals, or says
+  // plainly why they are missing rather than showing a run full of zeros.
+  function renderSubagentTab(host, run) {
+    var list = el("dl");
+    field(list, t("agent"), run.agent);
+    if (!run.available) {
+      host.appendChild(list);
+      host.appendChild(el("p", "muted", run.reason || t("subagentUnavailable")));
+      return;
+    }
+    field(list, t("childTurns"), count(run.turns));
+    field(list, t("childSteps"), count(run.steps));
+    field(list, t("childTools"), count(run.toolCalls));
+    if (run.failures) { field(list, t("childFailures"), count(run.failures)); }
+    field(list, t("childActive"), duration(run.activeMs));
+    if (run.tokens) {
+      field(list, t("childTokens"),
+        count(run.tokens.input) + " in / " + count(run.tokens.output) + " out");
+    }
+    host.appendChild(list);
+    if ((run.tools || []).length) {
+      host.appendChild(el("h3", null, t("childTools2")));
+      var lines = run.tools.map(function (tool) {
+        return tool.name + "  " + tool.calls + " × " + duration(tool.totalMs) +
+          (tool.failures ? "  " + tool.failures + " failed" : "");
+      });
+      host.appendChild(el("pre", null, lines.join("\n")));
+    }
+  }
+
   function renderTab(record, id) {
     inspectorBody.textContent = "";
     var host = inspectorBody;
@@ -944,6 +985,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
       case "prompt": host.appendChild(el("pre", null, record.prompt.system || "—")); break;
       case "catalog": renderCatalog(host, record.prompt.tools); break;
       case "diff": renderDiff(host, record.prompt.previousSystem, record.prompt.system); break;
+      case "subagent": renderSubagentTab(host, record.subagent); break;
     }
     if (id === "summary" && !record.input && !record.output && !record.prompt &&
         data.detailLevel === "summary") {

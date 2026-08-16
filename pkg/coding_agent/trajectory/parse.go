@@ -84,6 +84,10 @@ type wireMessage struct {
 	Provider   string          `json:"provider"`
 	Usage      wireUsage       `json:"usage"`
 	Timing     *wireTiming     `json:"timing"`
+	// Details is tool-specific metadata. The subagent tool puts the background
+	// task id here, which is the only link from a parent session to the child
+	// session a subagent ran in.
+	Details map[string]any `json:"details"`
 }
 
 // wireTiming is the model call's recorded clock, present on sessions written

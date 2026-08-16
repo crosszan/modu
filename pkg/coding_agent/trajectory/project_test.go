@@ -510,3 +510,49 @@ func TestProjectKeepsPreSessionSnapshotOutsideEveryTurn(t *testing.T) {
 		t.Errorf("first turn = %q, want the real prompt", result.Turns[0].Prompt)
 	}
 }
+
+func TestProjectCapturesSubagentTaskID(t *testing.T) {
+	spawn := `{"id":"a1","parentId":"u1","timestamp":"2026-01-01T00:00:02Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"call-9","name":"subagent","arguments":{"prompt":"go look"}}]},"type":"message"}`
+	// The subagent tool reports the background task its child runs under; that
+	// id is the parent session's only link to the child's own session.
+	result := `{"id":"r1","parentId":"a1","timestamp":"2026-01-01T00:00:09Z","message":{"role":"toolResult","toolCallId":"call-9","toolName":"subagent","content":[{"type":"text","text":"started"}],"details":{"task_id":"task-7","subagent":"explorer","status":"running"},"isError":false},"type":"message"}`
+	path := writeSession(t, fixtureHeader, fixtureUser, spawn, result)
+	projected, err := Project(path, Options{})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	record := projected.Records[len(projected.Records)-1]
+	if record.Kind != KindSubagent {
+		t.Fatalf("kind = %q, want %q", record.Kind, KindSubagent)
+	}
+	if record.Subagent == nil {
+		t.Fatal("no subagent run captured")
+	}
+	if record.Subagent.TaskID != "task-7" || record.Subagent.Agent != "explorer" {
+		t.Errorf("run = %+v, want task-7/explorer", record.Subagent)
+	}
+	// The projection alone cannot reach the child session, so it must not
+	// claim the run's statistics are available.
+	if record.Subagent.Available {
+		t.Error("a bare projection cannot know the child session is readable")
+	}
+	if projected.Stats.Subagents != 1 {
+		t.Errorf("Subagents = %d, want 1", projected.Stats.Subagents)
+	}
+}
+
+func TestDescribeSubagentStatesUnavailableReason(t *testing.T) {
+	text := describeSubagent(&SubagentRun{Agent: "explorer", Reason: "this run recorded no session file"})
+	if !strings.Contains(text, "explorer") || !strings.Contains(text, "no session file") {
+		t.Errorf("describeSubagent = %q", text)
+	}
+	available := describeSubagent(&SubagentRun{
+		Agent: "explorer", Available: true, Turns: 2, Steps: 5, ToolCalls: 7,
+		ActiveMs: 4000, Tokens: Usage{Input: 1000, Output: 200}, Failures: 1,
+	})
+	for _, want := range []string{"explorer", "2 turns", "7 tools", "4.0s", "1,000 in", "1 failed"} {
+		if !strings.Contains(available, want) {
+			t.Errorf("describeSubagent missing %q: %q", want, available)
+		}
+	}
+}
