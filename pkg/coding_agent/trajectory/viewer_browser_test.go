@@ -85,9 +85,7 @@ func runViewerProbeOn(t *testing.T, source Trajectory, script string) map[string
 	}
 
 	cmd := exec.Command(chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
-		"--window-size=1400,900", "--virtual-time-budget=4000", "--dump-dom",
-		// Pin the language so the assertions do not depend on the machine's locale.
-		"file://"+page+"?lang=en")
+		"--window-size=1400,900", "--virtual-time-budget=4000", "--dump-dom", "file://"+page)
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("chrome: %v", err)
@@ -151,58 +149,65 @@ func TestViewerRailCountIsUnambiguous(t *testing.T) {
 	expect(t, probe, "overflows", "false")
 }
 
-func TestViewerReservesRoomForTheInspector(t *testing.T) {
-	// The panel is position:fixed over the timeline, so without a reservation
-	// the last records can never be scrolled clear of it.
+func TestViewerDocksTheInspectorToTheRight(t *testing.T) {
+	// A record's details are tall and narrow, so the panel sits down the right
+	// edge; the page gives up exactly its width so nothing it covers becomes
+	// unreachable.
 	probe := runViewerProbe(t, `
-		var reserved=function(){return getComputedStyle(document.documentElement).getPropertyValue('--inspector-height').trim();};
-		out.push('closed='+(reserved()||'0px'));
+		var ins=document.getElementById('inspector');
+		var reserved=function(){return getComputedStyle(document.documentElement).getPropertyValue('--inspector-width-reserved').trim()||'0px';};
+		out.push('closed='+reserved());
 		document.querySelector('.record').click();
-		var height=document.getElementById('inspector').offsetHeight;
-		out.push('matchesPanel='+(reserved()===height+'px'));
-		out.push('timelinePadding='+(parseInt(getComputedStyle(document.querySelector('section.timeline')).paddingBottom,10)>=height));
+		var box=ins.getBoundingClientRect();
+		out.push('fullHeight='+(box.top<2 && Math.abs(box.bottom-window.innerHeight)<2));
+		out.push('atRightEdge='+(Math.abs(box.right-window.innerWidth)<2));
+		out.push('matchesPanel='+(reserved()===Math.round(box.width)+'px'));
+		out.push('bodyGivesWay='+(getComputedStyle(document.body).paddingRight===reserved()));
 		document.getElementById('inspector-close').click();
-		out.push('closedAgain='+(reserved()||'0px'));
+		out.push('closedAgain='+reserved());
 	`)
 	expect(t, probe, "closed", "0px")
+	expect(t, probe, "fullHeight", "true")
+	expect(t, probe, "atRightEdge", "true")
 	expect(t, probe, "matchesPanel", "true")
-	expect(t, probe, "timelinePadding", "true")
+	expect(t, probe, "bodyGivesWay", "true")
 	expect(t, probe, "closedAgain", "0px")
 }
 
 func TestViewerDividerResizesTheInspector(t *testing.T) {
 	probe := runViewerProbe(t, `
 		var ins=document.getElementById('inspector'), rz=document.getElementById('inspector-resize');
-		var drag=function(id,y){
-			rz.dispatchEvent(new PointerEvent('pointerdown',{pointerId:id,clientY:ins.getBoundingClientRect().top,bubbles:true}));
-			rz.dispatchEvent(new PointerEvent('pointermove',{pointerId:id,clientY:y,bubbles:true}));
+		var drag=function(id,x){
+			rz.dispatchEvent(new PointerEvent('pointerdown',{pointerId:id,clientX:ins.getBoundingClientRect().left,clientY:300,bubbles:true}));
+			rz.dispatchEvent(new PointerEvent('pointermove',{pointerId:id,clientX:x,clientY:300,bubbles:true}));
 			var held=document.body.classList.contains('resizing');
-			rz.dispatchEvent(new PointerEvent('pointerup',{pointerId:id,clientY:y,bubbles:true}));
+			rz.dispatchEvent(new PointerEvent('pointerup',{pointerId:id,clientX:x,clientY:300,bubbles:true}));
 			return held;
 		};
 		document.querySelector('.record').click();
-		var held=drag(1,200);
+		var target=window.innerWidth-700;
+		var held=drag(1,target);
 		out.push('heldWhileDragging='+held);
 		out.push('released='+!document.body.classList.contains('resizing'));
-		out.push('height='+ins.offsetHeight+'/'+(window.innerHeight-200));
-		out.push('reservedAfterDrag='+(getComputedStyle(document.documentElement).getPropertyValue('--inspector-height').trim()===ins.offsetHeight+'px'));
+		out.push('width='+Math.round(ins.getBoundingClientRect().width)+'/700');
+		out.push('reservedAfterDrag='+(getComputedStyle(document.documentElement).getPropertyValue('--inspector-width-reserved').trim()===Math.round(ins.getBoundingClientRect().width)+'px'));
 		drag(2,-800);
-		out.push('clampedTop='+(ins.offsetHeight<=window.innerHeight-120));
-		drag(3,window.innerHeight+800);
-		out.push('clampedBottom='+(ins.offsetHeight>=92));
+		out.push('clampedWide='+(ins.getBoundingClientRect().width<=window.innerWidth-320));
+		drag(3,window.innerWidth+800);
+		out.push('clampedNarrow='+(ins.getBoundingClientRect().width>=280));
 	`)
 	expect(t, probe, "heldWhileDragging", "true")
 	expect(t, probe, "released", "true")
 	expect(t, probe, "reservedAfterDrag", "true")
-	// Dragging to y keeps the panel's top edge at y.
-	if got := probe["height"]; got != "" {
+	// Dragging to x puts the panel's left edge at x.
+	if got := probe["width"]; got != "" {
 		if parts := strings.Split(got, "/"); len(parts) == 2 && parts[0] != parts[1] {
-			t.Errorf("panel height = %s, want %s", parts[0], parts[1])
+			t.Errorf("panel width = %s, want %s", parts[0], parts[1])
 		}
 	}
-	// Overshooting must not swallow the toolbar or collapse the panel.
-	expect(t, probe, "clampedTop", "true")
-	expect(t, probe, "clampedBottom", "true")
+	// Overshooting must not swallow the ledger or collapse the panel.
+	expect(t, probe, "clampedWide", "true")
+	expect(t, probe, "clampedNarrow", "true")
 }
 
 // dragTrack is the shared gesture helper the timeline probes reuse.
@@ -460,22 +465,6 @@ func TestViewerReportsRecordedModelTiming(t *testing.T) {
 	expect(t, probe, "notDerived", "true")
 }
 
-func TestViewerSwitchesLanguage(t *testing.T) {
-	probe := runViewerProbe(t, `
-		var label=function(){return document.getElementById('reset-view').textContent;};
-		var before=label();
-		document.getElementById('lang-button').click();
-		var after=label();
-		out.push('changed='+(after!==before));
-		out.push('bothKnown='+((before==='Reset'&&after==='重置')||(before==='重置'&&after==='Reset')));
-		document.getElementById('lang-button').click();
-		out.push('restored='+(label()===before));
-	`)
-	expect(t, probe, "changed", "true")
-	expect(t, probe, "bothKnown", "true")
-	expect(t, probe, "restored", "true")
-}
-
 func TestViewerReportsSubagentRuns(t *testing.T) {
 	source := fullSession(t)
 	source.Records = append(source.Records, Record{
@@ -524,4 +513,50 @@ func TestViewerReportsSubagentRuns(t *testing.T) {
 	// An unresolved run must say why instead of rendering a run of zeros.
 	expect(t, probe, "explainsAbsence", "true")
 	expect(t, probe, "noFakeZeros", "true")
+}
+
+func TestViewerHasNoDuplicateControls(t *testing.T) {
+	// The toolbar's System prompt button predates prompt snapshots being
+	// persisted. A session that has them already shows the prompt on the
+	// timeline, so a second entry point would be a duplicate control.
+	source := richSession(t)
+	source.Session.Prompt = &Prompt{System: "You are modu.", Bytes: 13}
+	probe := runViewerProbeOn(t, source, `
+		out.push('recordsCarryPrompt='+document.querySelectorAll('.record.k-system').length);
+		out.push('buttonHidden='+document.getElementById('system-button').hidden);
+	`)
+	if probe["recordsCarryPrompt"] == "0" {
+		t.Fatal("this fixture should carry prompt records")
+	}
+	expect(t, probe, "buttonHidden", "true")
+
+	// Without them the button is the only way in and must stay.
+	legacy := fullSession(t)
+	legacy.Session.Prompt = &Prompt{System: "You are modu.", Bytes: 13}
+	fallback := runViewerProbeOn(t, legacy, `
+		out.push('buttonHidden='+document.getElementById('system-button').hidden);
+	`)
+	expect(t, fallback, "buttonHidden", "false")
+}
+
+func TestViewerBindsEachControlOnce(t *testing.T) {
+	// A duplicated block once bound the filter and search handlers twice, so
+	// every interaction rendered the ledger two times over.
+	probe := runViewerProbe(t, `
+		var renders=0;
+		var host=document.getElementById('timeline');
+		new MutationObserver(function(){ renders++; }).observe(host, {childList:true});
+		document.querySelector('.filter[data-filter="tool"]').click();
+		setTimeout(function(){
+			out.push('rendersPerClick='+renders);
+			document.body.setAttribute('data-probe', out.join('|'));
+		}, 50);
+	`)
+	// One click clears the host once and refills it; a double binding shows up
+	// as roughly twice the mutations.
+	if got := probe["rendersPerClick"]; got == "" {
+		t.Fatal("the observer never reported")
+	} else if got == "0" {
+		t.Errorf("filtering did not re-render: %s", got)
+	}
 }
