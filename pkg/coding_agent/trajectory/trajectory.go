@@ -222,6 +222,9 @@ type Record struct {
 	// Subagent is present on a record that ran a nested agent, summarising the
 	// child's own session.
 	Subagent *SubagentRun `json:"subagent,omitempty"`
+	// Subagents holds the runs when one call forked several children, which
+	// parallel and chain subagent calls do.
+	Subagents []SubagentRun `json:"subagents,omitempty"`
 
 	startedMs   int64
 	completedMs int64
@@ -290,7 +293,10 @@ type ToolStat struct {
 // subagent run synchronously never writes one, and saying so is better than
 // showing a run with all-zero statistics.
 type SubagentRun struct {
-	TaskID    string     `json:"taskId,omitempty"`
+	// RunID addresses this run for `/trajectory task <id>`. An asynchronous run
+	// is addressed by its background task id; a synchronous one has no task, so
+	// it is addressed by the transcript filed under its tool call.
+	RunID     string     `json:"runId,omitempty"`
 	Agent     string     `json:"agent,omitempty"`
 	Available bool       `json:"available"`
 	Reason    string     `json:"reason,omitempty"`
@@ -308,6 +314,18 @@ type SubagentRun struct {
 type Warning struct {
 	Line    int    `json:"line"`
 	Message string `json:"message"`
+}
+
+// SubagentRuns returns every nested run a record started, whether it forked
+// one child or several.
+func (r Record) SubagentRuns() []SubagentRun {
+	if len(r.Subagents) > 0 {
+		return r.Subagents
+	}
+	if r.Subagent != nil {
+		return []SubagentRun{*r.Subagent}
+	}
+	return nil
 }
 
 // TurnRecords returns the records belonging to one turn index.

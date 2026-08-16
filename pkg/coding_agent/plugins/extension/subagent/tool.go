@@ -299,7 +299,15 @@ func (t *subagentTool) Parameters() any {
 	}
 }
 
-func (t *subagentTool) Execute(ctx context.Context, _ string, args map[string]any, _ types.ToolUpdateCallback) (types.ToolResult, error) {
+func (t *subagentTool) Execute(ctx context.Context, callID string, args map[string]any, _ types.ToolUpdateCallback) (types.ToolResult, error) {
+	// Carried the same way the batch id is: a synchronous child has no task to
+	// key on, and this is what links its session back to the parent's ledger.
+	if strings.TrimSpace(callID) != "" {
+		if args == nil {
+			args = map[string]any{}
+		}
+		args["_callID"] = callID
+	}
 	if action, _ := args["action"].(string); action != "" {
 		text, err := runAction(ctx, t.ext, action, args)
 		if err != nil {

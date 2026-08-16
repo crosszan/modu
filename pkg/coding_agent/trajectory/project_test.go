@@ -528,7 +528,7 @@ func TestProjectCapturesSubagentTaskID(t *testing.T) {
 	if record.Subagent == nil {
 		t.Fatal("no subagent run captured")
 	}
-	if record.Subagent.TaskID != "task-7" || record.Subagent.Agent != "explorer" {
+	if record.Subagent.RunID != "task-7" || record.Subagent.Agent != "explorer" {
 		t.Errorf("run = %+v, want task-7/explorer", record.Subagent)
 	}
 	// The projection alone cannot reach the child session, so it must not
@@ -543,7 +543,7 @@ func TestProjectCapturesSubagentTaskID(t *testing.T) {
 
 func TestDescribeSubagentStatesUnavailableReason(t *testing.T) {
 	text := describeSubagent(&SubagentRun{
-		Agent: "explorer", TaskID: "task-7", Reason: "this run recorded no session file"})
+		Agent: "explorer", RunID: "task-7", Reason: "this run recorded no session file"})
 	// The task id is the handle for `/trajectory task <id>`, so it must show
 	// even when the run itself could not be read.
 	for _, want := range []string{"explorer", "task-7", "no session file"} {

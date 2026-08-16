@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/openmodu/modu/pkg/coding_agent/services/session"
 	"github.com/openmodu/modu/pkg/types"
 )
 
-func writeSubagentSessionFile(path, cwd, parentSession, id string, messages []types.AgentMessage) error {
+// writeSubagentSessionFile persists a child agent's conversation as an ordinary
+// session file. agentName is recorded as the session's display name so a reader
+// can tell which agent ran it without decoding the file's identity.
+func writeSubagentSessionFile(path, cwd, parentSession, id, agentName string, messages []types.AgentMessage) error {
 	if path == "" {
 		return nil
 	}
@@ -37,6 +41,15 @@ func writeSubagentSessionFile(path, cwd, parentSession, id string, messages []ty
 		return err
 	}
 	parentID := ""
+	if strings.TrimSpace(agentName) != "" {
+		entry := session.NewEntry(session.EntryTypeSessionInfo, parentID,
+			session.SessionInfoData{Name: agentName, Cwd: cwd})
+		if err := enc.Encode(entry); err != nil {
+			_ = f.Close()
+			return err
+		}
+		parentID = entry.ID
+	}
 	for _, msg := range messages {
 		entry := session.NewEntry(session.EntryTypeMessage, parentID, msg)
 		if err := enc.Encode(entry); err != nil {

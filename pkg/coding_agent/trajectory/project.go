@@ -377,7 +377,7 @@ func (p *projector) toolResult(e entry) {
 	// to the call record so the child session can be found later.
 	if record.Kind == KindSubagent {
 		if taskID, ok := message.Details["task_id"].(string); ok && taskID != "" {
-			run := &SubagentRun{TaskID: taskID}
+			run := &SubagentRun{RunID: taskID}
 			if agent, ok := message.Details["subagent"].(string); ok {
 				run.Agent = agent
 			}

@@ -780,7 +780,7 @@ func printTrajectoryUsage(session *coding_agent.CodingSession, r Printer) {
 		"/trajectory task <id>             show a subagent's own trajectory",
 		"/trajectory task <id> html [path] export the subagent's page",
 	}
-	if ids := session.SubagentTaskIDs(); len(ids) > 0 {
+	if ids := session.SubagentRunIDs(); len(ids) > 0 {
 		lines = append(lines, "", "subagent runs in this session: "+strings.Join(ids, ", "))
 	}
 	r.PrintSection("Usage", lines)

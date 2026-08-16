@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/openmodu/modu/pkg/coding_agent/trajectory"
@@ -94,35 +96,111 @@ func (s *CodingSession) promptSnapshot() *trajectory.Prompt {
 // so a synchronous subagent resolves to unavailable rather than to zeros.
 func (s *CodingSession) resolveSubagentRuns(result *trajectory.Trajectory) {
 	for i := range result.Records {
-		run := result.Records[i].Subagent
-		if run == nil || run.TaskID == "" {
+		record := &result.Records[i]
+		if record.Kind != trajectory.KindSubagent {
 			continue
 		}
-		path, reason := s.subagentSessionFile(run.TaskID)
-		if path == "" {
-			run.Reason = reason
+		if record.Subagent != nil && record.Subagent.RunID != "" {
+			s.resolveAsyncSubagentRun(record.Subagent)
 			continue
 		}
-		child, err := trajectory.Project(path, trajectory.Options{MaxRecords: trajectory.AllRecords})
-		if err != nil {
-			run.Reason = "child session could not be read: " + err.Error()
-			continue
+		// No task id means the run was synchronous. Its transcript is filed
+		// under the tool call that requested it, and one call can have forked
+		// several children.
+		for _, path := range s.syncSubagentSessionFiles(record.CallID) {
+			run := trajectory.SubagentRun{
+				RunID: strings.TrimSuffix(filepath.Base(path), ".jsonl"),
+			}
+			if !fillSubagentRun(&run, path) {
+				run.Reason = "child session could not be read"
+			}
+			record.Subagents = append(record.Subagents, run)
 		}
-		run.Available = true
-		run.Turns = child.Stats.Turns
-		run.Steps = child.Stats.Steps
-		run.Records = child.Stats.Records
-		run.ToolCalls = child.Stats.ToolCalls
-		run.Failures = child.Stats.ToolFailures
-		run.ActiveMs = child.Stats.ActiveMs
-		run.Tokens = child.Stats.Tokens
-		run.Tools = child.Stats.Tools
+		if len(record.Subagents) == 1 && record.Subagent == nil {
+			record.Subagent = &record.Subagents[0]
+			record.Subagents = nil
+		}
 	}
+}
+
+func (s *CodingSession) resolveAsyncSubagentRun(run *trajectory.SubagentRun) {
+	path, reason := s.subagentSessionFile(run.RunID)
+	if path == "" {
+		run.Reason = reason
+		return
+	}
+	if !fillSubagentRun(run, path) {
+		run.Reason = "child session could not be read"
+	}
+}
+
+// fillSubagentRun projects a child session into a run summary.
+func fillSubagentRun(run *trajectory.SubagentRun, path string) bool {
+	child, err := trajectory.Project(path, trajectory.Options{MaxRecords: trajectory.AllRecords})
+	if err != nil {
+		return false
+	}
+	run.Available = true
+	if run.Agent == "" {
+		run.Agent = child.Session.Name
+	}
+	run.Turns = child.Stats.Turns
+	run.Steps = child.Stats.Steps
+	run.Records = child.Stats.Records
+	run.ToolCalls = child.Stats.ToolCalls
+	run.Failures = child.Stats.ToolFailures
+	run.ActiveMs = child.Stats.ActiveMs
+	run.Tokens = child.Stats.Tokens
+	run.Tools = child.Stats.Tools
+	return true
+}
+
+// syncSubagentSessionByID resolves a synchronous run's transcript by its id,
+// which is the transcript's own file name.
+func (s *CodingSession) syncSubagentSessionByID(runID string) string {
+	runID = strings.TrimSpace(runID)
+	if runID == "" || strings.ContainsAny(runID, `/\`) {
+		return ""
+	}
+	path := filepath.Join(s.RuntimePaths().SubagentRunsDir, s.GetSessionID(), runID+".jsonl")
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+// syncSubagentSessionFiles lists the transcripts a synchronous run left under
+// one tool call, in the order they were filed.
+func (s *CodingSession) syncSubagentSessionFiles(callID string) []string {
+	if strings.TrimSpace(callID) == "" {
+		return nil
+	}
+	dir := filepath.Join(s.RuntimePaths().SubagentRunsDir, s.GetSessionID())
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	prefix := sanitizeRunID(callID) + "-"
+	var paths []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		paths = append(paths, filepath.Join(dir, name))
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 // subagentSessionFile locates a child session by background task id, returning
 // the reason when it cannot.
 func (s *CodingSession) subagentSessionFile(taskID string) (string, string) {
+	// A synchronous run has no task; it is addressed by the transcript filed
+	// under its tool call, so fall through to that before giving up.
+	if path := s.syncSubagentSessionByID(taskID); path != "" {
+		return path, ""
+	}
 	if s.taskManager == nil {
 		return "", "background tasks are not available in this session"
 	}
@@ -178,9 +256,9 @@ func (s *CodingSession) ExportSubagentTrajectoryHTML(taskID, path string) error 
 	return trajectory.WriteHTML(result, path)
 }
 
-// SubagentTaskIDs lists the background task ids of subagent runs on the current
+// SubagentRunIDs lists the addressable ids of subagent runs on the current
 // branch, in the order they were started.
-func (s *CodingSession) SubagentTaskIDs() []string {
+func (s *CodingSession) SubagentRunIDs() []string {
 	result, err := s.Trajectory(trajectory.Options{MaxRecords: trajectory.AllRecords})
 	if err != nil {
 		return nil
@@ -189,11 +267,11 @@ func (s *CodingSession) SubagentTaskIDs() []string {
 	seen := make(map[string]bool)
 	for _, record := range result.Records {
 		run := record.Subagent
-		if run == nil || run.TaskID == "" || seen[run.TaskID] {
+		if run == nil || run.RunID == "" || seen[run.RunID] {
 			continue
 		}
-		seen[run.TaskID] = true
-		ids = append(ids, run.TaskID)
+		seen[run.RunID] = true
+		ids = append(ids, run.RunID)
 	}
 	return ids
 }

@@ -227,7 +227,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
       subagent: "Subagent run", subagentUnavailable: "Child session unavailable",
       childTurns: "Child turns", childSteps: "Child steps", childTools: "Child tool calls",
       childFailures: "Child failures", childActive: "Child active time", childTokens: "Child tokens",
-      childTools2: "Child tools", agent: "Agent", taskId: "Task id",
+      childTools2: "Child tools", agent: "Agent", runId: "Run id",
       lang: "中文"
     },
     zh: {
@@ -254,7 +254,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
       subagent: "子代理运行", subagentUnavailable: "子会话不可用",
       childTurns: "子会话轮次", childSteps: "子会话步数", childTools: "子会话工具调用",
       childFailures: "子会话失败", childActive: "子会话工作时长", childTokens: "子会话 token",
-      childTools2: "子会话工具", agent: "代理", taskId: "任务 id",
+      childTools2: "子会话工具", agent: "代理", runId: "运行 id",
       lang: "English"
     }
   };
@@ -847,7 +847,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
       }
       return tabs;
     }
-    if (record.subagent) { tabs.push({ id: "subagent", label: t("subagent") }); }
+    if (subagentRuns(record).length) { tabs.push({ id: "subagent", label: t("subagent") }); }
     if (record.input) { tabs.push({ id: "input", label: t("input") }); }
     if (record.output) { tabs.push({ id: "output", label: t("output") }); }
     tabs.push({ id: "timing", label: t("timing") });
@@ -945,10 +945,17 @@ body.resizing { user-select: none; cursor: ns-resize; }
   // A subagent's work happens in a session of its own, so the parent ledger
   // sees one opaque tool call. This reports the child's own totals, or says
   // plainly why they are missing rather than showing a run full of zeros.
+  // One tool call can fork several children (parallel and chain runs), so the
+  // panel renders a list even when there is only one.
+  function subagentRuns(record) {
+    if (record.subagents && record.subagents.length) { return record.subagents; }
+    return record.subagent ? [record.subagent] : [];
+  }
+
   function renderSubagentTab(host, run) {
     var list = el("dl");
     field(list, t("agent"), run.agent);
-    field(list, t("taskId"), run.taskId);
+    field(list, t("runId"), run.runId);
     if (!run.available) {
       host.appendChild(list);
       host.appendChild(el("p", "muted", run.reason || t("subagentUnavailable")));
@@ -986,7 +993,12 @@ body.resizing { user-select: none; cursor: ns-resize; }
       case "prompt": host.appendChild(el("pre", null, record.prompt.system || "—")); break;
       case "catalog": renderCatalog(host, record.prompt.tools); break;
       case "diff": renderDiff(host, record.prompt.previousSystem, record.prompt.system); break;
-      case "subagent": renderSubagentTab(host, record.subagent); break;
+      case "subagent":
+        subagentRuns(record).forEach(function (run, index) {
+          if (index > 0) { host.appendChild(el("h3", null, t("subagent") + " " + (index + 1))); }
+          renderSubagentTab(host, run);
+        });
+        break;
     }
     if (id === "summary" && !record.input && !record.output && !record.prompt &&
         data.detailLevel === "summary") {

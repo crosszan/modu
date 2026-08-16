@@ -130,8 +130,8 @@ func TurnDetail(t Trajectory, index int) []string {
 			pad(formatDuration(durationOf(record)), 8),
 			pad(record.Status, 8),
 			record.Summary))
-		if run := record.Subagent; run != nil {
-			lines = append(lines, indent(describeSubagent(run))...)
+		for _, run := range record.SubagentRuns() {
+			lines = append(lines, indent(describeSubagent(&run))...)
 		}
 		if record.Input != "" {
 			lines = append(lines, indent("input: "+bound(record.Input, renderPayloadChars))...)
@@ -287,8 +287,8 @@ func describeSubagent(run *SubagentRun) string {
 	}
 	// The task id is what `/trajectory task <id>` takes, so it has to be
 	// readable here rather than looked up somewhere else.
-	if run.TaskID != "" {
-		label += " [" + run.TaskID + "]"
+	if run.RunID != "" {
+		label += " [" + run.RunID + "]"
 	}
 	if !run.Available {
 		reason := run.Reason

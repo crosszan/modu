@@ -88,6 +88,11 @@ type ForkOptions struct {
 	// single id for control accounting. Empty means: background children
 	// bubble under their own host task id; synchronous children do not bubble.
 	BubbleTaskID string
+	// CallID is the id of the tool call that requested this fork. A
+	// synchronous child registers no background task, so this is the only
+	// thing tying its session back to the parent's ledger. One call may fork
+	// several children (parallel and chain runs), which share the id.
+	CallID string
 }
 
 // Extension is the interface that all extensions must implement.

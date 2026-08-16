@@ -482,7 +482,7 @@ func TestViewerReportsSubagentRuns(t *testing.T) {
 		Index: 90, Turn: 1, Step: 2, Kind: KindSubagent, Event: "tool_call",
 		ToolName: "subagent", Summary: "subagent explore", Status: StatusComplete,
 		Subagent: &SubagentRun{
-			TaskID: "task-7", Agent: "explorer", Available: true,
+			RunID: "task-7", Agent: "explorer", Available: true,
 			Turns: 3, Steps: 8, ToolCalls: 11, Failures: 1, ActiveMs: 42000,
 			Tokens: Usage{Input: 9000, Output: 400},
 			Tools:  []ToolStat{{Name: "read", Calls: 9, TotalMs: 300}},
@@ -490,7 +490,7 @@ func TestViewerReportsSubagentRuns(t *testing.T) {
 	}, Record{
 		Index: 91, Turn: 1, Step: 2, Kind: KindSubagent, Event: "tool_call",
 		ToolName: "subagent", Summary: "subagent inline", Status: StatusComplete,
-		Subagent: &SubagentRun{TaskID: "task-8", Reason: "this run recorded no session file"},
+		Subagent: &SubagentRun{RunID: "task-8", Reason: "this run recorded no session file"},
 	})
 	probe := runViewerProbeOn(t, source, `
 		var open=function(text){
