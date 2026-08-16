@@ -52,6 +52,20 @@ func runViewerProbe(t *testing.T, script string) map[string]string {
 	return runViewerProbeOn(t, fullSession(t), script)
 }
 
+// richSession adds what the newer write path persists: a prompt snapshot
+// before the first message, a mid-conversation prompt change, and a model call
+// with its real clock.
+func richSession(t *testing.T) Trajectory {
+	t.Helper()
+	path := writeSession(t, fixtureHeader, fixturePromptInitial, fixtureUser,
+		fixtureTimed, fixturePromptChanged)
+	result, err := Project(path, Options{Detail: DetailFull, MaxRecords: AllRecords})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	return result
+}
+
 func runViewerProbeOn(t *testing.T, source Trajectory, script string) map[string]string {
 	t.Helper()
 	chrome := findChrome(t)
@@ -71,7 +85,9 @@ func runViewerProbeOn(t *testing.T, source Trajectory, script string) map[string
 	}
 
 	cmd := exec.Command(chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
-		"--window-size=1400,900", "--virtual-time-budget=4000", "--dump-dom", "file://"+page)
+		"--window-size=1400,900", "--virtual-time-budget=4000", "--dump-dom",
+		// Pin the language so the assertions do not depend on the machine's locale.
+		"file://"+page+"?lang=en")
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("chrome: %v", err)
@@ -272,11 +288,18 @@ func TestViewerShowsSystemPromptWhenSupplied(t *testing.T) {
 		var button=document.getElementById('system-button');
 		out.push('offered='+!button.hidden);
 		button.click();
-		var body=document.getElementById('inspector-body').textContent;
-		out.push('showsPrompt='+(body.indexOf('coding agent for modu')>=0));
-		out.push('showsTool='+(body.indexOf('Run a command')>=0));
-		out.push('showsSchema='+(body.indexOf('"type":"object"')>=0));
+		var tab=function(id){
+			var tabs=document.querySelectorAll('#inspector-body .tab');
+			for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab===id){tabs[i].click();return true;} }
+			return false;
+		};
 		out.push('opened='+(getComputedStyle(document.getElementById('inspector')).display==='flex'));
+		tab('prompt');
+		out.push('showsPrompt='+(document.getElementById('inspector-body').textContent.indexOf('coding agent for modu')>=0));
+		tab('catalog');
+		var catalog=document.getElementById('inspector-body').textContent;
+		out.push('showsTool='+(catalog.indexOf('Run a command')>=0));
+		out.push('showsSchema='+(catalog.indexOf('"type":"object"')>=0));
 	`)
 	expect(t, probe, "offered", "true")
 	expect(t, probe, "showsPrompt", "true")
@@ -300,15 +323,155 @@ func TestViewerLabelsDerivedTiming(t *testing.T) {
 	probe := runViewerProbe(t, `
 		// The derived span is charged to the first record the model call produced,
 		// so one call is one span rather than one per content block.
-		var reasoning=document.querySelector('.record.k-reasoning');
-		reasoning.click();
-		var body=document.getElementById('inspector-body').textContent;
-		out.push('body='+(body.indexOf('inferred from the previous event')>=0));
+		var timingTab=function(){
+			var tabs=document.querySelectorAll('#inspector-body .tab');
+			for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab==='timing'){tabs[i].click();return;} }
+		};
+		document.querySelector('.record.k-reasoning').click();
+		timingTab();
+		out.push('body='+(document.getElementById('inspector-body').textContent.indexOf('inferred from the previous event')>=0));
 		document.getElementById('inspector-close').click();
-		var later=document.querySelectorAll('.record.k-assistant')[0];
-		later.click();
+		document.querySelectorAll('.record.k-assistant')[0].click();
+		timingTab();
 		out.push('instant='+(document.getElementById('inspector-body').textContent.indexOf('inferred')<0));
 	`)
 	expect(t, probe, "body", "true")
 	expect(t, probe, "instant", "true")
+}
+
+func TestViewerFoldsTurnsAndSteps(t *testing.T) {
+	probe := runViewerProbe(t, `
+		var rows=function(){return document.querySelectorAll('.record').length;};
+		var all=rows();
+		out.push('all='+all);
+		document.getElementById('fold-turns').click();
+		out.push('turnsCollapsed='+(rows()===0));
+		document.getElementById('fold-turns').click();
+		out.push('turnsRestored='+(rows()===all));
+		document.getElementById('fold-steps').click();
+		out.push('stepsCollapsed='+(rows()<all&&rows()>0));
+		document.getElementById('fold-steps').click();
+		document.querySelector('.turn-head').click();
+		out.push('singleTurnCollapsed='+(rows()<all));
+	`)
+	expect(t, probe, "turnsCollapsed", "true")
+	expect(t, probe, "turnsRestored", "true")
+	// Collapsing calls hides step contents but keeps the turn's own rows.
+	expect(t, probe, "stepsCollapsed", "true")
+	expect(t, probe, "singleTurnCollapsed", "true")
+}
+
+func TestViewerSearchesRecordPayloads(t *testing.T) {
+	// The summary is one line; what you are looking for is usually in the tool
+	// input or output, so the index must cover them.
+	source := fullSession(t)
+	full, err := Project(writeSession(t, fixtureHeader, fixtureUser, fixtureAssist, fixtureResult, fixtureFinal),
+		Options{Detail: DetailFull})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	source = full
+	probe := runViewerProbeOn(t, source, `
+		var rows=function(){return document.querySelectorAll('.record').length;};
+		var box=document.getElementById('search');
+		var all=rows();
+		box.value='build ok'; box.dispatchEvent(new Event('input',{bubbles:true}));
+		out.push('payloadHits='+rows());
+		out.push('narrowed='+(rows()>0&&rows()<all));
+		box.value='nothing-matches-this'; box.dispatchEvent(new Event('input',{bubbles:true}));
+		out.push('missShows='+(document.querySelector('.empty')!==null));
+	`)
+	// "build ok" only ever appears in the tool result body.
+	expect(t, probe, "narrowed", "true")
+	expect(t, probe, "missShows", "true")
+}
+
+func TestViewerTabsDetailsByRecordKind(t *testing.T) {
+	probe := runViewerProbeOn(t, richSession(t), `
+		var tabsOf=function(){
+			var names=[];
+			Array.prototype.forEach.call(document.querySelectorAll('#inspector-body .tab'),
+				function(b){names.push(b.dataset.tab);});
+			return names.join(',');
+		};
+		document.querySelector('.record.k-assistant').click();
+		out.push('assistant='+tabsOf());
+		document.getElementById('inspector-close').click();
+		var systems=document.querySelectorAll('.record.k-system');
+		systems[systems.length-1].click();
+		out.push('system='+tabsOf());
+	`)
+	// A model reply offers its payloads, timing and usage.
+	if got := probe["assistant"]; got == "" || !strings.Contains(got, "timing") || !strings.Contains(got, "usage") {
+		t.Errorf("assistant tabs = %q", got)
+	}
+	// A prompt change offers the prompt, the catalog, and a diff.
+	for _, want := range []string{"prompt", "catalog", "diff"} {
+		if !strings.Contains(probe["system"], want) {
+			t.Errorf("system tabs = %q, want a %q tab", probe["system"], want)
+		}
+	}
+}
+
+func TestViewerDiffsPromptChanges(t *testing.T) {
+	probe := runViewerProbeOn(t, richSession(t), `
+		var systems=document.querySelectorAll('.record.k-system');
+		systems[systems.length-1].click();
+		var tabs=document.querySelectorAll('#inspector-body .tab');
+		for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab==='diff'){tabs[i].click();break;} }
+		var body=document.getElementById('inspector-body');
+		out.push('removed='+body.querySelectorAll('.diff .del').length);
+		out.push('added='+body.querySelectorAll('.diff .add').length);
+		document.getElementById('inspector-close').click();
+		systems[0].click();
+		var first=document.querySelectorAll('#inspector-body .tab');
+		var names=[]; Array.prototype.forEach.call(first,function(b){names.push(b.dataset.tab);});
+		out.push('initialHasNoDiff='+(names.indexOf('diff')<0));
+	`)
+	// The prompt changed from "You are modu." to "You are modu, in plan mode."
+	expect(t, probe, "removed", "1")
+	expect(t, probe, "added", "1")
+	// The first snapshot has nothing to compare against.
+	expect(t, probe, "initialHasNoDiff", "true")
+}
+
+func TestViewerShowsBetweenTurnsSection(t *testing.T) {
+	// The snapshot taken before the session's first message belongs to no turn.
+	probe := runViewerProbeOn(t, richSession(t), `
+		var between=document.querySelector('.turn-head.between');
+		out.push('present='+(between!==null));
+		out.push('labelled='+(between!==null&&between.textContent.length>0));
+	`)
+	expect(t, probe, "present", "true")
+	expect(t, probe, "labelled", "true")
+}
+
+func TestViewerReportsRecordedModelTiming(t *testing.T) {
+	probe := runViewerProbeOn(t, richSession(t), `
+		document.querySelector('.record.k-assistant').click();
+		var tabs=document.querySelectorAll('#inspector-body .tab');
+		for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab==='timing'){tabs[i].click();break;} }
+		var body=document.getElementById('inspector-body').textContent;
+		out.push('hasThroughput='+(body.indexOf('tok/s')>=0));
+		out.push('notDerived='+(body.indexOf('inferred')<0&&body.indexOf('推导')<0));
+	`)
+	// A measured call reports decode throughput and must not be labelled inferred.
+	expect(t, probe, "hasThroughput", "true")
+	expect(t, probe, "notDerived", "true")
+}
+
+func TestViewerSwitchesLanguage(t *testing.T) {
+	probe := runViewerProbe(t, `
+		var label=function(){return document.getElementById('reset-view').textContent;};
+		var before=label();
+		document.getElementById('lang-button').click();
+		var after=label();
+		out.push('changed='+(after!==before));
+		out.push('bothKnown='+((before==='Reset'&&after==='重置')||(before==='重置'&&after==='Reset')));
+		document.getElementById('lang-button').click();
+		out.push('restored='+(label()===before));
+	`)
+	expect(t, probe, "changed", "true")
+	expect(t, probe, "bothKnown", "true")
+	expect(t, probe, "restored", "true")
 }

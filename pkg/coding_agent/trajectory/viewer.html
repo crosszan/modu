@@ -113,6 +113,21 @@ body.resizing { user-select: none; cursor: ns-resize; }
 .legend i { display: inline-block; width: 9px; height: 9px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; }
 .derived { font-style: italic; }
 
+.turn-head { cursor: pointer; }
+.turn-head .fold { font-size: 11px; width: 12px; display: inline-block; color: color-mix(in srgb, CanvasText 55%, transparent); }
+.turn-head.between { background: color-mix(in srgb, CanvasText 3%, transparent); border: 1px dashed color-mix(in srgb, CanvasText 20%, transparent); }
+.step-head { cursor: pointer; user-select: none; }
+.step-head .fold { margin-right: 4px; }
+.span.k-system { background: #7c3aed; }
+.k-system { border-left-color: #7c3aed; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.tab { padding: 4px 10px; border: 1px solid color-mix(in srgb, CanvasText 22%, transparent); border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.tab[aria-selected="true"] { background: color-mix(in srgb, CanvasText 88%, transparent); color: Canvas; border-color: transparent; }
+#inspector pre.diff { padding: 0; }
+#inspector pre.diff span { display: block; padding: 0 12px; }
+#inspector pre.diff .add { background: color-mix(in srgb, #16a34a 22%, transparent); }
+#inspector pre.diff .del { background: color-mix(in srgb, #dc2626 22%, transparent); }
+
 .empty { padding: 32px 8px; text-align: center; color: color-mix(in srgb, CanvasText 55%, transparent); }
 .warnings { margin: 12px 24px; padding: 10px 12px; border: 1px solid #d97706; border-radius: 8px; font-size: 12px; }
 </style>
@@ -130,7 +145,10 @@ body.resizing { user-select: none; cursor: ns-resize; }
   <button class="filter" data-filter="tool" aria-pressed="false">Tools</button>
   <button class="filter" data-filter="reasoning" aria-pressed="false">Reasoning</button>
   <button class="filter" data-filter="error" aria-pressed="false">Failures</button>
-  <button class="filter" id="system-button" hidden>System prompt</button>
+  <button class="filter" id="system-button" hidden></button>
+  <button class="filter" id="fold-turns"></button>
+  <button class="filter" id="fold-steps"></button>
+  <button class="filter" id="lang-button"></button>
 </div>
 <div class="overview">
   <div class="overview-head">
@@ -138,8 +156,8 @@ body.resizing { user-select: none; cursor: ns-resize; }
     <button class="mode" data-mode="compressed" aria-pressed="true">Compressed</button>
     <button class="mode" data-mode="actual" aria-pressed="false">Actual</button>
     <span class="spacer"></span>
-    <span class="hint">drag to focus · wheel to zoom · right-drag to pan · right-click to clear</span>
-    <button class="mode" id="reset-view">Reset</button>
+    <span class="hint" id="track-hint"></span>
+    <button class="mode" id="reset-view"></button>
   </div>
   <div id="track">
     <div id="selection" hidden></div>
@@ -177,7 +195,66 @@ body.resizing { user-select: none; cursor: ns-resize; }
   var turns = data.turns || [];
   var stats = data.stats || {};
   var state = { turn: 0, filter: "all", query: "" };
+  var folded = { turns: {}, steps: {}, allTurns: false, allSteps: false };
   var selected = null;
+
+
+  // ── locales ───────────────────────────────────────────────────────────────
+  // The page is read by whoever ran the session, so it follows the browser's
+  // language rather than the language the session happened to be conducted in.
+  var STRINGS = {
+    en: {
+      allTurns: "All turns", records: " records", turn: "Turn ", between: "Between turns",
+      step: "step ", search: "Filter records…", all: "All", tools: "Tools",
+      reasoning: "Reasoning", failures: "Failures", system: "System prompt",
+      foldTurns: "Collapse turns", unfoldTurns: "Expand turns",
+      foldSteps: "Collapse calls", unfoldSteps: "Expand calls",
+      sequence: "Sequence", compressed: "Compressed", actual: "Actual", reset: "Reset",
+      hint: "drag to focus · wheel to zoom · right-drag to pan · right-click to clear",
+      close: "Close", noMatch: "No records match this filter.",
+      summary: "Summary", input: "Input", output: "Output", timing: "Timing",
+      usage: "Usage", prompt: "System prompt", catalog: "Tools", diff: "Diff",
+      turnLabel: "Turn", stepLabel: "Step", status: "Status", started: "Started",
+      completed: "Completed", duration: "Duration", ttft: "Time to first token",
+      decode: "Decoding", throughput: "Throughput", inputTokens: "Input tokens",
+      outputTokens: "Output tokens", cacheRead: "Cache read", cacheWrite: "Cache write",
+      cost: "Cost", callId: "Call id", event: "Event", tool: "Tool",
+      derived: "start inferred from the previous event",
+      measured: "measured end to end", summaryOnly:
+        "This trajectory was projected at summary detail, so tool inputs and outputs are not included.",
+      noPrevious: "Nothing to compare against: this is the first snapshot.",
+      turnDuration: "Turn duration", turnFirst: "Turn first response", turnSteps: "Turn steps",
+      lang: "中文"
+    },
+    zh: {
+      allTurns: "全部轮次", records: " 条记录", turn: "第 ", between: "轮次之间",
+      step: "步骤 ", search: "筛选记录…", all: "全部", tools: "工具",
+      reasoning: "思考", failures: "失败", system: "系统提示",
+      foldTurns: "折叠轮次", unfoldTurns: "展开轮次",
+      foldSteps: "折叠调用", unfoldSteps: "展开调用",
+      sequence: "等宽", compressed: "压缩空闲", actual: "真实时刻", reset: "重置",
+      hint: "拖动框选 · 滚轮缩放 · 右键拖动平移 · 右键单击清除",
+      close: "关闭", noMatch: "没有记录符合当前筛选。",
+      summary: "摘要", input: "输入", output: "输出", timing: "计时",
+      usage: "用量", prompt: "系统提示", catalog: "工具目录", diff: "差异",
+      turnLabel: "轮次", stepLabel: "步骤", status: "状态", started: "开始",
+      completed: "结束", duration: "耗时", ttft: "首字延迟",
+      decode: "解码", throughput: "吞吐", inputTokens: "输入 token",
+      outputTokens: "输出 token", cacheRead: "缓存读取", cacheWrite: "缓存写入",
+      cost: "成本", callId: "调用 id", event: "事件", tool: "工具",
+      derived: "起点由上一事件推导，非实测",
+      measured: "两端均为实测", summaryOnly:
+        "该轨迹以摘要精度投影，未包含工具输入与输出。",
+      noPrevious: "这是首个快照，没有可对比的对象。",
+      turnDuration: "本轮耗时", turnFirst: "本轮首次响应", turnSteps: "本轮步数",
+      lang: "English"
+    }
+  };
+  // Follows the reader's browser, with ?lang=en / ?lang=zh to pin it — useful
+  // when the page is shared with someone whose browser disagrees.
+  var pinned = (location.search.match(/[?&]lang=(en|zh)/) || [])[1];
+  var lang = pinned || ((navigator.language || "en").toLowerCase().indexOf("zh") === 0 ? "zh" : "en");
+  function t(key) { return STRINGS[lang][key]; }
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -222,6 +299,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
   if (session.startedAt) { subtitleParts.push("started " + clock(session.startedAt)); }
   document.getElementById("subtitle").textContent = subtitleParts.join("  ·  ");
 
+  function renderChips() {
   var unfinished = (stats.tools || []).reduce(function (total, tool) { return total + (tool.unfinished || 0); }, 0);
   var chips = [
     ["Turns", count(stats.turns)],
@@ -234,13 +312,17 @@ body.resizing { user-select: none; cursor: ns-resize; }
   ];
   if (unfinished) { chips.push(["Unfinished", count(unfinished)]); }
   if (stats.compactions) { chips.push(["Compactions", count(stats.compactions)]); }
+  if (stats.promptChanges) { chips.push(["Prompt changes", count(stats.promptChanges)]); }
   var chipHost = document.getElementById("chips");
+  chipHost.textContent = "";
   chips.forEach(function (chip) {
     var box = el("div", "chip");
     box.appendChild(el("b", null, chip[1]));
     box.appendChild(el("span", null, chip[0]));
     chipHost.appendChild(box);
   });
+  }
+  renderChips();
 
   if ((data.warnings || []).length) {
     var warnBox = document.getElementById("warnings");
@@ -258,11 +340,11 @@ body.resizing { user-select: none; cursor: ns-resize; }
     all.type = "button";
     all.setAttribute("aria-current", state.turn === 0 ? "true" : "false");
     var allHead = el("div", "head");
-    allHead.appendChild(el("span", null, "All turns"));
+    allHead.appendChild(el("span", null, t("allTurns")));
     // Each turn row shows a duration in this slot, so a bare number here reads
     // as one too — and it counts records, not turns, which the rail below
     // already enumerates. Name the unit.
-    allHead.appendChild(el("span", "muted", count(records.length) + " records"));
+    allHead.appendChild(el("span", "muted", count(records.length) + t("records")));
     all.appendChild(allHead);
     all.addEventListener("click", function () { state.turn = 0; renderTurns(); renderTimeline(); });
     turnHost.appendChild(all);
@@ -272,7 +354,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
       item.type = "button";
       item.setAttribute("aria-current", state.turn === turn.index ? "true" : "false");
       var head = el("div", "head");
-      head.appendChild(el("span", null, "Turn " + turn.index));
+      head.appendChild(el("span", null, t("turn") + turn.index));
       var meta = duration(turn.durationMs);
       if (turn.failures) { meta += " · " + turn.failures + "✗"; }
       if (turn.status === "running") { meta += " · running"; }
@@ -290,16 +372,33 @@ body.resizing { user-select: none; cursor: ns-resize; }
     return Math.max(longest, record.durationMs || 0);
   }, 0);
 
+
+  // Search covers everything a record carries, not just its one-line summary:
+  // the payloads are usually what you are looking for.
+  var searchCache = {};
+  function searchText(record) {
+    var cached = searchCache[record.index];
+    if (cached !== undefined) { return cached; }
+    var parts = [record.kind, record.event, record.summary, record.toolName || "",
+      record.callId || "", record.status, record.input || "", record.output || ""];
+    if (record.prompt) {
+      parts.push(record.prompt.system || "");
+      (record.prompt.tools || []).forEach(function (tool) {
+        parts.push(tool.name, tool.description || "", tool.schema || "");
+      });
+    }
+    var text = parts.join(" ").toLowerCase();
+    searchCache[record.index] = text;
+    return text;
+  }
+
   function matches(record) {
     if (timelineState.focus && !timelineState.focus[record.index]) { return false; }
     if (state.turn && record.turn !== state.turn) { return false; }
     if (state.filter === "tool" && record.kind !== "tool" && record.kind !== "subagent") { return false; }
     if (state.filter === "reasoning" && record.kind !== "reasoning") { return false; }
     if (state.filter === "error" && record.status !== "error") { return false; }
-    if (state.query) {
-      var haystack = (record.summary + " " + (record.toolName || "") + " " + record.event).toLowerCase();
-      if (haystack.indexOf(state.query) === -1) { return false; }
-    }
+    if (state.query && searchText(record).indexOf(state.query) === -1) { return false; }
     return true;
   }
 
@@ -330,39 +429,74 @@ body.resizing { user-select: none; cursor: ns-resize; }
     return row;
   }
 
+
+  function foldedTurn(index) {
+    var explicit = folded.turns[index];
+    return explicit === undefined ? folded.allTurns : explicit;
+  }
+  function foldedStep(turn, step) {
+    var explicit = folded.steps[turn + ":" + step];
+    return explicit === undefined ? folded.allSteps : explicit;
+  }
+
   function renderTimeline() {
     timelineHost.textContent = "";
     var visible = records.filter(matches);
     if (!visible.length) {
-      timelineHost.appendChild(el("div", "empty", "No records match this filter."));
+      timelineHost.appendChild(el("div", "empty", t("noMatch")));
       return;
     }
     var currentTurn = null;
     var currentStep = null;
     var block = null;
+    var turnHidden = false;
+    var stepHidden = false;
     visible.forEach(function (record) {
-      if (record.turn !== currentTurn) {
+      if (record.turn !== currentTurn || block === null) {
         currentTurn = record.turn;
         currentStep = null;
+        turnHidden = foldedTurn(record.turn);
         block = el("div", "turn-block");
-        var head = el("div", "turn-head");
-        head.appendChild(el("strong", null, "Turn " + record.turn));
+        // Turn 0 holds what belongs to no turn — a prompt snapshot taken
+        // before the session's first message. The original calls this
+        // "Between turns" and so does this.
+        var head = el("div", "turn-head" + (record.turn === 0 ? " between" : ""));
+        head.appendChild(el("span", "fold", turnHidden ? "▸" : "▾"));
+        head.appendChild(el("strong", null,
+          record.turn === 0 ? t("between") : t("turn") + record.turn));
         var turn = turnByIndex(record.turn);
         if (turn) {
-          var meta = duration(turn.durationMs) + " · " + turn.steps + " steps · " + turn.toolCalls + " tools";
-          if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
-            meta += " · 1st response " + duration(turn.firstResponseMs);
+          var meta = duration(turn.durationMs) + " · " + turn.steps + " " + t("stepLabel") +
+            " · " + turn.toolCalls + " " + t("tool");
+          if (turn.firstTokenMs !== undefined && turn.firstTokenMs !== null) {
+            meta += " · " + t("ttft") + " " + duration(turn.firstTokenMs);
+          } else if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
+            meta += " · " + t("turnFirst") + " " + duration(turn.firstResponseMs);
           }
-          if (turn.failures) { meta += " · " + turn.failures + " failed"; }
+          if (turn.failures) { meta += " · " + turn.failures + " " + t("failures"); }
           head.appendChild(el("span", "muted", meta));
         }
+        head.addEventListener("click", function () {
+          folded.turns[record.turn] = !foldedTurn(record.turn);
+          renderTimeline();
+        });
         block.appendChild(head);
         timelineHost.appendChild(block);
       }
+      if (turnHidden) { return; }
       if (record.step && record.step !== currentStep) {
         currentStep = record.step;
-        block.appendChild(el("div", "step-head", "step " + record.step));
+        stepHidden = foldedStep(record.turn, record.step);
+        var stepHead = el("div", "step-head");
+        stepHead.appendChild(el("span", "fold", stepHidden ? "▸" : "▾"));
+        stepHead.appendChild(el("span", null, t("step") + record.step));
+        stepHead.addEventListener("click", function () {
+          folded.steps[record.turn + ":" + record.step] = !foldedStep(record.turn, record.step);
+          renderTimeline();
+        });
+        block.appendChild(stepHead);
       }
+      if (record.step && stepHidden) { return; }
       block.appendChild(recordRow(record));
     });
   }
@@ -692,63 +826,152 @@ body.resizing { user-select: none; cursor: ns-resize; }
     list.appendChild(el("dd", null, value));
   }
 
+  // Details are tabbed rather than stacked: a system prompt and a tool result
+  // are both long enough that one scrolling column buries whichever came
+  // second. Each record kind offers only the tabs it can actually fill.
+  function detailTabs(record) {
+    var tabs = [{ id: "summary", label: t("summary") }];
+    if (record.prompt) {
+      tabs.push({ id: "prompt", label: t("prompt") }, { id: "catalog", label: t("catalog") });
+      if (record.prompt.previousSystem || (record.prompt.previousTools || []).length) {
+        tabs.push({ id: "diff", label: t("diff") });
+      }
+      return tabs;
+    }
+    if (record.input) { tabs.push({ id: "input", label: t("input") }); }
+    if (record.output) { tabs.push({ id: "output", label: t("output") }); }
+    tabs.push({ id: "timing", label: t("timing") });
+    if (record.usage) { tabs.push({ id: "usage", label: t("usage") }); }
+    return tabs;
+  }
+
+  function field(list, label, value) {
+    if (value === undefined || value === null || value === "") { return; }
+    list.appendChild(el("dt", null, label));
+    list.appendChild(el("dd", null, value));
+  }
+
+  function renderSummaryTab(host, record) {
+    var list = el("dl");
+    field(list, t("turnLabel"), record.turn === 0 ? t("between") : record.turn);
+    field(list, t("stepLabel"), record.step);
+    field(list, t("status"), record.status);
+    field(list, t("tool"), record.toolName);
+    field(list, t("event"), record.event);
+    field(list, t("callId"), record.callId);
+    host.appendChild(list);
+    if (record.summary) { host.appendChild(el("pre", null, record.summary)); }
+  }
+
+  function renderTimingTab(host, record) {
+    var list = el("dl");
+    field(list, t("started"), clock(record.startedAt));
+    field(list, t("completed"), clock(record.completedAt));
+    field(list, t("duration"), record.durationMs ? duration(record.durationMs) : null);
+    if (record.firstTokenMs !== undefined && record.firstTokenMs !== null) {
+      field(list, t("ttft"), duration(record.firstTokenMs));
+    }
+    if (record.decodeMs !== undefined && record.decodeMs !== null) {
+      field(list, t("decode"), duration(record.decodeMs));
+    }
+    if (record.throughput) { field(list, t("throughput"), record.throughput.toFixed(1) + " tok/s"); }
+    var turn = turnByIndex(record.turn);
+    if (turn) {
+      field(list, t("turnDuration"), duration(turn.durationMs));
+      if (turn.firstTokenMs !== undefined && turn.firstTokenMs !== null) {
+        field(list, t("ttft"), duration(turn.firstTokenMs));
+      } else if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
+        field(list, t("turnFirst"), duration(turn.firstResponseMs));
+      }
+      field(list, t("turnSteps"), turn.steps + " · " + turn.toolCalls + " " + t("tool"));
+    }
+    host.appendChild(list);
+    // Say which numbers are measured and which are inferred, every time.
+    if (record.timing === "derived") {
+      host.appendChild(el("p", "derived", t("derived")));
+    } else if (record.timing === "measured") {
+      host.appendChild(el("p", "muted", t("measured")));
+    }
+  }
+
+  function renderUsageTab(host, record) {
+    var usage = record.usage || {};
+    var list = el("dl");
+    field(list, t("inputTokens"), count(usage.input));
+    field(list, t("outputTokens"), count(usage.output));
+    if (usage.cacheRead) { field(list, t("cacheRead"), count(usage.cacheRead)); }
+    if (usage.cacheWrite) { field(list, t("cacheWrite"), count(usage.cacheWrite)); }
+    if (usage.cost) { field(list, t("cost"), usage.cost.toFixed(6)); }
+    host.appendChild(list);
+  }
+
+  function renderCatalog(host, tools) {
+    (tools || []).forEach(function (tool) {
+      host.appendChild(el("h3", null,
+        tool.name + (tool.label && tool.label !== tool.name ? " · " + tool.label : "")));
+      var body = tool.description || "";
+      if (tool.schema) { body += (body ? "\n\n" : "") + tool.schema; }
+      host.appendChild(el("pre", null, body || "—"));
+    });
+  }
+
+  // A line-level diff is enough to see what moved in a prompt, and it keeps the
+  // page free of a diff library.
+  function renderDiff(host, before, after) {
+    if (!before) { host.appendChild(el("p", "muted", t("noPrevious"))); return; }
+    var previous = before.split("\n"), current = after.split("\n");
+    var seen = {};
+    previous.forEach(function (line) { seen[line] = (seen[line] || 0) + 1; });
+    var block = el("pre", "diff");
+    previous.forEach(function (line) {
+      if (current.indexOf(line) === -1) { block.appendChild(el("span", "del", "- " + line)); }
+    });
+    current.forEach(function (line) {
+      block.appendChild(el("span", seen[line] ? null : "add", (seen[line] ? "  " : "+ ") + line));
+    });
+    host.appendChild(block);
+  }
+
+  function renderTab(record, id) {
+    inspectorBody.textContent = "";
+    var host = inspectorBody;
+    switch (id) {
+      case "summary": renderSummaryTab(host, record); break;
+      case "input": host.appendChild(el("pre", null, record.input)); break;
+      case "output": host.appendChild(el("pre", null, record.output)); break;
+      case "timing": renderTimingTab(host, record); break;
+      case "usage": renderUsageTab(host, record); break;
+      case "prompt": host.appendChild(el("pre", null, record.prompt.system || "—")); break;
+      case "catalog": renderCatalog(host, record.prompt.tools); break;
+      case "diff": renderDiff(host, record.prompt.previousSystem, record.prompt.system); break;
+    }
+    if (id === "summary" && !record.input && !record.output && !record.prompt &&
+        data.detailLevel === "summary") {
+      host.appendChild(el("p", "muted", t("summaryOnly")));
+    }
+  }
+
   function showInspector(record) {
     document.getElementById("inspector-title").textContent =
       "#" + record.index + "  " + (record.toolName || record.kind) + " — " + record.event;
-    inspectorBody.textContent = "";
-
-    var list = el("dl");
-    field(list, "Turn", record.turn);
-    field(list, "Step", record.step);
-    field(list, "Status", record.status);
-    field(list, "Started", clock(record.startedAt));
-    field(list, "Completed", clock(record.completedAt));
-    field(list, "Duration", record.durationMs ? duration(record.durationMs) : null);
-    if (record.timing === "derived") {
-      // Say so rather than passing an inferred number off as a measurement.
-      var note = el("dd", "derived", "start inferred from the previous event");
-      list.appendChild(el("dt", null, "Timing"));
-      list.appendChild(note);
-    } else if (record.timing === "measured") {
-      field(list, "Timing", "measured call to result");
-    }
-    var usage = record.usage;
-    if (usage) {
-      field(list, "Input tokens", count(usage.input));
-      field(list, "Output tokens", count(usage.output));
-      if (usage.cacheRead) { field(list, "Cache read", count(usage.cacheRead)); }
-      if (usage.cacheWrite) { field(list, "Cache write", count(usage.cacheWrite)); }
-      if (usage.cost) { field(list, "Cost", usage.cost.toFixed(6)); }
-    }
-    var turn = turnByIndex(record.turn);
-    if (turn) {
-      field(list, "Turn duration", duration(turn.durationMs));
-      if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
-        field(list, "Turn first response", duration(turn.firstResponseMs));
-      }
-      field(list, "Turn steps", turn.steps + " · " + turn.toolCalls + " tools" +
-        (turn.failures ? " · " + turn.failures + " failed" : ""));
-    }
-    field(list, "Tool", record.toolName);
-    field(list, "Call id", record.callId);
-    field(list, "Event", record.event);
-    inspectorBody.appendChild(list);
-
-    if (record.summary) {
-      inspectorBody.appendChild(el("h3", null, "Summary"));
-      inspectorBody.appendChild(el("pre", null, record.summary));
-    }
-    if (record.input) {
-      inspectorBody.appendChild(el("h3", null, "Input"));
-      inspectorBody.appendChild(el("pre", null, record.input));
-    }
-    if (record.output) {
-      inspectorBody.appendChild(el("h3", null, "Output"));
-      inspectorBody.appendChild(el("pre", null, record.output));
-    }
-    if (!record.input && !record.output && data.detailLevel === "summary") {
-      inspectorBody.appendChild(el("p", "muted", "This trajectory was projected at summary detail, so tool inputs and outputs are not included."));
-    }
+    var tabs = detailTabs(record);
+    var bar = el("div", "tabs");
+    var active = tabs[0].id;
+    var paint = function () {
+      Array.prototype.forEach.call(bar.children, function (button) {
+        button.setAttribute("aria-selected", button.dataset.tab === active ? "true" : "false");
+      });
+      renderTab(record, active);
+      inspectorBody.insertBefore(bar, inspectorBody.firstChild);
+    };
+    tabs.forEach(function (tab) {
+      var button = el("button", "tab", tab.label);
+      button.type = "button";
+      button.dataset.tab = tab.id;
+      button.addEventListener("click", function () { active = tab.id; paint(); });
+      bar.appendChild(button);
+    });
+    paint();
     inspector.hidden = false;
     syncInspectorHeight();
   }
@@ -832,25 +1055,13 @@ body.resizing { user-select: none; cursor: ns-resize; }
   if (prompt) {
     systemButton.hidden = false;
     systemButton.addEventListener("click", function () {
-      document.getElementById("inspector-title").textContent =
-        "System prompt — " + count(prompt.bytes) + " bytes · " +
-        count((prompt.tools || []).length) + " tools";
-      inspectorBody.textContent = "";
-      if (prompt.system) {
-        inspectorBody.appendChild(el("h3", null, "System prompt"));
-        inspectorBody.appendChild(el("pre", null, prompt.system));
-      }
-      (prompt.tools || []).forEach(function (tool) {
-        inspectorBody.appendChild(el("h3", null,
-          tool.name + (tool.label && tool.label !== tool.name ? " · " + tool.label : "")));
-        var body = tool.description || "";
-        if (tool.schema) { body += (body ? "\n\n" : "") + tool.schema; }
-        inspectorBody.appendChild(el("pre", null, body || "(no description)"));
-      });
       selected = null;
       renderTimeline();
-      inspector.hidden = false;
-      syncInspectorHeight();
+      showInspector({
+        index: 0, kind: "system", event: "session_prompt", turn: 0,
+        summary: count(prompt.bytes) + " bytes · " + count((prompt.tools || []).length) + " tools",
+        prompt: prompt
+      });
     });
   }
 
@@ -868,6 +1079,51 @@ body.resizing { user-select: none; cursor: ns-resize; }
     renderTimeline();
   });
 
+
+  // ── static labels, folding and language ───────────────────────────────────
+  function applyLanguage() {
+    document.getElementById("search").placeholder = t("search");
+    document.getElementById("track-hint").textContent = t("hint");
+    document.getElementById("reset-view").textContent = t("reset");
+    document.getElementById("inspector-close").textContent = t("close");
+    document.getElementById("lang-button").textContent = t("lang");
+    document.getElementById("system-button").textContent = t("system");
+    document.getElementById("fold-turns").textContent =
+      folded.allTurns ? t("unfoldTurns") : t("foldTurns");
+    document.getElementById("fold-steps").textContent =
+      folded.allSteps ? t("unfoldSteps") : t("foldSteps");
+    var labels = { all: "all", tool: "tools", reasoning: "reasoning", error: "failures" };
+    Array.prototype.forEach.call(document.querySelectorAll(".filter[data-filter]"), function (button) {
+      button.textContent = t(labels[button.dataset.filter]);
+    });
+    var modes = { sequence: "sequence", compressed: "compressed", actual: "actual" };
+    Array.prototype.forEach.call(document.querySelectorAll(".mode[data-mode]"), function (button) {
+      button.textContent = t(modes[button.dataset.mode]);
+    });
+  }
+
+  document.getElementById("lang-button").addEventListener("click", function () {
+    lang = lang === "en" ? "zh" : "en";
+    applyLanguage();
+    renderChips();
+    renderTurns();
+    renderTimeline();
+    renderTrack();
+  });
+  document.getElementById("fold-turns").addEventListener("click", function () {
+    folded.allTurns = !folded.allTurns;
+    folded.turns = {};
+    applyLanguage();
+    renderTimeline();
+  });
+  document.getElementById("fold-steps").addEventListener("click", function () {
+    folded.allSteps = !folded.allSteps;
+    folded.steps = {};
+    applyLanguage();
+    renderTimeline();
+  });
+
+  applyLanguage();
   renderTurns();
   setMode(timelineState.mode);
   window.addEventListener("resize", function () { renderTrack(); });
