@@ -14,6 +14,7 @@ type HarnessRuntimePaths struct {
 	RuntimeIndexFile     string `json:"runtimeIndexFile"`
 	BackgroundTasksFile  string `json:"backgroundTasksFile"`
 	AsyncSubagentRunsDir string `json:"asyncSubagentRunsDir"`
+	SubagentRunsDir      string `json:"subagentRunsDir"`
 	SessionsDir          string `json:"sessionsDir"`
 	WorktreesDir         string `json:"worktreesDir"`
 	ToolResultsDir       string `json:"toolResultsDir"`
@@ -28,6 +29,7 @@ func (p HarnessRuntimePaths) ToMap() map[string]any {
 		"runtime_index_file":      p.RuntimeIndexFile,
 		"background_tasks_file":   p.BackgroundTasksFile,
 		"async_subagent_runs_dir": p.AsyncSubagentRunsDir,
+		"subagent_runs_dir":       p.SubagentRunsDir,
 		"sessions_dir":            p.SessionsDir,
 		"worktrees_dir":           p.WorktreesDir,
 		"tool_results_dir":        p.ToolResultsDir,
@@ -41,6 +43,7 @@ func (s *engine) RuntimePaths() HarnessRuntimePaths {
 	toolResultsDir := runtimepaths.ProjectToolResultsDir(s.agentDir, s.cwd)
 	runtimeDir := filepath.Join(s.agentDir, "runtime", projectKey)
 	asyncSubagentRunsDir := filepath.Join(runtimeDir, "async-subagent-runs")
+	subagentRunsDir := filepath.Join(runtimeDir, "subagent-runs")
 
 	sessionsDir := filepath.Dir(s.messagesFilePath())
 	if s.sessionManager != nil {
@@ -52,6 +55,7 @@ func (s *engine) RuntimePaths() HarnessRuntimePaths {
 		RuntimeIndexFile:     filepath.Join(runtimeDir, "index.json"),
 		BackgroundTasksFile:  filepath.Join(runtimeDir, "background_tasks.json"),
 		AsyncSubagentRunsDir: asyncSubagentRunsDir,
+		SubagentRunsDir:      subagentRunsDir,
 		SessionsDir:          sessionsDir,
 		WorktreesDir:         filepath.Join(s.agentDir, "worktrees"),
 		ToolResultsDir:       toolResultsDir,

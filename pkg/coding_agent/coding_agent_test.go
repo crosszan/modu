@@ -27,6 +27,7 @@ import (
 	"github.com/openmodu/modu/pkg/coding_agent/services/memory"
 	sessionpkg "github.com/openmodu/modu/pkg/coding_agent/services/session"
 	"github.com/openmodu/modu/pkg/coding_agent/tools"
+	"github.com/openmodu/modu/pkg/coding_agent/trajectory"
 	"github.com/openmodu/modu/pkg/providers"
 	"github.com/openmodu/modu/pkg/skills"
 	"github.com/openmodu/modu/pkg/types"
@@ -4238,6 +4239,383 @@ func TestGetMessages(t *testing.T) {
 	msgs = session.GetMessages()
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+}
+
+// streamingTestSession answers with a real streamed reply so the agent records
+// a first-token moment, then persists it.
+func streamingTestSession(t *testing.T, dir string) *CodingSession {
+	t.Helper()
+	model := newTestModel()
+	streamFn := func(ctx context.Context, _ *types.Model, _ *types.LLMContext, _ *types.SimpleStreamOptions) (types.EventStream, error) {
+		stream := types.NewEventStream()
+		go func() {
+			defer stream.Close()
+			partial := &types.AssistantMessage{Role: "assistant", ProviderID: model.ProviderID, Model: model.ID}
+			stream.Push(types.StreamEvent{Type: types.EventStart, Partial: partial})
+			// A content event is what marks the first token.
+			stream.Push(types.StreamEvent{Type: types.EventTextDelta, Partial: partial})
+			final := &types.AssistantMessage{
+				Role: "assistant", ProviderID: model.ProviderID, Model: model.ID,
+				StopReason: "stop",
+				Content:    []types.ContentBlock{&types.TextContent{Type: "text", Text: "done"}},
+				Usage:      types.AgentUsage{Input: 10, Output: 5, TotalTokens: 15},
+			}
+			stream.Push(types.StreamEvent{Type: types.EventDone, Reason: "stop", Message: final})
+			stream.Resolve(final, nil)
+		}()
+		return stream, nil
+	}
+	session, err := NewCodingSession(CodingSessionOptions{
+		Cwd:       dir,
+		AgentDir:  filepath.Join(dir, ".coding_agent"),
+		Model:     model,
+		GetAPIKey: func(string) (string, error) { return "", nil },
+		StreamFn:  streamFn,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func TestTrajectoryResolvesSubagentChildSession(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+	if err := session.Prompt(context.Background(), "spawn one"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stand in for a completed asynchronous subagent, through the same calls the
+	// real path uses: register a background task, then write the child's own
+	// conversation to the session file that task derives.
+	taskID := session.taskManager.CreateWithMetadataInDir(
+		"subagent", "explore", "explorer", "", "", "", filepath.Join(dir, "runs"))
+	task, ok := session.taskManager.Get(taskID)
+	if !ok || task.SessionFile == "" {
+		t.Fatalf("task %q has no session file", taskID)
+	}
+	childPath := task.SessionFile
+	childMessages := []types.AgentMessage{
+		types.UserMessage{Role: "user", Content: "explore"},
+		types.AssistantMessage{
+			Role: "assistant", StopReason: "tool_calls",
+			Content: []types.ContentBlock{
+				&types.ToolCallContent{Type: "toolCall", ID: "c1", Name: "ls", Arguments: map[string]any{}},
+			},
+			Usage: types.AgentUsage{Input: 500, Output: 30, TotalTokens: 530},
+		},
+		types.ToolResultMessage{
+			Role: types.RoleToolResult, ToolCallID: "c1", ToolName: "ls",
+			Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: "a\nb"}},
+		},
+	}
+	if err := writeSubagentSessionFile(childPath, dir, session.GetSessionID(), taskID, "explorer", childMessages); err != nil {
+		t.Fatal(err)
+	}
+
+	result := trajectory.Trajectory{Records: []trajectory.Record{
+		{Index: 1, Kind: trajectory.KindSubagent, Subagent: &trajectory.SubagentRun{RunID: taskID, Agent: "explorer"}},
+		{Index: 2, Kind: trajectory.KindSubagent, Subagent: &trajectory.SubagentRun{RunID: "missing"}},
+	}}
+	session.resolveSubagentRuns(&result)
+
+	run := result.Records[0].Subagent
+	if !run.Available {
+		t.Fatalf("child session was not resolved: %+v", run)
+	}
+	if run.Turns != 1 || run.ToolCalls != 1 {
+		t.Errorf("child stats = %+v, want 1 turn and 1 tool call", run)
+	}
+	if run.Tokens.Input != 500 || run.Tokens.Output != 30 {
+		t.Errorf("child tokens = %+v", run.Tokens)
+	}
+
+	// A run with no registered task must say why rather than report zeros.
+	absent := result.Records[1].Subagent
+	if absent.Available {
+		t.Error("an unregistered task must not resolve")
+	}
+	if absent.Reason == "" {
+		t.Error("an unresolved run must explain itself")
+	}
+}
+
+func TestForkSessionPersistsSynchronousChild(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+	defer session.Close("test")
+
+	// The real synchronous fork path, carrying the tool call that requested it.
+	text, err := session.forkSession(context.Background(), extension.ForkOptions{
+		Name:   "scan",
+		Task:   "scan the tree",
+		CallID: "call-sync-1",
+	})
+	if err != nil {
+		t.Fatalf("forkSession: %v", err)
+	}
+	if text == "" {
+		t.Fatal("fork produced no result")
+	}
+
+	paths := session.syncSubagentSessionFiles("call-sync-1")
+	if len(paths) != 1 {
+		t.Fatalf("synchronous run filed %d transcripts, want 1", len(paths))
+	}
+
+	result := trajectory.Trajectory{Records: []trajectory.Record{
+		{Index: 1, Kind: trajectory.KindSubagent, CallID: "call-sync-1"},
+	}}
+	session.resolveSubagentRuns(&result)
+	run := result.Records[0].Subagent
+	if run == nil || !run.Available {
+		t.Fatalf("the parent trajectory could not reach the child: %+v", result.Records[0])
+	}
+	// The run has to be addressable, or it can be counted but never opened.
+	if run.RunID == "" {
+		t.Fatal("a resolved run carries no id to open it with")
+	}
+	child, err := session.SubagentTrajectory(run.RunID, trajectory.Options{})
+	if err != nil {
+		t.Fatalf("SubagentTrajectory(%q): %v", run.RunID, err)
+	}
+	if child.Stats.Turns != run.Turns {
+		t.Errorf("opened child has %d turns, summary said %d", child.Stats.Turns, run.Turns)
+	}
+	// The child ran one turn against the task it was given.
+	if run.Turns != 1 {
+		t.Errorf("child turns = %d, want 1", run.Turns)
+	}
+	if run.Agent == "" {
+		t.Error("the run does not identify which agent ran it")
+	}
+}
+
+func TestSyncSubagentRunIsPersistedAndResolved(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+
+	child := []types.AgentMessage{
+		types.UserMessage{Role: "user", Content: "inspect the tree"},
+		types.AssistantMessage{
+			Role: "assistant", StopReason: "tool_calls",
+			Content: []types.ContentBlock{
+				&types.ToolCallContent{Type: "toolCall", ID: "c1", Name: "ls", Arguments: map[string]any{}},
+			},
+			Usage: types.AgentUsage{Input: 300, Output: 15, TotalTokens: 315},
+		},
+		types.ToolResultMessage{
+			Role: types.RoleToolResult, ToolCallID: "c1", ToolName: "ls",
+			Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: "a"}},
+		},
+	}
+	// A synchronous run registers no task, so this is the whole persistence
+	// path: the transcript is filed under the tool call that requested it.
+	session.persistSyncSubagentRun("call-42", "explorer", child)
+	session.persistSyncSubagentRun("call-42", "explorer", child)
+
+	paths := session.syncSubagentSessionFiles("call-42")
+	if len(paths) != 2 {
+		t.Fatalf("filed %d transcripts, want 2 — one call can fork several children", len(paths))
+	}
+
+	result := trajectory.Trajectory{Records: []trajectory.Record{
+		{Index: 1, Kind: trajectory.KindSubagent, CallID: "call-42"},
+		{Index: 2, Kind: trajectory.KindSubagent, CallID: "call-none"},
+	}}
+	session.resolveSubagentRuns(&result)
+
+	runs := result.Records[0].Subagents
+	if len(runs) != 2 {
+		t.Fatalf("resolved %d runs, want 2: %+v", len(runs), result.Records[0])
+	}
+	for i, run := range runs {
+		if !run.Available || run.Turns != 1 || run.ToolCalls != 1 {
+			t.Errorf("run %d = %+v, want an available 1-turn run", i, run)
+		}
+		if run.Tokens.Input != 300 {
+			t.Errorf("run %d tokens = %+v", i, run.Tokens)
+		}
+	}
+	// A call that forked nothing resolves to nothing, not to an empty run.
+	if result.Records[1].Subagent != nil || len(result.Records[1].Subagents) != 0 {
+		t.Errorf("unrelated call resolved runs: %+v", result.Records[1])
+	}
+}
+
+func TestSyncSubagentRunNeedsACallID(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+	// Without the call id there is nothing to file the transcript under, and
+	// writing it somewhere unfindable would be worse than not writing it.
+	session.persistSyncSubagentRun("", "explorer", []types.AgentMessage{
+		types.UserMessage{Role: "user", Content: "x"},
+	})
+	if paths := session.syncSubagentSessionFiles(""); len(paths) != 0 {
+		t.Errorf("filed %d transcripts without a call id", len(paths))
+	}
+}
+
+func TestSubagentTrajectoryProjectsAndExportsTheChildSession(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+
+	taskID := session.taskManager.CreateWithMetadataInDir(
+		"subagent", "explore", "explorer", "", "", "", filepath.Join(dir, "runs"))
+	task, ok := session.taskManager.Get(taskID)
+	if !ok {
+		t.Fatalf("task %q was not registered", taskID)
+	}
+	child := []types.AgentMessage{
+		types.UserMessage{Role: "user", Content: "explore the tree"},
+		types.AssistantMessage{
+			Role: "assistant", StopReason: "tool_calls",
+			Content: []types.ContentBlock{
+				&types.ToolCallContent{Type: "toolCall", ID: "c1", Name: "ls", Arguments: map[string]any{}},
+			},
+			Usage: types.AgentUsage{Input: 400, Output: 20, TotalTokens: 420},
+		},
+		types.ToolResultMessage{
+			Role: types.RoleToolResult, ToolCallID: "c1", ToolName: "ls",
+			Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: "a\nb"}},
+		},
+	}
+	if err := writeSubagentSessionFile(task.SessionFile, dir, session.GetSessionID(), taskID, "explorer", child); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := session.SubagentTrajectory(taskID, trajectory.Options{})
+	if err != nil {
+		t.Fatalf("SubagentTrajectory: %v", err)
+	}
+	if result.Stats.Turns != 1 || result.Stats.ToolCalls != 1 {
+		t.Errorf("child stats = %+v, want 1 turn and 1 tool call", result.Stats)
+	}
+	// The agent's name identifies the run; the raw task id says nothing.
+	if result.Session.Name != "explorer" {
+		t.Errorf("Session.Name = %q, want the agent name", result.Session.Name)
+	}
+	if len(result.Turns) != 1 || result.Turns[0].Prompt != "explore the tree" {
+		t.Errorf("turns = %+v", result.Turns)
+	}
+
+	out := filepath.Join(dir, "exports", "child.html")
+	if err := session.ExportSubagentTrajectoryHTML(taskID, out); err != nil {
+		t.Fatalf("ExportSubagentTrajectoryHTML: %v", err)
+	}
+	page, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), "explore the tree") {
+		t.Error("the exported page does not carry the child's own conversation")
+	}
+}
+
+func TestSubagentTrajectoryExplainsAnUnreachableChild(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+
+	if _, err := session.SubagentTrajectory("", trajectory.Options{}); err == nil {
+		t.Error("an empty task id must be rejected")
+	}
+	_, err := session.SubagentTrajectory("task-404", trajectory.Options{})
+	if err == nil {
+		t.Fatal("an unregistered task must not project")
+	}
+	// The message has to name the run and the reason, not just fail.
+	if !strings.Contains(err.Error(), "task-404") || !strings.Contains(err.Error(), "no background task") {
+		t.Errorf("error = %q", err)
+	}
+
+	// A registered task whose child has not been written yet is in flight, not
+	// broken, and must say so.
+	taskID := session.taskManager.CreateWithMetadataInDir(
+		"subagent", "running", "explorer", "", "", "", filepath.Join(dir, "runs"))
+	if _, err := session.SubagentTrajectory(taskID, trajectory.Options{}); err == nil ||
+		!strings.Contains(err.Error(), "not been written") {
+		t.Errorf("in-flight run error = %v", err)
+	}
+}
+
+func TestPromptPersistsModelCallTiming(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+	if err := session.Prompt(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(session.GetSessionFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The recorded clock has to survive the write, or the trajectory falls back
+	// to inferring a model call's start forever.
+	if !strings.Contains(string(raw), `"timing"`) {
+		t.Fatalf("session file carries no model-call timing:\n%s", string(raw))
+	}
+
+	var timed bool
+	for _, message := range session.GetMessages() {
+		assistant, ok := message.(types.AssistantMessage)
+		if !ok {
+			continue
+		}
+		if assistant.Timing == nil {
+			continue
+		}
+		timed = true
+		if assistant.Timing.RequestStartMs <= 0 || assistant.Timing.CompletedMs < assistant.Timing.RequestStartMs {
+			t.Errorf("timing = %+v, want a request start before completion", assistant.Timing)
+		}
+		if assistant.Timing.FirstTokenMs < assistant.Timing.RequestStartMs {
+			t.Errorf("first token %d precedes the request start %d",
+				assistant.Timing.FirstTokenMs, assistant.Timing.RequestStartMs)
+		}
+	}
+	if !timed {
+		t.Error("no assistant message carried timing")
+	}
+}
+
+func TestPromptPersistsPromptSnapshotOnceUntilItChanges(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+
+	count := func() int {
+		total := 0
+		for _, entry := range session.sessionManager.Load() {
+			if entry.Type == sessionpkg.EntryTypePromptSnapshot {
+				total++
+			}
+		}
+		return total
+	}
+
+	if err := session.Prompt(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got != 1 {
+		t.Fatalf("prompt snapshots after the first turn = %d, want 1", got)
+	}
+
+	// An unchanged prompt must not be written again: a system prompt plus every
+	// tool schema would dwarf the conversation if appended per turn.
+	if err := session.Prompt(context.Background(), "second"); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got != 1 {
+		t.Errorf("unchanged prompt was written again: %d snapshots", got)
+	}
+
+	session.promptBuilder.SetCustomPrompt("You are in a different mode now.")
+	session.refreshDynamicSystemPrompt()
+	if err := session.Prompt(context.Background(), "third"); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got != 2 {
+		t.Errorf("changed prompt was not recorded: %d snapshots", got)
 	}
 }
 

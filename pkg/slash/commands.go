@@ -94,7 +94,7 @@ func CommandDefinitions() []CommandDefinition {
 		{Name: "/clone", Description: "Clone the current session", operation: commandClone},
 		{Name: "/branch-session", Description: "Create a branched session from an entry", operation: commandBranchSession},
 		{Name: "/export", Description: "Export the session to HTML", operation: commandExport},
-		{Name: "/trajectory", Description: "Show the session trajectory, or export it as HTML", operation: commandTrajectory},
+		{Name: "/trajectory", Description: "Show the session or a subagent's trajectory, or export it as HTML", operation: commandTrajectory},
 		{Name: "/copy", Description: "Copy the last assistant message", operation: commandCopy},
 		{Name: "/changelog", Description: "Show recent git commits", operation: commandChangelog},
 		{Name: "/doctor", Description: "Show runtime diagnostics", operation: commandDoctor},
@@ -685,17 +685,22 @@ func handleTrajectory(parts []string, session *coding_agent.CodingSession, r Pri
 	if len(parts) > 1 {
 		arg = strings.TrimSpace(parts[1])
 	}
-	if fields := strings.Fields(arg); len(fields) > 0 {
-		if fields[0] != "html" {
-			r.PrintInfo("usage: /trajectory [html [path]]")
-			return
-		}
+	fields := strings.Fields(arg)
+	switch {
+	case len(fields) == 0:
+	case fields[0] == "html":
 		path := resolveExportPath(session, strings.Join(fields[1:], " "), "modu_code-trajectory.html")
 		if err := session.ExportTrajectoryHTML(path); err != nil {
 			r.PrintError(err)
 			return
 		}
 		r.PrintInfo("exported trajectory: " + path)
+		return
+	case fields[0] == "task":
+		handleSubagentTrajectory(fields[1:], session, r)
+		return
+	default:
+		printTrajectoryUsage(session, r)
 		return
 	}
 
@@ -720,6 +725,81 @@ func handleTrajectory(parts []string, session *coding_agent.CodingSession, r Pri
 	if count := len(result.Warnings); count > 0 {
 		r.PrintInfo(fmt.Sprintf("%d session line(s) could not be read", count))
 	}
+}
+
+// handleSubagentTrajectory projects the session a subagent ran in. A subagent
+// is a session of its own, so it gets the same views the parent does rather
+// than a reduced summary embedded in the parent's.
+func handleSubagentTrajectory(args []string, session *coding_agent.CodingSession, r Printer) {
+	if len(args) == 0 {
+		printTrajectoryUsage(session, r)
+		return
+	}
+	taskID := args[0]
+	rest := args[1:]
+
+	if len(rest) > 0 && rest[0] == "html" {
+		path := resolveExportPath(session, strings.Join(rest[1:], " "),
+			"modu_code-trajectory-"+sanitizeTaskID(taskID)+".html")
+		if err := session.ExportSubagentTrajectoryHTML(taskID, path); err != nil {
+			r.PrintError(err)
+			return
+		}
+		r.PrintInfo("exported subagent trajectory: " + path)
+		return
+	}
+	if len(rest) > 0 {
+		printTrajectoryUsage(session, r)
+		return
+	}
+
+	result, err := session.SubagentTrajectory(taskID, trajectory.Options{})
+	if err != nil {
+		r.PrintError(err)
+		return
+	}
+	if result.Stats.Records == 0 {
+		r.PrintInfo("subagent " + taskID + " recorded no events")
+		return
+	}
+	r.PrintSection("Subagent "+taskID, trajectory.Overview(result))
+	if lines := trajectory.TurnLines(result); len(lines) > 0 {
+		r.PrintSection("Turns", lines)
+	}
+	if lines := trajectory.ToolLines(result); len(lines) > 0 {
+		r.PrintSection("Tools", lines)
+	}
+}
+
+// printTrajectoryUsage lists the task ids this session actually has, so the
+// task form is usable without going to /tasks to look one up.
+func printTrajectoryUsage(session *coding_agent.CodingSession, r Printer) {
+	lines := []string{
+		"/trajectory                       show this session's trajectory",
+		"/trajectory html [path]           export it as an interactive page",
+		"/trajectory task <id>             show a subagent's own trajectory",
+		"/trajectory task <id> html [path] export the subagent's page",
+	}
+	if ids := session.SubagentRunIDs(); len(ids) > 0 {
+		lines = append(lines, "", "subagent runs in this session: "+strings.Join(ids, ", "))
+	}
+	r.PrintSection("Usage", lines)
+}
+
+// sanitizeTaskID keeps a task id usable as a filename fragment.
+func sanitizeTaskID(id string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			return r
+		default:
+			return '-'
+		}
+	}, id)
+	if cleaned == "" {
+		return "subagent"
+	}
+	return cleaned
 }
 
 func resolveExportPath(session *coding_agent.CodingSession, path, defaultName string) string {

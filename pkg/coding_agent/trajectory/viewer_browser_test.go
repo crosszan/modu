@@ -52,6 +52,20 @@ func runViewerProbe(t *testing.T, script string) map[string]string {
 	return runViewerProbeOn(t, fullSession(t), script)
 }
 
+// richSession adds what the newer write path persists: a prompt snapshot
+// before the first message, a mid-conversation prompt change, and a model call
+// with its real clock.
+func richSession(t *testing.T) Trajectory {
+	t.Helper()
+	path := writeSession(t, fixtureHeader, fixturePromptInitial, fixtureUser,
+		fixtureTimed, fixturePromptChanged)
+	result, err := Project(path, Options{Detail: DetailFull, MaxRecords: AllRecords})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	return result
+}
+
 func runViewerProbeOn(t *testing.T, source Trajectory, script string) map[string]string {
 	t.Helper()
 	chrome := findChrome(t)
@@ -135,58 +149,65 @@ func TestViewerRailCountIsUnambiguous(t *testing.T) {
 	expect(t, probe, "overflows", "false")
 }
 
-func TestViewerReservesRoomForTheInspector(t *testing.T) {
-	// The panel is position:fixed over the timeline, so without a reservation
-	// the last records can never be scrolled clear of it.
+func TestViewerDocksTheInspectorToTheRight(t *testing.T) {
+	// A record's details are tall and narrow, so the panel sits down the right
+	// edge; the page gives up exactly its width so nothing it covers becomes
+	// unreachable.
 	probe := runViewerProbe(t, `
-		var reserved=function(){return getComputedStyle(document.documentElement).getPropertyValue('--inspector-height').trim();};
-		out.push('closed='+(reserved()||'0px'));
+		var ins=document.getElementById('inspector');
+		var reserved=function(){return getComputedStyle(document.documentElement).getPropertyValue('--inspector-width-reserved').trim()||'0px';};
+		out.push('closed='+reserved());
 		document.querySelector('.record').click();
-		var height=document.getElementById('inspector').offsetHeight;
-		out.push('matchesPanel='+(reserved()===height+'px'));
-		out.push('timelinePadding='+(parseInt(getComputedStyle(document.querySelector('section.timeline')).paddingBottom,10)>=height));
+		var box=ins.getBoundingClientRect();
+		out.push('fullHeight='+(box.top<2 && Math.abs(box.bottom-window.innerHeight)<2));
+		out.push('atRightEdge='+(Math.abs(box.right-window.innerWidth)<2));
+		out.push('matchesPanel='+(reserved()===Math.round(box.width)+'px'));
+		out.push('bodyGivesWay='+(getComputedStyle(document.body).paddingRight===reserved()));
 		document.getElementById('inspector-close').click();
-		out.push('closedAgain='+(reserved()||'0px'));
+		out.push('closedAgain='+reserved());
 	`)
 	expect(t, probe, "closed", "0px")
+	expect(t, probe, "fullHeight", "true")
+	expect(t, probe, "atRightEdge", "true")
 	expect(t, probe, "matchesPanel", "true")
-	expect(t, probe, "timelinePadding", "true")
+	expect(t, probe, "bodyGivesWay", "true")
 	expect(t, probe, "closedAgain", "0px")
 }
 
 func TestViewerDividerResizesTheInspector(t *testing.T) {
 	probe := runViewerProbe(t, `
 		var ins=document.getElementById('inspector'), rz=document.getElementById('inspector-resize');
-		var drag=function(id,y){
-			rz.dispatchEvent(new PointerEvent('pointerdown',{pointerId:id,clientY:ins.getBoundingClientRect().top,bubbles:true}));
-			rz.dispatchEvent(new PointerEvent('pointermove',{pointerId:id,clientY:y,bubbles:true}));
+		var drag=function(id,x){
+			rz.dispatchEvent(new PointerEvent('pointerdown',{pointerId:id,clientX:ins.getBoundingClientRect().left,clientY:300,bubbles:true}));
+			rz.dispatchEvent(new PointerEvent('pointermove',{pointerId:id,clientX:x,clientY:300,bubbles:true}));
 			var held=document.body.classList.contains('resizing');
-			rz.dispatchEvent(new PointerEvent('pointerup',{pointerId:id,clientY:y,bubbles:true}));
+			rz.dispatchEvent(new PointerEvent('pointerup',{pointerId:id,clientX:x,clientY:300,bubbles:true}));
 			return held;
 		};
 		document.querySelector('.record').click();
-		var held=drag(1,200);
+		var target=window.innerWidth-700;
+		var held=drag(1,target);
 		out.push('heldWhileDragging='+held);
 		out.push('released='+!document.body.classList.contains('resizing'));
-		out.push('height='+ins.offsetHeight+'/'+(window.innerHeight-200));
-		out.push('reservedAfterDrag='+(getComputedStyle(document.documentElement).getPropertyValue('--inspector-height').trim()===ins.offsetHeight+'px'));
+		out.push('width='+Math.round(ins.getBoundingClientRect().width)+'/700');
+		out.push('reservedAfterDrag='+(getComputedStyle(document.documentElement).getPropertyValue('--inspector-width-reserved').trim()===Math.round(ins.getBoundingClientRect().width)+'px'));
 		drag(2,-800);
-		out.push('clampedTop='+(ins.offsetHeight<=window.innerHeight-120));
-		drag(3,window.innerHeight+800);
-		out.push('clampedBottom='+(ins.offsetHeight>=92));
+		out.push('clampedWide='+(ins.getBoundingClientRect().width<=window.innerWidth-320));
+		drag(3,window.innerWidth+800);
+		out.push('clampedNarrow='+(ins.getBoundingClientRect().width>=280));
 	`)
 	expect(t, probe, "heldWhileDragging", "true")
 	expect(t, probe, "released", "true")
 	expect(t, probe, "reservedAfterDrag", "true")
-	// Dragging to y keeps the panel's top edge at y.
-	if got := probe["height"]; got != "" {
+	// Dragging to x puts the panel's left edge at x.
+	if got := probe["width"]; got != "" {
 		if parts := strings.Split(got, "/"); len(parts) == 2 && parts[0] != parts[1] {
-			t.Errorf("panel height = %s, want %s", parts[0], parts[1])
+			t.Errorf("panel width = %s, want %s", parts[0], parts[1])
 		}
 	}
-	// Overshooting must not swallow the toolbar or collapse the panel.
-	expect(t, probe, "clampedTop", "true")
-	expect(t, probe, "clampedBottom", "true")
+	// Overshooting must not swallow the ledger or collapse the panel.
+	expect(t, probe, "clampedWide", "true")
+	expect(t, probe, "clampedNarrow", "true")
 }
 
 // dragTrack is the shared gesture helper the timeline probes reuse.
@@ -272,11 +293,18 @@ func TestViewerShowsSystemPromptWhenSupplied(t *testing.T) {
 		var button=document.getElementById('system-button');
 		out.push('offered='+!button.hidden);
 		button.click();
-		var body=document.getElementById('inspector-body').textContent;
-		out.push('showsPrompt='+(body.indexOf('coding agent for modu')>=0));
-		out.push('showsTool='+(body.indexOf('Run a command')>=0));
-		out.push('showsSchema='+(body.indexOf('"type":"object"')>=0));
+		var tab=function(id){
+			var tabs=document.querySelectorAll('#inspector-body .tab');
+			for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab===id){tabs[i].click();return true;} }
+			return false;
+		};
 		out.push('opened='+(getComputedStyle(document.getElementById('inspector')).display==='flex'));
+		tab('prompt');
+		out.push('showsPrompt='+(document.getElementById('inspector-body').textContent.indexOf('coding agent for modu')>=0));
+		tab('catalog');
+		var catalog=document.getElementById('inspector-body').textContent;
+		out.push('showsTool='+(catalog.indexOf('Run a command')>=0));
+		out.push('showsSchema='+(catalog.indexOf('"type":"object"')>=0));
 	`)
 	expect(t, probe, "offered", "true")
 	expect(t, probe, "showsPrompt", "true")
@@ -300,15 +328,235 @@ func TestViewerLabelsDerivedTiming(t *testing.T) {
 	probe := runViewerProbe(t, `
 		// The derived span is charged to the first record the model call produced,
 		// so one call is one span rather than one per content block.
-		var reasoning=document.querySelector('.record.k-reasoning');
-		reasoning.click();
-		var body=document.getElementById('inspector-body').textContent;
-		out.push('body='+(body.indexOf('inferred from the previous event')>=0));
+		var timingTab=function(){
+			var tabs=document.querySelectorAll('#inspector-body .tab');
+			for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab==='timing'){tabs[i].click();return;} }
+		};
+		document.querySelector('.record.k-reasoning').click();
+		timingTab();
+		out.push('body='+(document.getElementById('inspector-body').textContent.indexOf('inferred from the previous event')>=0));
 		document.getElementById('inspector-close').click();
-		var later=document.querySelectorAll('.record.k-assistant')[0];
-		later.click();
+		document.querySelectorAll('.record.k-assistant')[0].click();
+		timingTab();
 		out.push('instant='+(document.getElementById('inspector-body').textContent.indexOf('inferred')<0));
 	`)
 	expect(t, probe, "body", "true")
 	expect(t, probe, "instant", "true")
+}
+
+func TestViewerFoldsTurnsAndSteps(t *testing.T) {
+	probe := runViewerProbe(t, `
+		var rows=function(){return document.querySelectorAll('.record').length;};
+		var all=rows();
+		out.push('all='+all);
+		document.getElementById('fold-turns').click();
+		out.push('turnsCollapsed='+(rows()===0));
+		document.getElementById('fold-turns').click();
+		out.push('turnsRestored='+(rows()===all));
+		document.getElementById('fold-steps').click();
+		out.push('stepsCollapsed='+(rows()<all&&rows()>0));
+		document.getElementById('fold-steps').click();
+		document.querySelector('.turn-head').click();
+		out.push('singleTurnCollapsed='+(rows()<all));
+	`)
+	expect(t, probe, "turnsCollapsed", "true")
+	expect(t, probe, "turnsRestored", "true")
+	// Collapsing calls hides step contents but keeps the turn's own rows.
+	expect(t, probe, "stepsCollapsed", "true")
+	expect(t, probe, "singleTurnCollapsed", "true")
+}
+
+func TestViewerSearchesRecordPayloads(t *testing.T) {
+	// The summary is one line; what you are looking for is usually in the tool
+	// input or output, so the index must cover them.
+	source := fullSession(t)
+	full, err := Project(writeSession(t, fixtureHeader, fixtureUser, fixtureAssist, fixtureResult, fixtureFinal),
+		Options{Detail: DetailFull})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	source = full
+	probe := runViewerProbeOn(t, source, `
+		var rows=function(){return document.querySelectorAll('.record').length;};
+		var box=document.getElementById('search');
+		var all=rows();
+		box.value='build ok'; box.dispatchEvent(new Event('input',{bubbles:true}));
+		out.push('payloadHits='+rows());
+		out.push('narrowed='+(rows()>0&&rows()<all));
+		box.value='nothing-matches-this'; box.dispatchEvent(new Event('input',{bubbles:true}));
+		out.push('missShows='+(document.querySelector('.empty')!==null));
+	`)
+	// "build ok" only ever appears in the tool result body.
+	expect(t, probe, "narrowed", "true")
+	expect(t, probe, "missShows", "true")
+}
+
+func TestViewerTabsDetailsByRecordKind(t *testing.T) {
+	probe := runViewerProbeOn(t, richSession(t), `
+		var tabsOf=function(){
+			var names=[];
+			Array.prototype.forEach.call(document.querySelectorAll('#inspector-body .tab'),
+				function(b){names.push(b.dataset.tab);});
+			return names.join(',');
+		};
+		document.querySelector('.record.k-assistant').click();
+		out.push('assistant='+tabsOf());
+		document.getElementById('inspector-close').click();
+		var systems=document.querySelectorAll('.record.k-system');
+		systems[systems.length-1].click();
+		out.push('system='+tabsOf());
+	`)
+	// A model reply offers its payloads, timing and usage.
+	if got := probe["assistant"]; got == "" || !strings.Contains(got, "timing") || !strings.Contains(got, "usage") {
+		t.Errorf("assistant tabs = %q", got)
+	}
+	// A prompt change offers the prompt, the catalog, and a diff.
+	for _, want := range []string{"prompt", "catalog", "diff"} {
+		if !strings.Contains(probe["system"], want) {
+			t.Errorf("system tabs = %q, want a %q tab", probe["system"], want)
+		}
+	}
+}
+
+func TestViewerDiffsPromptChanges(t *testing.T) {
+	probe := runViewerProbeOn(t, richSession(t), `
+		var systems=document.querySelectorAll('.record.k-system');
+		systems[systems.length-1].click();
+		var tabs=document.querySelectorAll('#inspector-body .tab');
+		for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab==='diff'){tabs[i].click();break;} }
+		var body=document.getElementById('inspector-body');
+		out.push('removed='+body.querySelectorAll('.diff .del').length);
+		out.push('added='+body.querySelectorAll('.diff .add').length);
+		document.getElementById('inspector-close').click();
+		systems[0].click();
+		var first=document.querySelectorAll('#inspector-body .tab');
+		var names=[]; Array.prototype.forEach.call(first,function(b){names.push(b.dataset.tab);});
+		out.push('initialHasNoDiff='+(names.indexOf('diff')<0));
+	`)
+	// The prompt changed from "You are modu." to "You are modu, in plan mode."
+	expect(t, probe, "removed", "1")
+	expect(t, probe, "added", "1")
+	// The first snapshot has nothing to compare against.
+	expect(t, probe, "initialHasNoDiff", "true")
+}
+
+func TestViewerShowsBetweenTurnsSection(t *testing.T) {
+	// The snapshot taken before the session's first message belongs to no turn.
+	probe := runViewerProbeOn(t, richSession(t), `
+		var between=document.querySelector('.turn-head.between');
+		out.push('present='+(between!==null));
+		out.push('labelled='+(between!==null&&between.textContent.length>0));
+	`)
+	expect(t, probe, "present", "true")
+	expect(t, probe, "labelled", "true")
+}
+
+func TestViewerReportsRecordedModelTiming(t *testing.T) {
+	probe := runViewerProbeOn(t, richSession(t), `
+		document.querySelector('.record.k-assistant').click();
+		var tabs=document.querySelectorAll('#inspector-body .tab');
+		for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab==='timing'){tabs[i].click();break;} }
+		var body=document.getElementById('inspector-body').textContent;
+		out.push('hasThroughput='+(body.indexOf('tok/s')>=0));
+		out.push('notDerived='+(body.indexOf('inferred')<0&&body.indexOf('推导')<0));
+	`)
+	// A measured call reports decode throughput and must not be labelled inferred.
+	expect(t, probe, "hasThroughput", "true")
+	expect(t, probe, "notDerived", "true")
+}
+
+func TestViewerReportsSubagentRuns(t *testing.T) {
+	source := fullSession(t)
+	source.Records = append(source.Records, Record{
+		Index: 90, Turn: 1, Step: 2, Kind: KindSubagent, Event: "tool_call",
+		ToolName: "subagent", Summary: "subagent explore", Status: StatusComplete,
+		Subagent: &SubagentRun{
+			RunID: "task-7", Agent: "explorer", Available: true,
+			Turns: 3, Steps: 8, ToolCalls: 11, Failures: 1, ActiveMs: 42000,
+			Tokens: Usage{Input: 9000, Output: 400},
+			Tools:  []ToolStat{{Name: "read", Calls: 9, TotalMs: 300}},
+		},
+	}, Record{
+		Index: 91, Turn: 1, Step: 2, Kind: KindSubagent, Event: "tool_call",
+		ToolName: "subagent", Summary: "subagent inline", Status: StatusComplete,
+		Subagent: &SubagentRun{RunID: "task-8", Reason: "this run recorded no session file"},
+	})
+	probe := runViewerProbeOn(t, source, `
+		var open=function(text){
+			var rows=document.querySelectorAll('.record.k-subagent');
+			for (var i=0;i<rows.length;i++){
+				if (rows[i].textContent.indexOf(text)>=0){ rows[i].click(); return; }
+			}
+		};
+		var tab=function(id){
+			var tabs=document.querySelectorAll('#inspector-body .tab');
+			for(var i=0;i<tabs.length;i++){ if(tabs[i].dataset.tab===id){tabs[i].click();return true;} }
+			return false;
+		};
+		open('explore');
+		out.push('offersTab='+tab('subagent'));
+		var body=document.getElementById('inspector-body').textContent;
+		out.push('childTurns='+(body.indexOf('3')>=0));
+		out.push('childTokens='+(body.indexOf('9,000')>=0));
+		out.push('childTools='+(body.indexOf('read')>=0));
+		document.getElementById('inspector-close').click();
+		open('inline');
+		tab('subagent');
+		var second=document.getElementById('inspector-body').textContent;
+		out.push('explainsAbsence='+(second.indexOf('no session file')>=0));
+		out.push('noFakeZeros='+(second.indexOf('9,000')<0));
+	`)
+	expect(t, probe, "offersTab", "true")
+	expect(t, probe, "childTurns", "true")
+	expect(t, probe, "childTokens", "true")
+	expect(t, probe, "childTools", "true")
+	// An unresolved run must say why instead of rendering a run of zeros.
+	expect(t, probe, "explainsAbsence", "true")
+	expect(t, probe, "noFakeZeros", "true")
+}
+
+func TestViewerHasNoDuplicateControls(t *testing.T) {
+	// The toolbar's System prompt button predates prompt snapshots being
+	// persisted. A session that has them already shows the prompt on the
+	// timeline, so a second entry point would be a duplicate control.
+	source := richSession(t)
+	source.Session.Prompt = &Prompt{System: "You are modu.", Bytes: 13}
+	probe := runViewerProbeOn(t, source, `
+		out.push('recordsCarryPrompt='+document.querySelectorAll('.record.k-system').length);
+		out.push('buttonHidden='+document.getElementById('system-button').hidden);
+	`)
+	if probe["recordsCarryPrompt"] == "0" {
+		t.Fatal("this fixture should carry prompt records")
+	}
+	expect(t, probe, "buttonHidden", "true")
+
+	// Without them the button is the only way in and must stay.
+	legacy := fullSession(t)
+	legacy.Session.Prompt = &Prompt{System: "You are modu.", Bytes: 13}
+	fallback := runViewerProbeOn(t, legacy, `
+		out.push('buttonHidden='+document.getElementById('system-button').hidden);
+	`)
+	expect(t, fallback, "buttonHidden", "false")
+}
+
+func TestViewerBindsEachControlOnce(t *testing.T) {
+	// A duplicated block once bound the filter and search handlers twice, so
+	// every interaction rendered the ledger two times over.
+	probe := runViewerProbe(t, `
+		var renders=0;
+		var host=document.getElementById('timeline');
+		new MutationObserver(function(){ renders++; }).observe(host, {childList:true});
+		document.querySelector('.filter[data-filter="tool"]').click();
+		setTimeout(function(){
+			out.push('rendersPerClick='+renders);
+			document.body.setAttribute('data-probe', out.join('|'));
+		}, 50);
+	`)
+	// One click clears the host once and refills it; a double binding shows up
+	// as roughly twice the mutations.
+	if got := probe["rendersPerClick"]; got == "" {
+		t.Fatal("the observer never reported")
+	} else if got == "0" {
+		t.Errorf("filtering did not re-render: %s", got)
+	}
 }

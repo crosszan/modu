@@ -36,6 +36,12 @@ func Overview(t Trajectory) []string {
 	if t.Stats.Compactions > 0 {
 		lines = append(lines, fmt.Sprintf("compactions: %d", t.Stats.Compactions))
 	}
+	if t.Stats.PromptChanges > 0 {
+		lines = append(lines, fmt.Sprintf("prompt changes: %d", t.Stats.PromptChanges))
+	}
+	if t.Stats.Subagents > 0 {
+		lines = append(lines, fmt.Sprintf("subagent runs: %d", t.Stats.Subagents))
+	}
 	if cost := t.Stats.Tokens.Cost; cost > 0 {
 		lines = append(lines, fmt.Sprintf("cost: %.4f", cost))
 	}
@@ -62,9 +68,12 @@ func TurnLines(t Trajectory) []string {
 		} else {
 			parts = append(parts, pad("", 9))
 		}
-		if turn.FirstResponseMs != nil {
+		switch {
+		case turn.FirstTokenMs != nil:
+			parts = append(parts, pad("ttft "+formatDuration(*turn.FirstTokenMs), 12))
+		case turn.FirstResponseMs != nil:
 			parts = append(parts, pad("1st "+formatDuration(*turn.FirstResponseMs), 12))
-		} else {
+		default:
 			parts = append(parts, pad("", 12))
 		}
 		if turn.Status == StatusRunning {
@@ -96,7 +105,9 @@ func TurnDetail(t Trajectory, index int) []string {
 	if turn.Failures > 0 {
 		head += fmt.Sprintf(" · %d failed", turn.Failures)
 	}
-	if turn.FirstResponseMs != nil {
+	if turn.FirstTokenMs != nil {
+		head += " · ttft " + formatDuration(*turn.FirstTokenMs)
+	} else if turn.FirstResponseMs != nil {
 		head += " · 1st response " + formatDuration(*turn.FirstResponseMs)
 	}
 	if turn.Status == StatusRunning {
@@ -119,6 +130,9 @@ func TurnDetail(t Trajectory, index int) []string {
 			pad(formatDuration(durationOf(record)), 8),
 			pad(record.Status, 8),
 			record.Summary))
+		for _, run := range record.SubagentRuns() {
+			lines = append(lines, indent(describeSubagent(&run))...)
+		}
 		if record.Input != "" {
 			lines = append(lines, indent("input: "+bound(record.Input, renderPayloadChars))...)
 		}
@@ -261,4 +275,33 @@ func formatCount(value int) string {
 		return "-" + joined
 	}
 	return joined
+}
+
+// describeSubagent renders a nested run's own statistics, or why they are
+// missing. A subagent's work happens in a session of its own, so without this
+// the parent trajectory shows one opaque tool call.
+func describeSubagent(run *SubagentRun) string {
+	label := "subagent"
+	if run.Agent != "" {
+		label += " " + run.Agent
+	}
+	// The task id is what `/trajectory task <id>` takes, so it has to be
+	// readable here rather than looked up somewhere else.
+	if run.RunID != "" {
+		label += " [" + run.RunID + "]"
+	}
+	if !run.Available {
+		reason := run.Reason
+		if reason == "" {
+			reason = "child session unavailable"
+		}
+		return label + ": " + reason
+	}
+	text := fmt.Sprintf("%s: %d turns · %d steps · %d tools · %s · %s in / %s out",
+		label, run.Turns, run.Steps, run.ToolCalls, formatDuration(run.ActiveMs),
+		formatCount(run.Tokens.Input), formatCount(run.Tokens.Output))
+	if run.Failures > 0 {
+		text += fmt.Sprintf(" · %d failed", run.Failures)
+	}
+	return text
 }

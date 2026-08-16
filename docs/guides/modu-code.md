@@ -397,7 +397,8 @@ token = "123456:bot-token"
 | `/tree` | 显示 session tree 摘要 |
 | `/export [file]` | 将当前分支的完整 session 记录导出为 HTML；消息支持 Markdown，每次工具调用单独成块，输入/输出合并并保留本地时间 |
 | `/trajectory` | 把 session 日志投影成事件账本并打印：turn / 近似 model step / 每个工具的调用数与耗时 / 失败 / token 用量。`active` 是各 turn 时长之和（真实工作时长），`span` 是首尾跨度 |
-| `/trajectory html [file]` | 同一份轨迹导出为自包含交互式页面：顶部横向时间轴（三 lane：user / 模型 / 工具；Sequence 等宽、Compressed 压缩空闲、Actual 真实时刻三种投影；拖选区间过滤、滚轮缩放、右键拖动平移、悬停看精确起止），左侧 turn 列表，中间按 step 分组的记录，点击任意记录看输入/输出与计时来源；从活跃会话导出时还带 System prompt 面板（系统提示全文 + 工具目录与 schema）|
+| `/trajectory task <id> [html [file]]` | 把某次子代理运行当作独立会话查看或导出；不带 id 会列出本会话的 subagent task id |
+| `/trajectory html [file]` | 同一份轨迹导出为自包含交互式页面：顶部横向时间轴（三 lane：user / 模型 / 工具；Sequence 等宽、Compressed 压缩空闲、Actual 真实时刻三种投影；拖选区间过滤、滚轮缩放、右键拖动平移、悬停看精确起止），左侧 turn 列表，中间可折叠的 turn / step 分组，点击记录打开右侧分页签检视（摘要、输入、输出、计时、用量），面板可横向拖宽。系统提示与工具目录会作为 system 记录按时序出现，提示变更可看差异；搜索覆盖工具输入输出全文 |
 | `/copy` | 复制最后一条 assistant 回复到系统剪贴板 |
 | `/changelog` | 显示当前 git 仓库最近提交 |
 | `/skills` | 列出已发现 skills |

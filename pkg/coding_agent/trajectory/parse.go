@@ -27,6 +27,7 @@ var (
 		[]byte(`"type":"runtime_state"}`),
 		[]byte(`"type":"plan_snapshot"}`),
 	}
+	promptSuffix = []byte(`"type":"prompt_snapshot"}`)
 	headerPrefix = []byte(`{"type":"session",`)
 )
 
@@ -50,11 +51,27 @@ type entry struct {
 	Name     string // session_info
 	Provider string // model_change
 	ModelID  string // model_change
+	Prompt   *wirePrompt
 
 	// Compaction fields.
 	OriginalCount int
 	NewCount      int
 	TokensBefore  int
+}
+
+// wirePrompt is a persisted prompt snapshot: the system prompt and tool
+// catalog in force at that point, with what changed since the previous one.
+type wirePrompt struct {
+	System string           `json:"system"`
+	Tools  []wirePromptTool `json:"tools"`
+	Change string           `json:"change"`
+}
+
+type wirePromptTool struct {
+	Name        string `json:"name"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Schema      string `json:"schema"`
 }
 
 type wireMessage struct {
@@ -66,6 +83,20 @@ type wireMessage struct {
 	Model      string          `json:"model"`
 	Provider   string          `json:"provider"`
 	Usage      wireUsage       `json:"usage"`
+	Timing     *wireTiming     `json:"timing"`
+	// Details is tool-specific metadata. The subagent tool puts the background
+	// task id here, which is the only link from a parent session to the child
+	// session a subagent ran in.
+	Details map[string]any `json:"details"`
+}
+
+// wireTiming is the model call's recorded clock, present on sessions written
+// after timing was persisted. Older sessions have none, and the projection
+// falls back to deriving the start from the previous event.
+type wireTiming struct {
+	RequestStartMs int64 `json:"requestStartMs"`
+	FirstTokenMs   int64 `json:"firstTokenMs"`
+	CompletedMs    int64 `json:"completedMs"`
 }
 
 type wireUsage struct {
@@ -105,16 +136,17 @@ type wireBlock struct {
 
 // readSession streams one session file and returns its header plus the
 // entries on the current root-to-leaf branch, in causal order.
-func readSession(path string) (header, []entry, []Warning, error) {
+func readSession(path string) (header, []entry, []entry, []Warning, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return header{}, nil, nil, err
+		return header{}, nil, nil, nil, err
 	}
 	defer file.Close()
 
 	var (
 		head     header
 		entries  []entry
+		prompts  []entry
 		warnings []Warning
 	)
 	scanner := bufio.NewScanner(file)
@@ -137,12 +169,19 @@ func readSession(path string) (header, []entry, []Warning, error) {
 			warnings = append(warnings, Warning{Line: lineNo, Message: err.Error()})
 			continue
 		}
+		// A prompt snapshot is a sidecar too: it must not enter the branch
+		// walk, but unlike runtime state it belongs in the ledger, merged back
+		// by timestamp.
+		if bytes.HasSuffix(line, promptSuffix) {
+			prompts = append(prompts, decoded)
+			continue
+		}
 		entries = append(entries, decoded)
 	}
 	if err := scanner.Err(); err != nil {
-		return head, nil, warnings, fmt.Errorf("read session: %w", err)
+		return head, nil, nil, warnings, fmt.Errorf("read session: %w", err)
 	}
-	return head, currentBranch(entries), warnings, nil
+	return head, currentBranch(entries), prompts, warnings, nil
 }
 
 func isSidecar(line []byte) bool {
@@ -191,6 +230,7 @@ func decodeEntry(line []byte) (entry, error) {
 		Name      string          `json:"name"`
 		Provider  string          `json:"provider"`
 		ModelID   string          `json:"modelId"`
+		Prompt    *wirePrompt     `json:"prompt"`
 
 		OriginalCount int `json:"originalCount"`
 		NewCount      int `json:"newCount"`
@@ -207,6 +247,7 @@ func decodeEntry(line []byte) (entry, error) {
 		Name:          wire.Name,
 		Provider:      wire.Provider,
 		ModelID:       wire.ModelID,
+		Prompt:        wire.Prompt,
 		OriginalCount: wire.OriginalCount,
 		NewCount:      wire.NewCount,
 		TokensBefore:  wire.TokensBefore,

@@ -37,7 +37,7 @@ header .sub { font-size: 12px; color: color-mix(in srgb, CanvasText 55%, transpa
 main { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); align-items: start; }
 @media (max-width: 820px) { main { grid-template-columns: minmax(0, 1fr); } aside { border-right: none !important; border-bottom: 1px solid color-mix(in srgb, CanvasText 16%, transparent); } }
 
-aside { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 12px 12px calc(12px + var(--inspector-height, 0px)); border-right: 1px solid color-mix(in srgb, CanvasText 16%, transparent); }
+aside { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 12px; border-right: 1px solid color-mix(in srgb, CanvasText 16%, transparent); }
 .turn-item { display: block; width: 100%; padding: 8px 10px; margin-bottom: 4px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .turn-item:hover { background: color-mix(in srgb, CanvasText 7%, transparent); }
 .turn-item[aria-current="true"] { border-color: color-mix(in srgb, CanvasText 30%, transparent); background: color-mix(in srgb, CanvasText 7%, transparent); }
@@ -45,7 +45,7 @@ aside { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 
 .turn-item .head span:last-child { white-space: nowrap; }
 .turn-item .prompt { margin-top: 3px; font-size: 12px; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
-section.timeline { padding: 12px 16px calc(64px + var(--inspector-height, 0px)); }
+section.timeline { padding: 12px 16px 64px; }
 .turn-block { margin-bottom: 20px; }
 .turn-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, CanvasText 6%, transparent); }
 .turn-head strong { font-size: 13px; }
@@ -70,11 +70,23 @@ section.timeline { padding: 12px 16px calc(64px + var(--inspector-height, 0px));
 .s-error .summary { color: #dc2626; }
 .s-running .dur::after { content: "…"; }
 
-#inspector { position: fixed; inset: auto 0 0 0; max-height: 55vh; min-height: 92px; display: flex; flex-direction: column; border-top: 1px solid color-mix(in srgb, CanvasText 22%, transparent); background: Canvas; box-shadow: 0 -8px 24px color-mix(in srgb, CanvasText 12%, transparent); }
-#inspector-resize { position: absolute; top: -4px; left: 0; right: 0; height: 9px; cursor: ns-resize; touch-action: none; }
-#inspector-resize::after { content: ""; position: absolute; top: 3px; left: 50%; width: 46px; height: 3px; border-radius: 2px; transform: translateX(-50%); background: color-mix(in srgb, CanvasText 26%, transparent); }
+/* The panel docks to the right rather than the bottom: a record's details are
+   tall and narrow — a prompt, a tool result, a stack of fields — so a full-width
+   strip across the bottom wasted most of its area on empty space while
+   squeezing the ledger it belongs to. */
+#inspector { position: fixed; inset: 0 0 0 auto; width: var(--inspector-width, 420px); min-width: 280px; max-width: 90vw; display: flex; flex-direction: column; border-left: 1px solid color-mix(in srgb, CanvasText 22%, transparent); background: Canvas; box-shadow: -8px 0 24px color-mix(in srgb, CanvasText 12%, transparent); z-index: 2; }
+#inspector-resize { position: absolute; top: 0; bottom: 0; left: -4px; width: 9px; cursor: ew-resize; touch-action: none; }
+#inspector-resize::after { content: ""; position: absolute; left: 3px; top: 50%; height: 46px; width: 3px; border-radius: 2px; transform: translateY(-50%); background: color-mix(in srgb, CanvasText 26%, transparent); }
 #inspector-resize:hover::after, body.resizing #inspector-resize::after { background: color-mix(in srgb, CanvasText 60%, transparent); }
-body.resizing { user-select: none; cursor: ns-resize; }
+body.resizing { user-select: none; cursor: ew-resize; }
+/* Everything else gives up exactly the panel's width, so nothing it covers
+   becomes unreachable. */
+body { padding-right: var(--inspector-width-reserved, 0px); }
+@media (max-width: 720px) {
+  #inspector { inset: auto 0 0 0; width: auto; max-width: none; height: 60vh; border-left: none; border-top: 1px solid color-mix(in srgb, CanvasText 22%, transparent); }
+  #inspector-resize { display: none; }
+  body { padding-right: 0; }
+}
 #inspector header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid color-mix(in srgb, CanvasText 16%, transparent); }
 #inspector h2 { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 #inspector .body { overflow-y: auto; padding: 12px 16px 20px; }
@@ -113,6 +125,21 @@ body.resizing { user-select: none; cursor: ns-resize; }
 .legend i { display: inline-block; width: 9px; height: 9px; margin-right: 4px; border-radius: 2px; vertical-align: -1px; }
 .derived { font-style: italic; }
 
+.turn-head { cursor: pointer; }
+.turn-head .fold { font-size: 11px; width: 12px; display: inline-block; color: color-mix(in srgb, CanvasText 55%, transparent); }
+.turn-head.between { background: color-mix(in srgb, CanvasText 3%, transparent); border: 1px dashed color-mix(in srgb, CanvasText 20%, transparent); }
+.step-head { cursor: pointer; user-select: none; }
+.step-head .fold { margin-right: 4px; }
+.span.k-system { background: #7c3aed; }
+.k-system { border-left-color: #7c3aed; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.tab { padding: 4px 10px; border: 1px solid color-mix(in srgb, CanvasText 22%, transparent); border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.tab[aria-selected="true"] { background: color-mix(in srgb, CanvasText 88%, transparent); color: Canvas; border-color: transparent; }
+#inspector pre.diff { padding: 0; }
+#inspector pre.diff span { display: block; padding: 0 12px; }
+#inspector pre.diff .add { background: color-mix(in srgb, #16a34a 22%, transparent); }
+#inspector pre.diff .del { background: color-mix(in srgb, #dc2626 22%, transparent); }
+
 .empty { padding: 32px 8px; text-align: center; color: color-mix(in srgb, CanvasText 55%, transparent); }
 .warnings { margin: 12px 24px; padding: 10px 12px; border: 1px solid #d97706; border-radius: 8px; font-size: 12px; }
 </style>
@@ -131,6 +158,8 @@ body.resizing { user-select: none; cursor: ns-resize; }
   <button class="filter" data-filter="reasoning" aria-pressed="false">Reasoning</button>
   <button class="filter" data-filter="error" aria-pressed="false">Failures</button>
   <button class="filter" id="system-button" hidden>System prompt</button>
+  <button class="filter" id="fold-turns">Collapse turns</button>
+  <button class="filter" id="fold-steps">Collapse calls</button>
 </div>
 <div class="overview">
   <div class="overview-head">
@@ -160,7 +189,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
   <section class="timeline" id="timeline"></section>
 </main>
 <div id="inspector" hidden>
-  <div id="inspector-resize" role="separator" aria-orientation="horizontal" aria-label="Resize the inspector"></div>
+  <div id="inspector-resize" role="separator" aria-orientation="vertical" aria-label="Resize the inspector"></div>
   <header>
     <h2 id="inspector-title"></h2>
     <button type="button" id="inspector-close">Close</button>
@@ -177,7 +206,9 @@ body.resizing { user-select: none; cursor: ns-resize; }
   var turns = data.turns || [];
   var stats = data.stats || {};
   var state = { turn: 0, filter: "all", query: "" };
+  var folded = { turns: {}, steps: {}, allTurns: false, allSteps: false };
   var selected = null;
+
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -222,6 +253,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
   if (session.startedAt) { subtitleParts.push("started " + clock(session.startedAt)); }
   document.getElementById("subtitle").textContent = subtitleParts.join("  ·  ");
 
+  function renderChips() {
   var unfinished = (stats.tools || []).reduce(function (total, tool) { return total + (tool.unfinished || 0); }, 0);
   var chips = [
     ["Turns", count(stats.turns)],
@@ -234,13 +266,18 @@ body.resizing { user-select: none; cursor: ns-resize; }
   ];
   if (unfinished) { chips.push(["Unfinished", count(unfinished)]); }
   if (stats.compactions) { chips.push(["Compactions", count(stats.compactions)]); }
+  if (stats.promptChanges) { chips.push(["Prompt changes", count(stats.promptChanges)]); }
+  if (stats.subagents) { chips.push(["Subagent runs", count(stats.subagents)]); }
   var chipHost = document.getElementById("chips");
+  chipHost.textContent = "";
   chips.forEach(function (chip) {
     var box = el("div", "chip");
     box.appendChild(el("b", null, chip[1]));
     box.appendChild(el("span", null, chip[0]));
     chipHost.appendChild(box);
   });
+  }
+  renderChips();
 
   if ((data.warnings || []).length) {
     var warnBox = document.getElementById("warnings");
@@ -290,16 +327,33 @@ body.resizing { user-select: none; cursor: ns-resize; }
     return Math.max(longest, record.durationMs || 0);
   }, 0);
 
+
+  // Search covers everything a record carries, not just its one-line summary:
+  // the payloads are usually what you are looking for.
+  var searchCache = {};
+  function searchText(record) {
+    var cached = searchCache[record.index];
+    if (cached !== undefined) { return cached; }
+    var parts = [record.kind, record.event, record.summary, record.toolName || "",
+      record.callId || "", record.status, record.input || "", record.output || ""];
+    if (record.prompt) {
+      parts.push(record.prompt.system || "");
+      (record.prompt.tools || []).forEach(function (tool) {
+        parts.push(tool.name, tool.description || "", tool.schema || "");
+      });
+    }
+    var text = parts.join(" ").toLowerCase();
+    searchCache[record.index] = text;
+    return text;
+  }
+
   function matches(record) {
     if (timelineState.focus && !timelineState.focus[record.index]) { return false; }
     if (state.turn && record.turn !== state.turn) { return false; }
     if (state.filter === "tool" && record.kind !== "tool" && record.kind !== "subagent") { return false; }
     if (state.filter === "reasoning" && record.kind !== "reasoning") { return false; }
     if (state.filter === "error" && record.status !== "error") { return false; }
-    if (state.query) {
-      var haystack = (record.summary + " " + (record.toolName || "") + " " + record.event).toLowerCase();
-      if (haystack.indexOf(state.query) === -1) { return false; }
-    }
+    if (state.query && searchText(record).indexOf(state.query) === -1) { return false; }
     return true;
   }
 
@@ -330,6 +384,16 @@ body.resizing { user-select: none; cursor: ns-resize; }
     return row;
   }
 
+
+  function foldedTurn(index) {
+    var explicit = folded.turns[index];
+    return explicit === undefined ? folded.allTurns : explicit;
+  }
+  function foldedStep(turn, step) {
+    var explicit = folded.steps[turn + ":" + step];
+    return explicit === undefined ? folded.allSteps : explicit;
+  }
+
   function renderTimeline() {
     timelineHost.textContent = "";
     var visible = records.filter(matches);
@@ -340,29 +404,54 @@ body.resizing { user-select: none; cursor: ns-resize; }
     var currentTurn = null;
     var currentStep = null;
     var block = null;
+    var turnHidden = false;
+    var stepHidden = false;
     visible.forEach(function (record) {
-      if (record.turn !== currentTurn) {
+      if (record.turn !== currentTurn || block === null) {
         currentTurn = record.turn;
         currentStep = null;
+        turnHidden = foldedTurn(record.turn);
         block = el("div", "turn-block");
-        var head = el("div", "turn-head");
-        head.appendChild(el("strong", null, "Turn " + record.turn));
+        // Turn 0 holds what belongs to no turn — a prompt snapshot taken
+        // before the session's first message. The original calls this
+        // "Between turns" and so does this.
+        var head = el("div", "turn-head" + (record.turn === 0 ? " between" : ""));
+        head.appendChild(el("span", "fold", turnHidden ? "▸" : "▾"));
+        head.appendChild(el("strong", null,
+          record.turn === 0 ? "Between turns" : "Turn " + record.turn));
         var turn = turnByIndex(record.turn);
         if (turn) {
-          var meta = duration(turn.durationMs) + " · " + turn.steps + " steps · " + turn.toolCalls + " tools";
-          if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
-            meta += " · 1st response " + duration(turn.firstResponseMs);
+          var meta = duration(turn.durationMs) + " · " + turn.steps + " " + "Step" +
+            " · " + turn.toolCalls + " " + "Tool";
+          if (turn.firstTokenMs !== undefined && turn.firstTokenMs !== null) {
+            meta += " · " + "Time to first token" + " " + duration(turn.firstTokenMs);
+          } else if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
+            meta += " · " + "Turn first response" + " " + duration(turn.firstResponseMs);
           }
-          if (turn.failures) { meta += " · " + turn.failures + " failed"; }
+          if (turn.failures) { meta += " · " + turn.failures + " " + "Failures"; }
           head.appendChild(el("span", "muted", meta));
         }
+        head.addEventListener("click", function () {
+          folded.turns[record.turn] = !foldedTurn(record.turn);
+          renderTimeline();
+        });
         block.appendChild(head);
         timelineHost.appendChild(block);
       }
+      if (turnHidden) { return; }
       if (record.step && record.step !== currentStep) {
         currentStep = record.step;
-        block.appendChild(el("div", "step-head", "step " + record.step));
+        stepHidden = foldedStep(record.turn, record.step);
+        var stepHead = el("div", "step-head");
+        stepHead.appendChild(el("span", "fold", stepHidden ? "▸" : "▾"));
+        stepHead.appendChild(el("span", null, "step " + record.step));
+        stepHead.addEventListener("click", function () {
+          folded.steps[record.turn + ":" + record.step] = !foldedStep(record.turn, record.step);
+          renderTimeline();
+        });
+        block.appendChild(stepHead);
       }
+      if (record.step && stepHidden) { return; }
       block.appendChild(recordRow(record));
     });
   }
@@ -692,63 +781,198 @@ body.resizing { user-select: none; cursor: ns-resize; }
     list.appendChild(el("dd", null, value));
   }
 
-  function showInspector(record) {
-    document.getElementById("inspector-title").textContent =
-      "#" + record.index + "  " + (record.toolName || record.kind) + " — " + record.event;
-    inspectorBody.textContent = "";
+  // Details are tabbed rather than stacked: a system prompt and a tool result
+  // are both long enough that one scrolling column buries whichever came
+  // second. Each record kind offers only the tabs it can actually fill.
+  function detailTabs(record) {
+    var tabs = [{ id: "summary", label: "Summary" }];
+    if (record.prompt) {
+      tabs.push({ id: "prompt", label: "System prompt" }, { id: "catalog", label: "Tools" });
+      if (record.prompt.previousSystem || (record.prompt.previousTools || []).length) {
+        tabs.push({ id: "diff", label: "Diff" });
+      }
+      return tabs;
+    }
+    if (subagentRuns(record).length) { tabs.push({ id: "subagent", label: "Subagent run" }); }
+    if (record.input) { tabs.push({ id: "input", label: "Input" }); }
+    if (record.output) { tabs.push({ id: "output", label: "Output" }); }
+    tabs.push({ id: "timing", label: "Timing" });
+    if (record.usage) { tabs.push({ id: "usage", label: "Usage" }); }
+    return tabs;
+  }
 
+  function field(list, label, value) {
+    if (value === undefined || value === null || value === "") { return; }
+    list.appendChild(el("dt", null, label));
+    list.appendChild(el("dd", null, value));
+  }
+
+  function renderSummaryTab(host, record) {
     var list = el("dl");
-    field(list, "Turn", record.turn);
+    field(list, "Turn", record.turn === 0 ? "Between turns" : record.turn);
     field(list, "Step", record.step);
     field(list, "Status", record.status);
+    field(list, "Tool", record.toolName);
+    field(list, "Event", record.event);
+    field(list, "Call id", record.callId);
+    host.appendChild(list);
+    if (record.summary) { host.appendChild(el("pre", null, record.summary)); }
+  }
+
+  function renderTimingTab(host, record) {
+    var list = el("dl");
     field(list, "Started", clock(record.startedAt));
     field(list, "Completed", clock(record.completedAt));
     field(list, "Duration", record.durationMs ? duration(record.durationMs) : null);
-    if (record.timing === "derived") {
-      // Say so rather than passing an inferred number off as a measurement.
-      var note = el("dd", "derived", "start inferred from the previous event");
-      list.appendChild(el("dt", null, "Timing"));
-      list.appendChild(note);
-    } else if (record.timing === "measured") {
-      field(list, "Timing", "measured call to result");
+    if (record.firstTokenMs !== undefined && record.firstTokenMs !== null) {
+      field(list, "Time to first token", duration(record.firstTokenMs));
     }
-    var usage = record.usage;
-    if (usage) {
-      field(list, "Input tokens", count(usage.input));
-      field(list, "Output tokens", count(usage.output));
-      if (usage.cacheRead) { field(list, "Cache read", count(usage.cacheRead)); }
-      if (usage.cacheWrite) { field(list, "Cache write", count(usage.cacheWrite)); }
-      if (usage.cost) { field(list, "Cost", usage.cost.toFixed(6)); }
+    if (record.decodeMs !== undefined && record.decodeMs !== null) {
+      field(list, "Decoding", duration(record.decodeMs));
     }
+    if (record.throughput) { field(list, "Throughput", record.throughput.toFixed(1) + " tok/s"); }
     var turn = turnByIndex(record.turn);
     if (turn) {
       field(list, "Turn duration", duration(turn.durationMs));
-      if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
+      if (turn.firstTokenMs !== undefined && turn.firstTokenMs !== null) {
+        field(list, "Time to first token", duration(turn.firstTokenMs));
+      } else if (turn.firstResponseMs !== undefined && turn.firstResponseMs !== null) {
         field(list, "Turn first response", duration(turn.firstResponseMs));
       }
-      field(list, "Turn steps", turn.steps + " · " + turn.toolCalls + " tools" +
-        (turn.failures ? " · " + turn.failures + " failed" : ""));
+      field(list, "Turn steps", turn.steps + " · " + turn.toolCalls + " " + "Tool");
     }
-    field(list, "Tool", record.toolName);
-    field(list, "Call id", record.callId);
-    field(list, "Event", record.event);
-    inspectorBody.appendChild(list);
+    host.appendChild(list);
+    // Say which numbers are measured and which are inferred, every time.
+    if (record.timing === "derived") {
+      host.appendChild(el("p", "derived", "start inferred from the previous event"));
+    } else if (record.timing === "measured") {
+      host.appendChild(el("p", "muted", "measured end to end"));
+    }
+  }
 
-    if (record.summary) {
-      inspectorBody.appendChild(el("h3", null, "Summary"));
-      inspectorBody.appendChild(el("pre", null, record.summary));
+  function renderUsageTab(host, record) {
+    var usage = record.usage || {};
+    var list = el("dl");
+    field(list, "Input tokens", count(usage.input));
+    field(list, "Output tokens", count(usage.output));
+    if (usage.cacheRead) { field(list, "Cache read", count(usage.cacheRead)); }
+    if (usage.cacheWrite) { field(list, "Cache write", count(usage.cacheWrite)); }
+    if (usage.cost) { field(list, "Cost", usage.cost.toFixed(6)); }
+    host.appendChild(list);
+  }
+
+  function renderCatalog(host, tools) {
+    (tools || []).forEach(function (tool) {
+      host.appendChild(el("h3", null,
+        tool.name + (tool.label && tool.label !== tool.name ? " · " + tool.label : "")));
+      var body = tool.description || "";
+      if (tool.schema) { body += (body ? "\n\n" : "") + tool.schema; }
+      host.appendChild(el("pre", null, body || "—"));
+    });
+  }
+
+  // A line-level diff is enough to see what moved in a prompt, and it keeps the
+  // page free of a diff library.
+  function renderDiff(host, before, after) {
+    if (!before) { host.appendChild(el("p", "muted", "Nothing to compare against: this is the first snapshot.")); return; }
+    var previous = before.split("\n"), current = after.split("\n");
+    var seen = {};
+    previous.forEach(function (line) { seen[line] = (seen[line] || 0) + 1; });
+    var block = el("pre", "diff");
+    previous.forEach(function (line) {
+      if (current.indexOf(line) === -1) { block.appendChild(el("span", "del", "- " + line)); }
+    });
+    current.forEach(function (line) {
+      block.appendChild(el("span", seen[line] ? null : "add", (seen[line] ? "  " : "+ ") + line));
+    });
+    host.appendChild(block);
+  }
+
+  // A subagent's work happens in a session of its own, so the parent ledger
+  // sees one opaque tool call. This reports the child's own totals, or says
+  // plainly why they are missing rather than showing a run full of zeros.
+  // One tool call can fork several children (parallel and chain runs), so the
+  // panel renders a list even when there is only one.
+  function subagentRuns(record) {
+    if (record.subagents && record.subagents.length) { return record.subagents; }
+    return record.subagent ? [record.subagent] : [];
+  }
+
+  function renderSubagentTab(host, run) {
+    var list = el("dl");
+    field(list, "Agent", run.agent);
+    field(list, "Run id", run.runId);
+    if (!run.available) {
+      host.appendChild(list);
+      host.appendChild(el("p", "muted", run.reason || "Child session unavailable"));
+      return;
     }
-    if (record.input) {
-      inspectorBody.appendChild(el("h3", null, "Input"));
-      inspectorBody.appendChild(el("pre", null, record.input));
+    field(list, "Child turns", count(run.turns));
+    field(list, "Child steps", count(run.steps));
+    field(list, "Child tool calls", count(run.toolCalls));
+    if (run.failures) { field(list, "Child failures", count(run.failures)); }
+    field(list, "Child active time", duration(run.activeMs));
+    if (run.tokens) {
+      field(list, "Child tokens",
+        count(run.tokens.input) + " in / " + count(run.tokens.output) + " out");
     }
-    if (record.output) {
-      inspectorBody.appendChild(el("h3", null, "Output"));
-      inspectorBody.appendChild(el("pre", null, record.output));
+    host.appendChild(list);
+    if ((run.tools || []).length) {
+      host.appendChild(el("h3", null, "Child tools"));
+      var lines = run.tools.map(function (tool) {
+        return tool.name + "  " + tool.calls + " × " + duration(tool.totalMs) +
+          (tool.failures ? "  " + tool.failures + " failed" : "");
+      });
+      host.appendChild(el("pre", null, lines.join("\n")));
     }
-    if (!record.input && !record.output && data.detailLevel === "summary") {
-      inspectorBody.appendChild(el("p", "muted", "This trajectory was projected at summary detail, so tool inputs and outputs are not included."));
+  }
+
+  function renderTab(record, id) {
+    inspectorBody.textContent = "";
+    var host = inspectorBody;
+    switch (id) {
+      case "summary": renderSummaryTab(host, record); break;
+      case "input": host.appendChild(el("pre", null, record.input)); break;
+      case "output": host.appendChild(el("pre", null, record.output)); break;
+      case "timing": renderTimingTab(host, record); break;
+      case "usage": renderUsageTab(host, record); break;
+      case "prompt": host.appendChild(el("pre", null, record.prompt.system || "—")); break;
+      case "catalog": renderCatalog(host, record.prompt.tools); break;
+      case "diff": renderDiff(host, record.prompt.previousSystem, record.prompt.system); break;
+      case "subagent":
+        subagentRuns(record).forEach(function (run, index) {
+          if (index > 0) { host.appendChild(el("h3", null, "Subagent run" + " " + (index + 1))); }
+          renderSubagentTab(host, run);
+        });
+        break;
     }
+    if (id === "summary" && !record.input && !record.output && !record.prompt &&
+        data.detailLevel === "summary") {
+      host.appendChild(el("p", "muted", "This trajectory was projected at summary detail, so tool inputs and outputs are not included."));
+    }
+  }
+
+  function showInspector(record) {
+    document.getElementById("inspector-title").textContent =
+      "#" + record.index + "  " + (record.toolName || record.kind) + " — " + record.event;
+    var tabs = detailTabs(record);
+    var bar = el("div", "tabs");
+    var active = tabs[0].id;
+    var paint = function () {
+      Array.prototype.forEach.call(bar.children, function (button) {
+        button.setAttribute("aria-selected", button.dataset.tab === active ? "true" : "false");
+      });
+      renderTab(record, active);
+      inspectorBody.insertBefore(bar, inspectorBody.firstChild);
+    };
+    tabs.forEach(function (tab) {
+      var button = el("button", "tab", tab.label);
+      button.type = "button";
+      button.dataset.tab = tab.id;
+      button.addEventListener("click", function () { active = tab.id; paint(); });
+      bar.appendChild(button);
+    });
+    paint();
     inspector.hidden = false;
     syncInspectorHeight();
   }
@@ -757,8 +981,11 @@ body.resizing { user-select: none; cursor: ns-resize; }
   // last records with no way to scroll them clear. Publishing its height lets
   // the timeline and the turn rail reserve exactly that much room.
   function syncInspectorHeight() {
-    var height = inspector.hidden ? 0 : inspector.offsetHeight;
-    document.documentElement.style.setProperty("--inspector-height", height + "px");
+    // Below the breakpoint the panel lies across the bottom and reserving
+    // horizontal room would only shrink the page for nothing.
+    var docked = window.innerWidth > 720;
+    var width = inspector.hidden || !docked ? 0 : inspector.offsetWidth;
+    document.documentElement.style.setProperty("--inspector-width-reserved", width + "px");
   }
   if (window.ResizeObserver) {
     new ResizeObserver(syncInspectorHeight).observe(inspector);
@@ -783,11 +1010,10 @@ body.resizing { user-select: none; cursor: ns-resize; }
   var resizer = document.getElementById("inspector-resize");
   var dragging = false;
 
-  function applyHeight(clientY) {
-    // Leave the toolbar reachable no matter how far up the divider is dragged.
-    var height = Math.min(Math.max(window.innerHeight - clientY, 92), window.innerHeight - 120);
-    inspector.style.maxHeight = "none";
-    inspector.style.height = height + "px";
+  function applyWidth(clientX) {
+    // Leave the ledger usable no matter how far left the divider is dragged.
+    var width = Math.min(Math.max(window.innerWidth - clientX, 280), window.innerWidth - 320);
+    document.documentElement.style.setProperty("--inspector-width", width + "px");
     syncInspectorHeight();
   }
 
@@ -798,7 +1024,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
     event.preventDefault();
   });
   resizer.addEventListener("pointermove", function (event) {
-    if (dragging) { applyHeight(event.clientY); }
+    if (dragging) { applyWidth(event.clientX); }
   });
   function endDrag(event) {
     if (!dragging) { return; }
@@ -812,45 +1038,55 @@ body.resizing { user-select: none; cursor: ns-resize; }
   resizer.tabIndex = 0;
   resizer.addEventListener("keydown", function (event) {
     var step = event.shiftKey ? 80 : 24;
-    if (event.key === "ArrowUp") {
-      applyHeight(window.innerHeight - inspector.offsetHeight - step);
-    } else if (event.key === "ArrowDown") {
-      applyHeight(window.innerHeight - inspector.offsetHeight + step);
+    if (event.key === "ArrowLeft") {
+      applyWidth(window.innerWidth - inspector.offsetWidth - step);
+    } else if (event.key === "ArrowRight") {
+      applyWidth(window.innerWidth - inspector.offsetWidth + step);
     } else {
       return;
     }
     event.preventDefault();
   });
 
-  // ── toolbar ───────────────────────────────────────────────────────────────
+  // ── folding controls ─────────────────────────────────────────────────────
+  function paintFoldLabels() {
+    document.getElementById("fold-turns").textContent =
+      folded.allTurns ? "Expand turns" : "Collapse turns";
+    document.getElementById("fold-steps").textContent =
+      folded.allSteps ? "Expand calls" : "Collapse calls";
+  }
+  document.getElementById("fold-turns").addEventListener("click", function () {
+    folded.allTurns = !folded.allTurns;
+    folded.turns = {};
+    paintFoldLabels();
+    renderTimeline();
+  });
+  document.getElementById("fold-steps").addEventListener("click", function () {
+    folded.allSteps = !folded.allSteps;
+    folded.steps = {};
+    paintFoldLabels();
+    renderTimeline();
+  });
 
   // ── system prompt and tool catalog ────────────────────────────────────────
   // The session log persists neither, so this is only present when a live
   // session supplied it; a trajectory read back from a file alone has none.
+  // A session that persists prompt snapshots already carries the prompt on the
+  // timeline as a system record, so a second way in would be a duplicate
+  // control. The button remains for sessions written before that existed.
   var prompt = (data.session || {}).prompt;
+  var hasPromptRecord = records.some(function (record) { return record.prompt; });
   var systemButton = document.getElementById("system-button");
-  if (prompt) {
+  if (prompt && !hasPromptRecord) {
     systemButton.hidden = false;
     systemButton.addEventListener("click", function () {
-      document.getElementById("inspector-title").textContent =
-        "System prompt — " + count(prompt.bytes) + " bytes · " +
-        count((prompt.tools || []).length) + " tools";
-      inspectorBody.textContent = "";
-      if (prompt.system) {
-        inspectorBody.appendChild(el("h3", null, "System prompt"));
-        inspectorBody.appendChild(el("pre", null, prompt.system));
-      }
-      (prompt.tools || []).forEach(function (tool) {
-        inspectorBody.appendChild(el("h3", null,
-          tool.name + (tool.label && tool.label !== tool.name ? " · " + tool.label : "")));
-        var body = tool.description || "";
-        if (tool.schema) { body += (body ? "\n\n" : "") + tool.schema; }
-        inspectorBody.appendChild(el("pre", null, body || "(no description)"));
-      });
       selected = null;
       renderTimeline();
-      inspector.hidden = false;
-      syncInspectorHeight();
+      showInspector({
+        index: 0, kind: "system", event: "session_prompt", turn: 0,
+        summary: count(prompt.bytes) + " bytes · " + count((prompt.tools || []).length) + " tools",
+        prompt: prompt
+      });
     });
   }
 
@@ -868,6 +1104,8 @@ body.resizing { user-select: none; cursor: ns-resize; }
     renderTimeline();
   });
 
+
+  paintFoldLabels();
   renderTurns();
   setMode(timelineState.mode);
   window.addEventListener("resize", function () { renderTrack(); });

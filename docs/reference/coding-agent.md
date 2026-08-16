@@ -466,8 +466,9 @@ Streamable HTTP 的 POST JSON/SSE 响应和可选 GET SSE 通道都由官方 SDK
 | `/fork <id>` | 从指定条目创建分支 |
 | `/branch-session <id>` | 抽取当前会话分支路径为新的会话文件 |
 | `/export [file]` | 将当前分支的完整会话记录导出为 HTML；消息支持 Markdown，每次工具调用单独成块，输入/输出合并并保留本地时间 |
-| `/trajectory` | 打印当前分支的轨迹：turn / 近似 model step / 工具耗时与失败 / token；`active` 为各 turn 时长之和，`span` 为首尾跨度。模型调用的起点由上一事件推导（日志只记消息写完的时刻），工具调用两端实测 |
-| `/trajectory html [file]` | 导出自包含交互式轨迹页：横向三-lane 时间轴（Sequence/Compressed/Actual 投影、拖选过滤、滚轮缩放、右键平移）+ turn 列表 + 按 step 分组的记录 + 检视面板；活跃会话导出时附 System prompt 与工具目录 |
+| `/trajectory` | 打印当前分支的轨迹：turn / 近似 model step / 工具耗时与失败 / token / 提示变更 / 子代理运行；`active` 为各 turn 时长之和，`span` 为首尾跨度。新会话记录模型调用的真实时钟（首字延迟、解码耗时、吞吐），旧会话降级为由上一事件推导起点并标注。子代理运行会汇总它自己的轮次/工具/耗时/token：异步的顺着 background task 找子会话文件，同步的按发起它的那次工具调用落在 `runtime/<project>/subagent-runs/<会话id>/` 下 |
+| `/trajectory task <id> [html [file]]` | 把某次子代理运行当作独立会话来看：终端摘要或导出成它自己的交互式页面（默认写 `modu_code-trajectory-<id>.html`）。id 取自 `/trajectory` 输出里 subagent 行方括号内，异步运行是 background task id、同步运行是它的转录文件名；`/trajectory task` 不带参数会列出本会话全部 id。一次 parallel/chain 调用会派生多个子运行，各自独立列出 |
+| `/trajectory html [file]` | 导出自包含交互式轨迹页：横向三-lane 时间轴（Sequence/Compressed/Actual 投影、拖选过滤、滚轮缩放、右键平移）+ turn 列表 + 可折叠的 step 分组 + 分页签检视面板（摘要/输入/输出/计时/用量，system 记录另有系统提示/工具目录/差异）；搜索覆盖工具输入输出与提示全文；明细面板停靠右侧、可横向拖宽 |
 | `/copy` | 复制最后一条 assistant 回复到系统剪贴板 |
 | `/changelog` | 显示当前 git 仓库最近提交 |
 | `/settings` | 显示当前配置 |

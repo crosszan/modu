@@ -90,7 +90,64 @@ func (cs *engine) forkSession(ctx context.Context, opts extension.ForkOptions) (
 	}
 	cs.OnSubagentStop(run, result, err, subagentRunStats(childMessages, startedAt))
 	cs.emitSubagentChildUsage(opts.BubbleTaskID, childMessages)
+	cs.persistSyncSubagentRun(opts.CallID, def.Name, childMessages)
 	return result, err
+}
+
+// persistSyncSubagentRun writes a synchronous child's conversation where the
+// parent's trajectory can find it again.
+//
+// A background run gets this for free: it registers a task, and the task holds
+// its session file. A synchronous run registers nothing, so its work used to
+// vanish the moment it returned — leaving one opaque tool call in the parent's
+// ledger where a large share of a turn's time often went. The tool call id is
+// the only handle the parent has, and one call can fork several children in
+// parallel and chain runs, so the file is named for the call and a sequence
+// number within it.
+func (cs *engine) persistSyncSubagentRun(callID, agentName string, messages []types.AgentMessage) {
+	if strings.TrimSpace(callID) == "" || len(messages) == 0 {
+		return
+	}
+	dir := filepath.Join(cs.RuntimePaths().SubagentRunsDir, cs.GetSessionID())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	name := syncSubagentRunFile(dir, callID)
+	if name == "" {
+		return
+	}
+	id := strings.TrimSuffix(filepath.Base(name), ".jsonl")
+	// Best effort: a child that ran is worth more than a parent turn that
+	// fails because its transcript could not be filed.
+	_ = writeSubagentSessionFile(name, cs.cwd, cs.GetSessionID(), id, agentName, messages)
+}
+
+// syncSubagentRunFile picks the next free slot for a call, so the children of
+// one parallel call sit side by side instead of overwriting each other.
+func syncSubagentRunFile(dir, callID string) string {
+	safe := sanitizeRunID(callID)
+	for i := range 100 {
+		candidate := filepath.Join(dir, fmt.Sprintf("%s-%d.jsonl", safe, i))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func sanitizeRunID(id string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			return r
+		default:
+			return '-'
+		}
+	}, id)
+	if cleaned == "" {
+		return "run"
+	}
+	return cleaned
 }
 
 // subagentRunStats tallies one child run into the closing figures host UIs
@@ -300,7 +357,7 @@ func (cs *engine) forkInBackground(ctx context.Context, def *subagent.SubagentDe
 		stats := subagentRunStats(result.Messages, startedAt)
 		cs.emitSubagentChildUsage(bubbleID, result.Messages)
 		if taskRecord, ok := cs.taskManager.Get(taskID); ok {
-			if writeErr := writeSubagentSessionFile(taskRecord.SessionFile, childCwd, cs.GetSessionID(), taskID, result.Messages); writeErr != nil && err == nil {
+			if writeErr := writeSubagentSessionFile(taskRecord.SessionFile, childCwd, cs.GetSessionID(), taskID, def.Name, result.Messages); writeErr != nil && err == nil {
 				err = writeErr
 			}
 		}

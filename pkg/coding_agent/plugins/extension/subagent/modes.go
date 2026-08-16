@@ -58,9 +58,11 @@ func runSingle(ctx context.Context, ext *Extension, args map[string]any) (string
 		background = &yes
 	}
 	description, _ := args["description"].(string)
+	callID, _ := args["_callID"].(string)
 	return forkOne(ctx, ext, agentName, task, callOptions{
 		description:   description,
 		background:    background,
+		callID:        callID,
 		outputPath:    outputPath,
 		outputMode:    output.mode,
 		reads:         reads,
@@ -104,6 +106,7 @@ func runParallel(ctx context.Context, ext *Extension, args map[string]any) (stri
 	topWorktree, _ := args["worktree"].(bool)
 	topSessionDir, _ := args["sessionDir"].(string)
 	topBatchTaskID, _ := args["_batchTaskID"].(string)
+	callID, _ := args["_callID"].(string)
 	progressCreated := false
 	return runParallelCalls(ctx, ext, calls, parallelOptions{
 		chainDir:        topChainDir,
@@ -113,6 +116,7 @@ func runParallel(ctx context.Context, ext *Extension, args map[string]any) (stri
 		worktree:        topWorktree,
 		sessionDir:      topSessionDir,
 		batchTaskID:     topBatchTaskID,
+		callID:          callID,
 		progressCreated: &progressCreated,
 	})
 }
@@ -162,6 +166,7 @@ type parallelOptions struct {
 	worktree        bool
 	sessionDir      string
 	batchTaskID     string
+	callID          string
 	progressCreated *bool
 }
 
@@ -235,6 +240,7 @@ func runParallelCalls(ctx context.Context, ext *Extension, calls []callSpec, opt
 					thinking:      call.thinking,
 					sessionDir:    opts.sessionDir,
 					batchTaskID:   opts.batchTaskID,
+					callID:        opts.callID,
 				})
 			}
 			if err == nil {
@@ -295,6 +301,7 @@ func runChain(ctx context.Context, ext *Extension, args map[string]any) (string,
 	topChainDir, _ := args["chainDir"].(string)
 	topSessionDir, _ := args["sessionDir"].(string)
 	topBatchTaskID, _ := args["_batchTaskID"].(string)
+	callID, _ := args["_callID"].(string)
 	topConcurrency, err := optionalPositiveInt(args["concurrency"])
 	if err != nil {
 		return "", err
@@ -332,6 +339,7 @@ func runChain(ctx context.Context, ext *Extension, args map[string]any) (string,
 				worktree:        step.worktree,
 				sessionDir:      topSessionDir,
 				batchTaskID:     topBatchTaskID,
+				callID:          callID,
 				progressCreated: &progressCreated,
 			})
 			if err != nil {
@@ -443,6 +451,8 @@ type callOptions struct {
 	// thinking, when set, overrides the profile's ThinkingLevel for this
 	// call only. Empty means "inherit profile".
 	thinking string
+	// callID is the parent's tool call that requested this run.
+	callID string
 	// sessionDir, when non-empty, requests the host to place this child's
 	// per-run files under a caller-supplied parent path. Only meaningful
 	// for background forks; ignored otherwise.
@@ -703,6 +713,7 @@ func forkOptionsFor(def *csubagent.SubagentDefinition, cfg Config, task string, 
 		// Children of a batch bubble their live events under the batch id so
 		// the batch's control counters aggregate across all of them.
 		BubbleTaskID: strings.TrimSpace(opts.batchTaskID),
+		CallID:       strings.TrimSpace(opts.callID),
 	}
 }
 
