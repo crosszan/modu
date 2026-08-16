@@ -4008,6 +4008,34 @@ func TestContextRemainingToolUsesSessionTokenBudget(t *testing.T) {
 	}
 }
 
+func TestTrajectoryToolIsBoundToTheRunningSession(t *testing.T) {
+	session := newTestSession(t, newTestModelWithContext(10000))
+
+	var tool types.Tool
+	for _, candidate := range session.activeTools {
+		if candidate.Name() == "get_trajectory" {
+			tool = candidate
+			break
+		}
+	}
+	if tool == nil {
+		t.Fatalf("expected get_trajectory in active tools, got %v", toolNamesFromTools(session.activeTools))
+	}
+
+	result, err := tool.Execute(context.Background(), "trajectory-1", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The tool is built before the session exists and is bound afterwards; an
+	// unbound proxy is the failure this guards against.
+	if result.IsError {
+		t.Fatalf("expected the tool to reach the session, got error result %q", extractTextBlocks(result.Content))
+	}
+	if text := extractTextBlocks(result.Content); !strings.Contains(text, "not recorded any events") {
+		t.Fatalf("expected an empty-session report, got %q", text)
+	}
+}
+
 func TestContextInfoReportsRemainingTokenBudget(t *testing.T) {
 	session := newTestSession(t, newTestModelWithContext(10000))
 	session.config.AutoCompaction = true

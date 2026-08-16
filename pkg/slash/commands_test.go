@@ -953,3 +953,124 @@ func initSlashGitRepo(t *testing.T, dir string) {
 	run("add", "README.md")
 	run("commit", "-m", "init")
 }
+
+// trajectorySession returns a session whose model answers with a single tool
+// call and then a final message, so the projected trajectory has two steps.
+func trajectorySession(t *testing.T, cwd string, model *types.Model) *coding_agent.CodingSession {
+	t.Helper()
+	turn := 0
+	session, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
+		Cwd:       cwd,
+		AgentDir:  filepath.Join(cwd, ".coding_agent"),
+		Model:     model,
+		GetAPIKey: func(string) (string, error) { return "", nil },
+		StreamFn: func(ctx context.Context, _ *types.Model, _ *types.LLMContext, _ *types.SimpleStreamOptions) (types.EventStream, error) {
+			turn++
+			stream := types.NewEventStream()
+			content := []types.ContentBlock{&types.TextContent{Type: "text", Text: "done"}}
+			reason := "stop"
+			if turn == 1 {
+				content = []types.ContentBlock{&types.ToolCallContent{
+					Type: "toolCall", ID: "call-1", Name: "ls", Arguments: map[string]any{"path": "."},
+				}}
+				reason = "tool_calls"
+			}
+			go func() {
+				defer stream.Close()
+				msg := &types.AssistantMessage{
+					Role:       "assistant",
+					ProviderID: model.ProviderID,
+					Model:      model.ID,
+					StopReason: reason,
+					Content:    content,
+					Usage:      types.AgentUsage{Input: 100, Output: 10, TotalTokens: 110},
+					Timestamp:  time.Now().UnixMilli(),
+				}
+				stream.Push(types.StreamEvent{Type: "done", Reason: reason, Message: msg})
+				stream.Resolve(msg, nil)
+			}()
+			return stream, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func TestHandleTrajectoryCommand(t *testing.T) {
+	cwd := t.TempDir()
+	model := &types.Model{ID: "test", Name: "Test", ProviderID: "test"}
+	session := trajectorySession(t, cwd, model)
+	if err := session.Prompt(context.Background(), "list the files"); err != nil {
+		t.Fatal(err)
+	}
+
+	printer := &capturePrinter{}
+	handled, exit := handleLine(context.Background(), "/trajectory", session, printer, model)
+	if !handled || exit {
+		t.Fatalf("expected /trajectory to be handled without exit, handled=%v exit=%v", handled, exit)
+	}
+	output := printer.String()
+	for _, want := range []string{"Trajectory", "turns: 1", "Turns", "Tools", "ls", "list the files"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected %q in trajectory output, got:\n%s", want, output)
+		}
+	}
+	// The model resumed after the tool result, which opens a second step.
+	if !strings.Contains(output, "steps: 2") {
+		t.Fatalf("expected two model steps, got:\n%s", output)
+	}
+}
+
+func TestHandleTrajectoryHTMLCommand(t *testing.T) {
+	cwd := t.TempDir()
+	model := &types.Model{ID: "test", Name: "Test", ProviderID: "test"}
+	session := trajectorySession(t, cwd, model)
+	if err := session.Prompt(context.Background(), "list the files"); err != nil {
+		t.Fatal(err)
+	}
+
+	printer := &capturePrinter{}
+	handled, exit := handleLine(context.Background(), "/trajectory html reports/run.html", session, printer, model)
+	if !handled || exit {
+		t.Fatalf("expected /trajectory html to be handled without exit, handled=%v exit=%v", handled, exit)
+	}
+	outPath := filepath.Join(cwd, "reports", "run.html")
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("expected trajectory export: %v", err)
+	}
+	for _, want := range []string{"trajectory-data", "list the files", `"schemaVersion":1`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("expected %q in exported page", want)
+		}
+	}
+	if !strings.Contains(printer.String(), outPath) {
+		t.Fatalf("expected output path, got %s", printer.String())
+	}
+}
+
+func TestHandleTrajectoryRejectsUnknownSubcommand(t *testing.T) {
+	cwd := t.TempDir()
+	model := &types.Model{ID: "test", Name: "Test", ProviderID: "test"}
+	session := trajectorySession(t, cwd, model)
+
+	printer := &capturePrinter{}
+	handleLine(context.Background(), "/trajectory bogus", session, printer, model)
+	if !strings.Contains(printer.String(), "usage: /trajectory") {
+		t.Fatalf("expected usage hint, got:\n%s", printer.String())
+	}
+}
+
+func TestHandleTrajectoryOnEmptySession(t *testing.T) {
+	cwd := t.TempDir()
+	model := &types.Model{ID: "test", Name: "Test", ProviderID: "test"}
+	session := trajectorySession(t, cwd, model)
+
+	printer := &capturePrinter{}
+	handleLine(context.Background(), "/trajectory", session, printer, model)
+	if !strings.Contains(printer.String(), "no trajectory yet") {
+		t.Fatalf("expected empty-session message, got:\n%s", printer.String())
+	}
+}

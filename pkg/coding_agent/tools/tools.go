@@ -14,6 +14,7 @@ import (
 	"github.com/openmodu/modu/pkg/coding_agent/tools/planning"
 	"github.com/openmodu/modu/pkg/coding_agent/tools/read"
 	toolresult "github.com/openmodu/modu/pkg/coding_agent/tools/toolresult"
+	trajectorytool "github.com/openmodu/modu/pkg/coding_agent/tools/trajectory"
 	webtools "github.com/openmodu/modu/pkg/coding_agent/tools/web"
 	worktreetool "github.com/openmodu/modu/pkg/coding_agent/tools/worktree"
 	"github.com/openmodu/modu/pkg/coding_agent/tools/write"
@@ -39,6 +40,7 @@ const (
 	ValuePlanMode    = "plan_mode"
 	ValueWorktree    = "worktree"
 	ValueContext     = "context_remaining"
+	ValueTrajectory  = "trajectory"
 	ValueArtifacts   = "artifacts"
 	ValueWebSearch   = "web_search"
 	ValueWebFetch    = "web_fetch"
@@ -88,6 +90,7 @@ func (p DefaultProvider) Tools(ctx types.ToolContext) []types.Tool {
 		out = append(out, worktreetool.NewEnterWorktreeTool(worktree), worktreetool.NewExitWorktreeTool(worktree))
 	}
 	out = append(out, contextremaining.New(valueAs[contextremaining.Provider](ctx, ValueContext)))
+	out = append(out, trajectorytool.New(valueAs[trajectorytool.Provider](ctx, ValueTrajectory)))
 	return out
 }
 

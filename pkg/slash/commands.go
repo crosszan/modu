@@ -12,6 +12,7 @@ import (
 	"time"
 
 	coding_agent "github.com/openmodu/modu/pkg/coding_agent"
+	"github.com/openmodu/modu/pkg/coding_agent/trajectory"
 	"github.com/openmodu/modu/pkg/types"
 )
 
@@ -54,6 +55,7 @@ const (
 	commandClone
 	commandBranchSession
 	commandExport
+	commandTrajectory
 	commandCopy
 	commandChangelog
 	commandDoctor
@@ -92,6 +94,7 @@ func CommandDefinitions() []CommandDefinition {
 		{Name: "/clone", Description: "Clone the current session", operation: commandClone},
 		{Name: "/branch-session", Description: "Create a branched session from an entry", operation: commandBranchSession},
 		{Name: "/export", Description: "Export the session to HTML", operation: commandExport},
+		{Name: "/trajectory", Description: "Show the session trajectory, or export it as HTML", operation: commandTrajectory},
 		{Name: "/copy", Description: "Copy the last assistant message", operation: commandCopy},
 		{Name: "/changelog", Description: "Show recent git commits", operation: commandChangelog},
 		{Name: "/doctor", Description: "Show runtime diagnostics", operation: commandDoctor},
@@ -365,12 +368,16 @@ func executeCommand(ctx context.Context, operation commandOperation, invokedName
 		if len(parts) > 1 {
 			path = strings.TrimSpace(parts[1])
 		}
-		path = resolveExportPath(session, path)
+		path = resolveExportPath(session, path, "modu_code-session.html")
 		if err := session.ExportHTML(path); err != nil {
 			r.PrintError(err)
 		} else {
 			r.PrintInfo("exported session: " + path)
 		}
+		return false
+
+	case commandTrajectory:
+		handleTrajectory(parts, session, r)
 		return false
 
 	case commandCopy:
@@ -671,10 +678,54 @@ func printMemoryStatus(session *coding_agent.CodingSession, r Printer) {
 	r.PrintSection("Memory organization", lines)
 }
 
-func resolveExportPath(session *coding_agent.CodingSession, path string) string {
+// handleTrajectory prints the session's event ledger, or writes the
+// interactive viewer when invoked as "/trajectory html [path]".
+func handleTrajectory(parts []string, session *coding_agent.CodingSession, r Printer) {
+	arg := ""
+	if len(parts) > 1 {
+		arg = strings.TrimSpace(parts[1])
+	}
+	if fields := strings.Fields(arg); len(fields) > 0 {
+		if fields[0] != "html" {
+			r.PrintInfo("usage: /trajectory [html [path]]")
+			return
+		}
+		path := resolveExportPath(session, strings.Join(fields[1:], " "), "modu_code-trajectory.html")
+		if err := session.ExportTrajectoryHTML(path); err != nil {
+			r.PrintError(err)
+			return
+		}
+		r.PrintInfo("exported trajectory: " + path)
+		return
+	}
+
+	// The terminal view reads only turn and tool aggregates, which describe the
+	// whole session regardless of the record cap, so the default cap stands.
+	result, err := session.Trajectory(trajectory.Options{})
+	if err != nil {
+		r.PrintError(err)
+		return
+	}
+	if result.Stats.Records == 0 {
+		r.PrintInfo("no trajectory yet: this session has not recorded any events")
+		return
+	}
+	r.PrintSection("Trajectory", trajectory.Overview(result))
+	if lines := trajectory.TurnLines(result); len(lines) > 0 {
+		r.PrintSection("Turns", lines)
+	}
+	if lines := trajectory.ToolLines(result); len(lines) > 0 {
+		r.PrintSection("Tools", lines)
+	}
+	if count := len(result.Warnings); count > 0 {
+		r.PrintInfo(fmt.Sprintf("%d session line(s) could not be read", count))
+	}
+}
+
+func resolveExportPath(session *coding_agent.CodingSession, path, defaultName string) string {
 	cwd := session.GetContextInfo().Cwd
 	if strings.TrimSpace(path) == "" {
-		path = "modu_code-session.html"
+		path = defaultName
 	}
 	if filepath.IsAbs(path) || cwd == "" {
 		return filepath.Clean(path)
