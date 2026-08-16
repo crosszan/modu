@@ -232,6 +232,7 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 	// Initialize memory store (global ~/.modu/memory + project <cwd>/memory)
 	memoryStore := memory.New(agentDir, opts.Cwd)
 	contextRemaining := &contextRemainingProxy{}
+	trajectorySource := &trajectoryProxy{}
 
 	// Create session manager before tools so tool artifacts can be grouped by
 	// the active session id under the canonical project tool-results tree.
@@ -266,6 +267,7 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 			tools.ValuePlanMode:    plan.New(nil),
 			tools.ValueWorktree:    worktree.New(nil),
 			tools.ValueContext:     contextRemaining,
+			tools.ValueTrajectory:  trajectorySource,
 			tools.ValueArtifacts:   artifactStore,
 			tools.ValueWebSearch:   cfg.WebSearch,
 			tools.ValueWebFetch:    cfg.WebFetch,
@@ -710,6 +712,7 @@ func NewCodingSession(opts CodingSessionOptions) (*CodingSession, error) {
 
 	sess := &CodingSession{engine: cs}
 	cs.self = sess
+	trajectorySource.SetSource(sess)
 	if sessionIPCReceiver != nil {
 		sessionIPCReceiver.activate()
 	}

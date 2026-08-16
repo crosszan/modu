@@ -79,6 +79,7 @@ pkg/coding_agent/
 | `edit` | 精确编辑 | 精确字符串匹配替换、歧义检测、replace_all、CRLF 兼容 |
 | `write` | 文件写入 | 自动创建父目录、返回写入字节数 |
 | `get_context_remaining` | 上下文预算 | 返回距离自动压缩阈值还剩多少 token；自动压缩关闭或模型未知时返回 unknown / `tokens_left: null` |
+| `get_trajectory` | 自身轨迹 | 读本会话已持久化的日志，返回 turn / model step / 每工具耗时与失败 / token 汇总；传 `turn` 看某一轮逐步记录，再加 `detail: "full"` 才带工具输入输出（默认 summary，不把 payload 塞回上下文）|
 
 搜索和列目录工具保留为显式 opt-in 能力，不进入默认工具集：
 

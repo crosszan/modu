@@ -3540,7 +3540,7 @@ func TestDefaultProviderBuildsAndRebindsTools(t *testing.T) {
 		},
 	})
 	names := toolNames(tools)
-	for _, name := range []string{"read", "grep", "find", "ls", "memo", "get_context_remaining"} {
+	for _, name := range []string{"read", "grep", "find", "ls", "memo", "get_context_remaining", "get_trajectory"} {
 		if !containsName(names, name) {
 			t.Fatalf("expected %s in provider tools, got %v", name, names)
 		}
