@@ -36,6 +36,7 @@ const (
 	EntryTypeSessionSettings EntryType = "session_settings"
 	EntryTypeRuntimeState    EntryType = "runtime_state"
 	EntryTypePlanSnapshot    EntryType = "plan_snapshot"
+	EntryTypePromptSnapshot  EntryType = "prompt_snapshot"
 )
 
 // SessionEntry represents a single entry in the session history.
@@ -164,6 +165,8 @@ func (e SessionEntry) MarshalJSON() ([]byte, error) {
 		base["state"] = e.Data
 	case EntryTypePlanSnapshot:
 		base["plan"] = e.Data
+	case EntryTypePromptSnapshot:
+		base["prompt"] = e.Data
 	default:
 		base["data"] = e.Data
 	}
@@ -245,6 +248,10 @@ func (e *SessionEntry) UnmarshalJSON(data []byte) error {
 		var v any
 		_ = json.Unmarshal(raw["plan"], &v)
 		e.Data = v
+	case EntryTypePromptSnapshot:
+		var d PromptSnapshotData
+		_ = json.Unmarshal(raw["prompt"], &d)
+		e.Data = d
 	default:
 		var v any
 		_ = json.Unmarshal(raw["data"], &v)
@@ -349,6 +356,35 @@ type SessionSettingsData struct {
 	// explicit false.
 	AutoApprove *bool `json:"autoApprove,omitempty"`
 }
+
+// PromptSnapshotData records the model-visible instruction state at the moment
+// a request was about to be made. It is written only when the state changes,
+// because a system prompt plus a full tool catalog is far too large to append
+// on every turn.
+//
+// Change classifies what moved since the previous snapshot, so a reader can
+// tell an initial capture from a prompt edit, a tool-set change, or both.
+type PromptSnapshotData struct {
+	System string           `json:"system"`
+	Tools  []PromptToolData `json:"tools,omitempty"`
+	Change string           `json:"change,omitempty"`
+}
+
+// PromptToolData is one entry of the persisted tool catalog.
+type PromptToolData struct {
+	Name        string `json:"name"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
+	Schema      string `json:"schema,omitempty"`
+}
+
+// Prompt snapshot change kinds.
+const (
+	PromptChangeInitial        = "initial"
+	PromptChangeSystem         = "system"
+	PromptChangeTools          = "tools"
+	PromptChangeSystemAndTools = "system-and-tools"
+)
 
 // LabelData holds label entry data.
 type LabelData struct {

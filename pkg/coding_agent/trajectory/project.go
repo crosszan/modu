@@ -15,14 +15,18 @@ import (
 // a trajectory. It never writes to the session.
 func Project(sessionPath string, opts Options) (Trajectory, error) {
 	opts = opts.normalized()
-	head, entries, warnings, err := readSession(sessionPath)
+	head, entries, prompts, warnings, err := readSession(sessionPath)
 	if err != nil {
 		return Trajectory{}, err
 	}
 	p := newProjector(opts)
+	// Prompt snapshots live outside the conversational branch, so they are
+	// merged back by timestamp rather than walked with it.
 	for _, e := range entries {
+		p.flushPrompts(prompts, e.TimeMs)
 		p.consume(e)
 	}
+	p.flushPrompts(prompts, 0)
 	return p.finish(head, warnings), nil
 }
 
@@ -55,6 +59,10 @@ type projector struct {
 	// recorded start — the assistant message is written once, already finished
 	// — so the previous event is the only defensible start for it.
 	lastEventMs int64
+	// promptCursor tracks how far the merged prompt-snapshot stream has been
+	// consumed, so the merge stays linear over both streams.
+	promptCursor int
+	lastPrompt   *Prompt
 }
 
 func newProjector(opts Options) *projector {
@@ -172,8 +180,12 @@ func (p *projector) add(record Record, startMs, endMs int64) int {
 		}
 	}
 	p.records = append(p.records, record)
-	p.turn().Records++
-	p.touchTurnEnd(max(startMs, endMs))
+	// Turn 0 means the record belongs to no turn: a prompt snapshot written
+	// before the session's first message has nothing to belong to yet.
+	if p.turnIndex > 0 {
+		p.turn().Records++
+		p.touchTurnEnd(max(startMs, endMs))
+	}
 	return len(p.records) - 1
 }
 
@@ -201,24 +213,50 @@ func (p *projector) assistantMessage(e entry, previousEventMs int64) {
 
 	// The whole model call is charged to the first record it produced; the rest
 	// are instants. One call is one span on the timeline, not one per block.
+	//
+	// A session written since timing was persisted carries the call's real
+	// clock. Older sessions do not, and the previous event is then the only
+	// defensible start — recorded as derived so no one reads it as measured.
 	callStart := e.TimeMs
+	callEnd := e.TimeMs
 	timing := ""
-	if previousEventMs > 0 && e.TimeMs > previousEventMs {
+	var firstTokenMs, decodeMs *int64
+	var throughput *float64
+	if recorded := e.Message.Timing; recorded != nil && recorded.RequestStartMs > 0 {
+		callStart = recorded.RequestStartMs
+		timing = TimingMeasured
+		if recorded.CompletedMs > callStart {
+			callEnd = recorded.CompletedMs
+		}
+		if recorded.FirstTokenMs > 0 && recorded.FirstTokenMs >= callStart {
+			wait := recorded.FirstTokenMs - callStart
+			firstTokenMs = &wait
+			if callEnd > recorded.FirstTokenMs {
+				decode := callEnd - recorded.FirstTokenMs
+				decodeMs = &decode
+				if output := e.Message.Usage.Output; output > 0 && decode > 0 {
+					rate := float64(output) / (float64(decode) / 1000)
+					throughput = &rate
+				}
+			}
+		}
+	} else if previousEventMs > 0 && e.TimeMs > previousEventMs {
 		callStart = previousEventMs
 		timing = TimingDerived
 	}
-	started := func() (int64, string) {
+	started := func() (int64, int64, string) {
 		if p.recordsFromThisMessage == 0 {
-			return callStart, timing
+			return callStart, callEnd, timing
 		}
-		return e.TimeMs, ""
+		return e.TimeMs, e.TimeMs, ""
 	}
 	p.recordsFromThisMessage = 0
 
 	first := -1
 	for _, block := range e.Message.blocks() {
 		var index int
-		start, provenance := started()
+		start, finish, provenance := started()
+		leading := p.recordsFromThisMessage == 0
 		switch block.Type {
 		case "thinking":
 			if block.Thinking == "" {
@@ -226,27 +264,33 @@ func (p *projector) assistantMessage(e entry, previousEventMs int64) {
 			}
 			p.stats.Reasoning++
 			index = p.add(Record{
-				ID:      e.ID,
-				Step:    step,
-				Kind:    KindReasoning,
-				Event:   "reasoning",
-				Summary: shorten(block.Thinking, summaryChars),
-				Output:  p.detail(block.Thinking),
-				Timing:  provenance,
-			}, start, e.TimeMs)
+				ID:           e.ID,
+				Step:         step,
+				Kind:         KindReasoning,
+				Event:        "reasoning",
+				Summary:      shorten(block.Thinking, summaryChars),
+				Output:       p.detail(block.Thinking),
+				Timing:       provenance,
+				FirstTokenMs: leadingValue(leading, firstTokenMs),
+				DecodeMs:     leadingValue(leading, decodeMs),
+				Throughput:   leadingRate(leading, throughput),
+			}, start, finish)
 		case "text":
 			if block.Text == "" {
 				continue
 			}
 			index = p.add(Record{
-				ID:      e.ID,
-				Step:    step,
-				Kind:    KindAssistant,
-				Event:   "assistant_message",
-				Summary: shorten(block.Text, summaryChars),
-				Output:  p.detail(block.Text),
-				Timing:  provenance,
-			}, start, e.TimeMs)
+				ID:           e.ID,
+				Step:         step,
+				Kind:         KindAssistant,
+				Event:        "assistant_message",
+				Summary:      shorten(block.Text, summaryChars),
+				Output:       p.detail(block.Text),
+				Timing:       provenance,
+				FirstTokenMs: leadingValue(leading, firstTokenMs),
+				DecodeMs:     leadingValue(leading, decodeMs),
+				Throughput:   leadingRate(leading, throughput),
+			}, start, finish)
 		case "toolCall":
 			index = p.toolCall(e, block, step)
 		default:
@@ -426,6 +470,9 @@ func (p *projector) finish(head header, warnings []Warning) Trajectory {
 		if first := p.firstResponse(turn.Index); first != nil {
 			turn.FirstResponseMs = first
 		}
+		if token := p.firstToken(turn.Index); token != nil {
+			turn.FirstTokenMs = token
+		}
 		p.stats.ActiveMs += turn.DurationMs
 	}
 	// Tool calls still without a result leave their turn (and the session) in
@@ -565,4 +612,106 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// leadingValue keeps a model call's split timing on the one record that owns
+// the call's span, so a multi-block reply does not repeat it per block.
+func leadingValue(leading bool, value *int64) *int64 {
+	if !leading {
+		return nil
+	}
+	return value
+}
+
+func leadingRate(leading bool, value *float64) *float64 {
+	if !leading {
+		return nil
+	}
+	return value
+}
+
+// firstToken reports the turn's real time to first token, which exists only
+// where the model call's clock was persisted. Record.FirstTokenMs is an offset
+// into that call, so it is rebased onto the turn's own start.
+func (p *projector) firstToken(turnIndex int) *int64 {
+	var start int64
+	for _, record := range p.records {
+		if record.Turn != turnIndex {
+			continue
+		}
+		if record.Kind == KindUser {
+			start = record.startedMs
+			continue
+		}
+		if start == 0 || record.FirstTokenMs == nil || record.startedMs == 0 {
+			continue
+		}
+		elapsed := max(record.startedMs+*record.FirstTokenMs-start, 0)
+		return &elapsed
+	}
+	return nil
+}
+
+// flushPrompts emits every pending prompt snapshot at or before untilMs as its
+// own record. untilMs of 0 drains the rest, which is what a session whose last
+// prompt change outlived its final message needs.
+func (p *projector) flushPrompts(prompts []entry, untilMs int64) {
+	for p.promptCursor < len(prompts) {
+		candidate := prompts[p.promptCursor]
+		if untilMs > 0 && candidate.TimeMs > untilMs {
+			return
+		}
+		p.promptCursor++
+		p.promptRecord(candidate)
+	}
+}
+
+func (p *projector) promptRecord(e entry) {
+	if e.Prompt == nil {
+		return
+	}
+	snapshot := &Prompt{
+		System: e.Prompt.System,
+		Bytes:  len(e.Prompt.System),
+		Change: e.Prompt.Change,
+		Tools:  make([]Tool, 0, len(e.Prompt.Tools)),
+	}
+	for _, tool := range e.Prompt.Tools {
+		snapshot.Tools = append(snapshot.Tools, Tool{
+			Name:        tool.Name,
+			Label:       tool.Label,
+			Description: tool.Description,
+			Schema:      tool.Schema,
+		})
+	}
+	if previous := p.lastPrompt; previous != nil {
+		snapshot.PreviousSystem = previous.System
+		snapshot.PreviousTools = previous.Tools
+	}
+	p.lastPrompt = snapshot
+
+	// A snapshot before the session's first message stays outside every turn
+	// rather than inventing an empty one; one taken mid-conversation belongs
+	// to the turn it landed in.
+	p.stats.PromptChanges++
+	p.add(Record{
+		ID:      e.ID,
+		Kind:    KindSystem,
+		Event:   "prompt_" + snapshot.Change,
+		Summary: promptSummary(snapshot),
+		Prompt:  snapshot,
+	}, e.TimeMs, e.TimeMs)
+}
+
+func promptSummary(snapshot *Prompt) string {
+	switch snapshot.Change {
+	case PromptChangeSystem:
+		return fmt.Sprintf("system prompt changed · %d bytes · %d tools", snapshot.Bytes, len(snapshot.Tools))
+	case PromptChangeTools:
+		return fmt.Sprintf("tool catalog changed · %d tools", len(snapshot.Tools))
+	case PromptChangeSystemAndTools:
+		return fmt.Sprintf("system prompt and tools changed · %d bytes · %d tools", snapshot.Bytes, len(snapshot.Tools))
+	default:
+		return fmt.Sprintf("session instructions · %d bytes · %d tools", snapshot.Bytes, len(snapshot.Tools))
+	}
 }

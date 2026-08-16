@@ -33,6 +33,15 @@ const (
 	KindTool       = "tool"
 	KindSubagent   = "subagent"
 	KindCompaction = "compaction"
+	KindSystem     = "system"
+)
+
+// Prompt snapshot change kinds, mirroring what the session persists.
+const (
+	PromptChangeInitial        = "initial"
+	PromptChangeSystem         = "system"
+	PromptChangeTools          = "tools"
+	PromptChangeSystemAndTools = "system-and-tools"
 )
 
 // Record and turn statuses.
@@ -126,10 +135,17 @@ type Session struct {
 }
 
 // Prompt is the model-visible instruction state of a session.
+//
+// Change says what moved since the previous snapshot, and the Previous fields
+// carry enough of that snapshot to diff against — a prompt edit is only
+// meaningful next to what it replaced.
 type Prompt struct {
-	System string `json:"system"`
-	Bytes  int    `json:"bytes"`
-	Tools  []Tool `json:"tools,omitempty"`
+	System         string `json:"system"`
+	Bytes          int    `json:"bytes"`
+	Tools          []Tool `json:"tools,omitempty"`
+	Change         string `json:"change,omitempty"`
+	PreviousSystem string `json:"previousSystem,omitempty"`
+	PreviousTools  []Tool `json:"previousTools,omitempty"`
 }
 
 // Tool is one entry of the model-visible tool catalog.
@@ -149,16 +165,19 @@ type Turn struct {
 	CompletedAt string `json:"completedAt,omitempty"`
 	DurationMs  int64  `json:"durationMs"`
 	// FirstResponseMs is the gap from the prompt to the turn's first completed
-	// model output. It is deliberately not called time-to-first-token: the log
-	// records when a message finished, never when its first token arrived.
-	// Nil when the turn produced no model output.
+	// model output. It is deliberately not called time-to-first-token: it
+	// measures to when a message finished, which is all an older session
+	// records. Nil when the turn produced no model output.
 	FirstResponseMs *int64 `json:"firstResponseMs,omitempty"`
-	Steps           int    `json:"steps"`
-	Records         int    `json:"records"`
-	ToolCalls       int    `json:"toolCalls"`
-	Failures        int    `json:"failures"`
-	Tokens          Usage  `json:"tokens"`
-	Status          string `json:"status"`
+	// FirstTokenMs is the real time to first token, present only when the
+	// session persisted the model call's clock.
+	FirstTokenMs *int64 `json:"firstTokenMs,omitempty"`
+	Steps        int    `json:"steps"`
+	Records      int    `json:"records"`
+	ToolCalls    int    `json:"toolCalls"`
+	Failures     int    `json:"failures"`
+	Tokens       Usage  `json:"tokens"`
+	Status       string `json:"status"`
 }
 
 // Record is one projected event on the session's current branch.
@@ -179,16 +198,27 @@ type Record struct {
 	DurationMs  *int64 `json:"durationMs,omitempty"`
 	Status      string `json:"status"`
 	// Timing says where StartedAt and DurationMs came from. TimingMeasured
-	// means both endpoints are recorded facts, which is the case for a tool
-	// call paired with its result. TimingDerived means the start was inferred
-	// from the previous event, which is the only way to time a model call:
-	// an assistant message is written once, when it is already complete.
-	Timing   string `json:"timing,omitempty"`
-	ToolName string `json:"toolName,omitempty"`
-	CallID   string `json:"callId,omitempty"`
-	Input    string `json:"input,omitempty"`
-	Output   string `json:"output,omitempty"`
-	Usage    *Usage `json:"usage,omitempty"`
+	// means both endpoints are recorded facts: a tool call paired with its
+	// result, or a model call from a session that persisted its clock.
+	// TimingDerived means the start was inferred from the previous event,
+	// which is all an older session allows — an assistant message is written
+	// once, when it is already complete.
+	Timing string `json:"timing,omitempty"`
+	// FirstTokenMs and DecodeMs split a measured model call into waiting for
+	// the first token and decoding the rest. Both are absent for a
+	// non-streaming reply, which has no first-token moment to record.
+	FirstTokenMs *int64 `json:"firstTokenMs,omitempty"`
+	DecodeMs     *int64 `json:"decodeMs,omitempty"`
+	// Throughput is decoded output tokens per second.
+	Throughput *float64 `json:"throughput,omitempty"`
+	ToolName   string   `json:"toolName,omitempty"`
+	CallID     string   `json:"callId,omitempty"`
+	Input      string   `json:"input,omitempty"`
+	Output     string   `json:"output,omitempty"`
+	Usage      *Usage   `json:"usage,omitempty"`
+	// Prompt is present on a system record: the instruction state introduced
+	// at that point, with the previous one for comparison.
+	Prompt *Prompt `json:"prompt,omitempty"`
 
 	startedMs   int64
 	completedMs int64
@@ -218,14 +248,15 @@ func (u *Usage) add(other Usage) {
 // Stats aggregates the complete session, including records dropped by
 // MaxRecords.
 type Stats struct {
-	Turns        int `json:"turns"`
-	Steps        int `json:"steps"`
-	Records      int `json:"records"`
-	Messages     int `json:"messages"`
-	ToolCalls    int `json:"toolCalls"`
-	ToolFailures int `json:"toolFailures"`
-	Reasoning    int `json:"reasoning"`
-	Compactions  int `json:"compactions"`
+	Turns         int `json:"turns"`
+	Steps         int `json:"steps"`
+	Records       int `json:"records"`
+	Messages      int `json:"messages"`
+	ToolCalls     int `json:"toolCalls"`
+	ToolFailures  int `json:"toolFailures"`
+	Reasoning     int `json:"reasoning"`
+	Compactions   int `json:"compactions"`
+	PromptChanges int `json:"promptChanges"`
 	// DurationMs spans the first and last projected event. A session resumed
 	// across days spans far more wall clock than it spent working, so ActiveMs
 	// sums the turns' own durations and is the one to read as "time spent".

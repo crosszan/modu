@@ -86,6 +86,9 @@ func completeOnce(ctx context.Context, input types.LLMInput) (*types.AssistantMe
 		}
 	}
 
+	// Stamped before the provider call so the recorded wait includes connecting
+	// and the model's own latency, not just what arrives on the stream.
+	requestStart := time.Now()
 	response, err := streamFn(ctx, input.Options.Model, &types.LLMContext{
 		SystemPrompt: input.Context.SystemPrompt,
 		Messages:     []types.AgentMessage(messages),
@@ -106,7 +109,7 @@ func completeOnce(ctx context.Context, input types.LLMInput) (*types.AssistantMe
 	if err != nil {
 		return nil, err
 	}
-	return collectAssistantMessage(response, input.Events)
+	return collectAssistantMessage(response, input.Events, requestStart)
 }
 
 func defaultConvertToLLM(messages []types.AgentMessage) []types.AgentMessage {
@@ -120,11 +123,16 @@ func defaultConvertToLLM(messages []types.AgentMessage) []types.AgentMessage {
 	return out
 }
 
-func collectAssistantMessage(response types.EventStream, events types.EventSink) (*types.AssistantMessage, error) {
+func collectAssistantMessage(
+	response types.EventStream, events types.EventSink, requestStart time.Time,
+) (*types.AssistantMessage, error) {
 	if events == nil {
 		events = discardEvents{}
 	}
 	addedStart := false
+	// The first event carrying content is the first token. EventStart only
+	// opens the message and carries none, so it must not count.
+	var firstToken time.Time
 	for event := range response.Events() {
 		switch event.Type {
 		case types.EventStart:
@@ -135,6 +143,9 @@ func collectAssistantMessage(response types.EventStream, events types.EventSink)
 		case types.EventTextStart, types.EventTextDelta, types.EventTextEnd,
 			types.EventThinkingStart, types.EventThinkingDelta, types.EventThinkingEnd,
 			types.EventToolCallStart, types.EventToolCallDelta, types.EventToolCallEnd:
+			if firstToken.IsZero() {
+				firstToken = time.Now()
+			}
 			if event.Partial != nil {
 				events.Emit(types.Event{Type: types.EventTypeMessageUpdate, Message: *event.Partial, StreamEvent: &event})
 			}
@@ -146,6 +157,7 @@ func collectAssistantMessage(response types.EventStream, events types.EventSink)
 			if finalMessage == nil {
 				return nil, fmt.Errorf("missing final message")
 			}
+			applyMessageTiming(finalMessage, requestStart, firstToken)
 			if !addedStart {
 				events.Emit(types.Event{Type: types.EventTypeMessageStart, Message: *finalMessage})
 			}
@@ -161,11 +173,28 @@ func collectAssistantMessage(response types.EventStream, events types.EventSink)
 	if finalMessage == nil {
 		return nil, fmt.Errorf("missing final message")
 	}
+	applyMessageTiming(finalMessage, requestStart, firstToken)
 	if !addedStart {
 		events.Emit(types.Event{Type: types.EventTypeMessageStart, Message: *finalMessage})
 	}
 	events.Emit(types.Event{Type: types.EventTypeMessageEnd, Message: *finalMessage})
 	return finalMessage, nil
+}
+
+// applyMessageTiming stamps the model call's real clock onto the reply. A
+// provider that already reported timing keeps it.
+func applyMessageTiming(message *types.AssistantMessage, requestStart, firstToken time.Time) {
+	if message == nil || message.Timing != nil || requestStart.IsZero() {
+		return
+	}
+	timing := types.MessageTiming{
+		RequestStartMs: requestStart.UnixMilli(),
+		CompletedMs:    time.Now().UnixMilli(),
+	}
+	if !firstToken.IsZero() {
+		timing.FirstTokenMs = firstToken.UnixMilli()
+	}
+	message.Timing = &timing
 }
 
 func sleepBeforeRetry(ctx context.Context, attempt int, maxDelayMs int) error {

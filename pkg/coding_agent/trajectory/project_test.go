@@ -357,3 +357,156 @@ func TestProjectMissingFile(t *testing.T) {
 		t.Fatal("expected an error for a missing session file")
 	}
 }
+
+// fixtureTimed is an assistant reply from a session written after model-call
+// timing was persisted: the request began at :00.500, the first token arrived
+// at :01.500, and decoding finished at :03.500.
+const fixtureTimed = `{"id":"a1","parentId":"u1","timestamp":"2026-01-01T00:00:04Z","message":{"role":"assistant","content":[{"type":"text","text":"Answer."}],"provider":"deepseek","model":"deepseek-v4","usage":{"input":1000,"output":40,"totalTokens":1040},"timing":{"requestStartMs":1767225600500,"firstTokenMs":1767225601500,"completedMs":1767225603500}},"type":"message"}`
+
+func TestProjectPrefersRecordedModelTiming(t *testing.T) {
+	path := writeSession(t, fixtureHeader, fixtureUser, fixtureTimed)
+	result, err := Project(path, Options{})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	record := result.Records[len(result.Records)-1]
+	if record.Timing != TimingMeasured {
+		t.Errorf("Timing = %q, want %q", record.Timing, TimingMeasured)
+	}
+	// The span runs request start to completion, not to when the entry landed.
+	if record.DurationMs == nil || *record.DurationMs != 3000 {
+		t.Errorf("DurationMs = %v, want 3000", record.DurationMs)
+	}
+	if record.FirstTokenMs == nil || *record.FirstTokenMs != 1000 {
+		t.Errorf("FirstTokenMs = %v, want 1000", record.FirstTokenMs)
+	}
+	if record.DecodeMs == nil || *record.DecodeMs != 2000 {
+		t.Errorf("DecodeMs = %v, want 2000", record.DecodeMs)
+	}
+	// 40 output tokens decoded over 2s.
+	if record.Throughput == nil || *record.Throughput != 20 {
+		t.Errorf("Throughput = %v, want 20", record.Throughput)
+	}
+	turn := result.Turns[0]
+	if turn.FirstTokenMs == nil || *turn.FirstTokenMs != 1500 {
+		t.Errorf("turn FirstTokenMs = %v, want 1500", turn.FirstTokenMs)
+	}
+}
+
+func TestProjectFallsBackToDerivedTimingOnOlderSessions(t *testing.T) {
+	// A session written before timing was persisted must still project, with
+	// its inferred start labelled as such.
+	result := fullSession(t)
+	var model *Record
+	for i := range result.Records {
+		if result.Records[i].Kind == KindReasoning {
+			model = &result.Records[i]
+		}
+	}
+	if model == nil {
+		t.Fatal("no model record")
+	}
+	if model.Timing != TimingDerived {
+		t.Errorf("Timing = %q, want %q", model.Timing, TimingDerived)
+	}
+	if model.FirstTokenMs != nil || model.DecodeMs != nil || model.Throughput != nil {
+		t.Errorf("derived timing must not invent a token split: %+v", model)
+	}
+	if result.Turns[0].FirstTokenMs != nil {
+		t.Errorf("turn FirstTokenMs = %v, want nil without recorded timing", result.Turns[0].FirstTokenMs)
+	}
+}
+
+const (
+	fixturePromptInitial = `{"id":"p1","parentId":null,"timestamp":"2026-01-01T00:00:00Z","prompt":{"system":"You are modu.","tools":[{"name":"bash","description":"Run a command","schema":"{}"}],"change":"initial"},"type":"prompt_snapshot"}`
+	fixturePromptChanged = `{"id":"p2","parentId":"a1","timestamp":"2026-01-01T00:00:03Z","prompt":{"system":"You are modu, in plan mode.","tools":[{"name":"bash","description":"Run a command","schema":"{}"}],"change":"system"},"type":"prompt_snapshot"}`
+)
+
+func TestProjectMergesPromptSnapshotsIntoTheLedger(t *testing.T) {
+	path := writeSession(t, fixtureHeader, fixturePromptInitial, fixtureUser,
+		fixtureAssist, fixturePromptChanged, fixtureResult, fixtureFinal)
+	result, err := Project(path, Options{})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+
+	var system []Record
+	for _, record := range result.Records {
+		if record.Kind == KindSystem {
+			system = append(system, record)
+		}
+	}
+	if len(system) != 2 {
+		t.Fatalf("system records = %d, want 2: %+v", len(system), result.Records)
+	}
+	if result.Stats.PromptChanges != 2 {
+		t.Errorf("PromptChanges = %d, want 2", result.Stats.PromptChanges)
+	}
+
+	first, second := system[0], system[1]
+	if first.Prompt == nil || first.Prompt.Change != PromptChangeInitial {
+		t.Fatalf("first snapshot = %+v, want the initial capture", first.Prompt)
+	}
+	if first.Prompt.PreviousSystem != "" {
+		t.Error("the initial capture has nothing to diff against")
+	}
+	if second.Prompt == nil || second.Prompt.Change != PromptChangeSystem {
+		t.Fatalf("second snapshot = %+v, want a system change", second.Prompt)
+	}
+	// The previous prompt travels with the change so it can be diffed.
+	if second.Prompt.PreviousSystem != "You are modu." {
+		t.Errorf("PreviousSystem = %q", second.Prompt.PreviousSystem)
+	}
+	if len(second.Prompt.Tools) != 1 || second.Prompt.Tools[0].Name != "bash" {
+		t.Errorf("tools = %+v", second.Prompt.Tools)
+	}
+
+	// Merged by timestamp: the change landed between the model reply and the
+	// tool result, and the sidecar must not have broken the branch walk.
+	if first.Index != 1 {
+		t.Errorf("initial snapshot index = %d, want it first", first.Index)
+	}
+	var kinds []string
+	for _, record := range result.Records {
+		kinds = append(kinds, record.Kind)
+	}
+	want := []string{KindSystem, KindUser, KindReasoning, KindAssistant, KindTool, KindSystem, KindAssistant}
+	if strings.Join(kinds, ",") != strings.Join(want, ",") {
+		t.Errorf("record order = %v, want %v", kinds, want)
+	}
+}
+
+func TestProjectDrainsTrailingPromptSnapshots(t *testing.T) {
+	// A prompt change after the last message must still appear.
+	trailing := `{"id":"p9","parentId":"a2","timestamp":"2026-01-01T00:09:00Z","prompt":{"system":"Later.","change":"system"},"type":"prompt_snapshot"}`
+	path := writeSession(t, fixtureHeader, fixtureUser, fixtureAssist, fixtureResult, fixtureFinal, trailing)
+	result, err := Project(path, Options{})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	last := result.Records[len(result.Records)-1]
+	if last.Kind != KindSystem {
+		t.Errorf("last record = %q, want a trailing system record", last.Kind)
+	}
+}
+
+func TestProjectKeepsPreSessionSnapshotOutsideEveryTurn(t *testing.T) {
+	// The first snapshot is written before the session's opening message, so
+	// it belongs to no turn — inventing an empty one for it would report a
+	// turn that never happened.
+	path := writeSession(t, fixtureHeader, fixturePromptInitial, fixtureUser, fixtureAssist)
+	result, err := Project(path, Options{})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if result.Stats.Turns != 1 {
+		t.Errorf("Turns = %d, want 1", result.Stats.Turns)
+	}
+	if result.Records[0].Kind != KindSystem || result.Records[0].Turn != 0 {
+		t.Errorf("leading record = %s/turn %d, want system/turn 0",
+			result.Records[0].Kind, result.Records[0].Turn)
+	}
+	if result.Turns[0].Prompt != "fix the build" {
+		t.Errorf("first turn = %q, want the real prompt", result.Turns[0].Prompt)
+	}
+}
