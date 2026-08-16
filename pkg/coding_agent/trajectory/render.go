@@ -36,6 +36,9 @@ func Overview(t Trajectory) []string {
 	if t.Stats.Compactions > 0 {
 		lines = append(lines, fmt.Sprintf("compactions: %d", t.Stats.Compactions))
 	}
+	if t.Stats.PromptChanges > 0 {
+		lines = append(lines, fmt.Sprintf("prompt changes: %d", t.Stats.PromptChanges))
+	}
 	if cost := t.Stats.Tokens.Cost; cost > 0 {
 		lines = append(lines, fmt.Sprintf("cost: %.4f", cost))
 	}
@@ -62,9 +65,12 @@ func TurnLines(t Trajectory) []string {
 		} else {
 			parts = append(parts, pad("", 9))
 		}
-		if turn.FirstResponseMs != nil {
+		switch {
+		case turn.FirstTokenMs != nil:
+			parts = append(parts, pad("ttft "+formatDuration(*turn.FirstTokenMs), 12))
+		case turn.FirstResponseMs != nil:
 			parts = append(parts, pad("1st "+formatDuration(*turn.FirstResponseMs), 12))
-		} else {
+		default:
 			parts = append(parts, pad("", 12))
 		}
 		if turn.Status == StatusRunning {
@@ -96,7 +102,9 @@ func TurnDetail(t Trajectory, index int) []string {
 	if turn.Failures > 0 {
 		head += fmt.Sprintf(" · %d failed", turn.Failures)
 	}
-	if turn.FirstResponseMs != nil {
+	if turn.FirstTokenMs != nil {
+		head += " · ttft " + formatDuration(*turn.FirstTokenMs)
+	} else if turn.FirstResponseMs != nil {
 		head += " · 1st response " + formatDuration(*turn.FirstResponseMs)
 	}
 	if turn.Status == StatusRunning {

@@ -500,7 +500,9 @@ func (m *Manager) rebuildIndexLocked() {
 }
 
 func entryAffectsLeaf(entry SessionEntry) bool {
-	return entry.Type != EntryTypeRuntimeState && entry.Type != EntryTypePlanSnapshot
+	return entry.Type != EntryTypeRuntimeState &&
+		entry.Type != EntryTypePlanSnapshot &&
+		entry.Type != EntryTypePromptSnapshot
 }
 
 func (m *Manager) applyDerivedState(entry SessionEntry) {

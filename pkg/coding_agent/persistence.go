@@ -342,6 +342,7 @@ func unmarshalAssistantMessage(raw json.RawMessage) (types.AssistantMessage, err
 		Usage            types.AgentUsage           `json:"usage"`
 		StopReason       string                     `json:"stopReason,omitempty"`
 		ErrorMessage     string                     `json:"errorMessage,omitempty"`
+		Timing           *types.MessageTiming       `json:"timing,omitempty"`
 		Timestamp        int64                      `json:"timestamp"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
@@ -360,6 +361,7 @@ func unmarshalAssistantMessage(raw json.RawMessage) (types.AssistantMessage, err
 		Usage:            wire.Usage,
 		StopReason:       wire.StopReason,
 		ErrorMessage:     wire.ErrorMessage,
+		Timing:           wire.Timing,
 		Timestamp:        wire.Timestamp,
 	}, nil
 }

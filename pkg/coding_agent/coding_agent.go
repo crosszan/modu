@@ -170,6 +170,10 @@ type engine struct {
 	// gitCache holds the last-known git state to avoid spawning git subprocesses
 	// on every writeRuntimeState call.
 	gitCache cachedGitState
+
+	// promptDigest fingerprints the last persisted prompt snapshot so an
+	// unchanged prompt is not written again.
+	promptDigest promptDigest
 }
 
 // CodingSession is the L5 host façade: it embeds the kernel engine (promoting
@@ -821,6 +825,7 @@ func (s *engine) Prompt(ctx context.Context, text string) error {
 			return err
 		}
 	}
+	s.recordPromptSnapshot()
 	s.beginRewindTurn(text)
 	defer s.finishRewindTurn()
 
@@ -866,6 +871,7 @@ func (s *engine) PromptWithImages(ctx context.Context, text string, images []typ
 			return err
 		}
 	}
+	s.recordPromptSnapshot()
 	s.beginRewindTurn(text)
 	defer s.finishRewindTurn()
 
@@ -932,6 +938,7 @@ func (s *engine) Continue(ctx context.Context) error {
 	if s == nil || s.agent == nil {
 		return fmt.Errorf("session is not initialized")
 	}
+	s.recordPromptSnapshot()
 	s.beginRewindTurn("continued turn")
 	defer s.finishRewindTurn()
 	err := s.agent.Continue(ctx)
@@ -1162,6 +1169,7 @@ func (s *engine) executeSkill(ctx context.Context, skill *skills.Skill, args str
 		},
 	}
 
+	s.recordPromptSnapshot()
 	s.beginRewindTurn("/" + skill.Name + " " + task)
 	defer s.finishRewindTurn()
 	err := s.agent.Prompt(ctx, messages)

@@ -31,7 +31,21 @@ type AssistantMessage struct {
 	Usage            AgentUsage                 `json:"usage"`
 	StopReason       StopReason                 `json:"stopReason,omitempty"`
 	ErrorMessage     string                     `json:"errorMessage,omitempty"`
+	Timing           *MessageTiming             `json:"timing,omitempty"`
 	Timestamp        int64                      `json:"timestamp"`
+}
+
+// MessageTiming records when a model call actually happened, in epoch
+// milliseconds captured around the provider stream.
+//
+// Without it a persisted assistant message carries a single timestamp — the
+// moment it was written, already complete — which cannot say how long the
+// model waited before answering or how fast it decoded. FirstTokenMs is zero
+// for a non-streaming reply, where no such moment exists to record.
+type MessageTiming struct {
+	RequestStartMs int64 `json:"requestStartMs,omitempty"`
+	FirstTokenMs   int64 `json:"firstTokenMs,omitempty"`
+	CompletedMs    int64 `json:"completedMs,omitempty"`
 }
 
 // ToolResultMessage carries the result of a tool call back to the model.

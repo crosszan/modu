@@ -4241,6 +4241,123 @@ func TestGetMessages(t *testing.T) {
 	}
 }
 
+// streamingTestSession answers with a real streamed reply so the agent records
+// a first-token moment, then persists it.
+func streamingTestSession(t *testing.T, dir string) *CodingSession {
+	t.Helper()
+	model := newTestModel()
+	streamFn := func(ctx context.Context, _ *types.Model, _ *types.LLMContext, _ *types.SimpleStreamOptions) (types.EventStream, error) {
+		stream := types.NewEventStream()
+		go func() {
+			defer stream.Close()
+			partial := &types.AssistantMessage{Role: "assistant", ProviderID: model.ProviderID, Model: model.ID}
+			stream.Push(types.StreamEvent{Type: types.EventStart, Partial: partial})
+			// A content event is what marks the first token.
+			stream.Push(types.StreamEvent{Type: types.EventTextDelta, Partial: partial})
+			final := &types.AssistantMessage{
+				Role: "assistant", ProviderID: model.ProviderID, Model: model.ID,
+				StopReason: "stop",
+				Content:    []types.ContentBlock{&types.TextContent{Type: "text", Text: "done"}},
+				Usage:      types.AgentUsage{Input: 10, Output: 5, TotalTokens: 15},
+			}
+			stream.Push(types.StreamEvent{Type: types.EventDone, Reason: "stop", Message: final})
+			stream.Resolve(final, nil)
+		}()
+		return stream, nil
+	}
+	session, err := NewCodingSession(CodingSessionOptions{
+		Cwd:       dir,
+		AgentDir:  filepath.Join(dir, ".coding_agent"),
+		Model:     model,
+		GetAPIKey: func(string) (string, error) { return "", nil },
+		StreamFn:  streamFn,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+func TestPromptPersistsModelCallTiming(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+	if err := session.Prompt(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(session.GetSessionFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The recorded clock has to survive the write, or the trajectory falls back
+	// to inferring a model call's start forever.
+	if !strings.Contains(string(raw), `"timing"`) {
+		t.Fatalf("session file carries no model-call timing:\n%s", string(raw))
+	}
+
+	var timed bool
+	for _, message := range session.GetMessages() {
+		assistant, ok := message.(types.AssistantMessage)
+		if !ok {
+			continue
+		}
+		if assistant.Timing == nil {
+			continue
+		}
+		timed = true
+		if assistant.Timing.RequestStartMs <= 0 || assistant.Timing.CompletedMs < assistant.Timing.RequestStartMs {
+			t.Errorf("timing = %+v, want a request start before completion", assistant.Timing)
+		}
+		if assistant.Timing.FirstTokenMs < assistant.Timing.RequestStartMs {
+			t.Errorf("first token %d precedes the request start %d",
+				assistant.Timing.FirstTokenMs, assistant.Timing.RequestStartMs)
+		}
+	}
+	if !timed {
+		t.Error("no assistant message carried timing")
+	}
+}
+
+func TestPromptPersistsPromptSnapshotOnceUntilItChanges(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+
+	count := func() int {
+		total := 0
+		for _, entry := range session.sessionManager.Load() {
+			if entry.Type == sessionpkg.EntryTypePromptSnapshot {
+				total++
+			}
+		}
+		return total
+	}
+
+	if err := session.Prompt(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got != 1 {
+		t.Fatalf("prompt snapshots after the first turn = %d, want 1", got)
+	}
+
+	// An unchanged prompt must not be written again: a system prompt plus every
+	// tool schema would dwarf the conversation if appended per turn.
+	if err := session.Prompt(context.Background(), "second"); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got != 1 {
+		t.Errorf("unchanged prompt was written again: %d snapshots", got)
+	}
+
+	session.promptBuilder.SetCustomPrompt("You are in a different mode now.")
+	session.refreshDynamicSystemPrompt()
+	if err := session.Prompt(context.Background(), "third"); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(); got != 2 {
+		t.Errorf("changed prompt was not recorded: %d snapshots", got)
+	}
+}
+
 func TestPromptPersistsAssistantAndToolMessages(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, ".coding_agent")
