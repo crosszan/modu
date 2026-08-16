@@ -227,7 +227,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
       subagent: "Subagent run", subagentUnavailable: "Child session unavailable",
       childTurns: "Child turns", childSteps: "Child steps", childTools: "Child tool calls",
       childFailures: "Child failures", childActive: "Child active time", childTokens: "Child tokens",
-      childTools2: "Child tools", agent: "Agent",
+      childTools2: "Child tools", agent: "Agent", taskId: "Task id",
       lang: "中文"
     },
     zh: {
@@ -254,7 +254,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
       subagent: "子代理运行", subagentUnavailable: "子会话不可用",
       childTurns: "子会话轮次", childSteps: "子会话步数", childTools: "子会话工具调用",
       childFailures: "子会话失败", childActive: "子会话工作时长", childTokens: "子会话 token",
-      childTools2: "子会话工具", agent: "代理",
+      childTools2: "子会话工具", agent: "代理", taskId: "任务 id",
       lang: "English"
     }
   };
@@ -948,6 +948,7 @@ body.resizing { user-select: none; cursor: ns-resize; }
   function renderSubagentTab(host, run) {
     var list = el("dl");
     field(list, t("agent"), run.agent);
+    field(list, t("taskId"), run.taskId);
     if (!run.available) {
       host.appendChild(list);
       host.appendChild(el("p", "muted", run.reason || t("subagentUnavailable")));

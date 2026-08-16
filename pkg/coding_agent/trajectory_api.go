@@ -2,6 +2,7 @@ package coding_agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
@@ -137,4 +138,62 @@ func (s *CodingSession) subagentSessionFile(taskID string) (string, string) {
 		return "", "the child session has not been written yet"
 	}
 	return task.SessionFile, ""
+}
+
+// SubagentTrajectory projects the session a subagent ran in, addressed by the
+// background task id its tool call reported.
+//
+// The child is an ordinary session file in the same format, so it projects
+// through the same code path; only locating it differs.
+func (s *CodingSession) SubagentTrajectory(taskID string, opts trajectory.Options) (trajectory.Trajectory, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return trajectory.Trajectory{}, fmt.Errorf("a task id is required")
+	}
+	path, reason := s.subagentSessionFile(taskID)
+	if path == "" {
+		return trajectory.Trajectory{}, fmt.Errorf("subagent %s: %s", taskID, reason)
+	}
+	result, err := trajectory.Project(path, opts)
+	if err != nil {
+		return trajectory.Trajectory{}, fmt.Errorf("subagent %s: %w", taskID, err)
+	}
+	if task, ok := s.taskManager.Get(taskID); ok && task.Agent != "" {
+		result.Session.Name = task.Agent
+	}
+	// A subagent nests, so resolve the runs it started in turn.
+	s.resolveSubagentRuns(&result)
+	return result, nil
+}
+
+// ExportSubagentTrajectoryHTML writes a subagent's own trajectory page.
+func (s *CodingSession) ExportSubagentTrajectoryHTML(taskID, path string) error {
+	result, err := s.SubagentTrajectory(taskID, trajectory.Options{
+		Detail:     trajectory.DetailFull,
+		MaxRecords: trajectory.AllRecords,
+	})
+	if err != nil {
+		return err
+	}
+	return trajectory.WriteHTML(result, path)
+}
+
+// SubagentTaskIDs lists the background task ids of subagent runs on the current
+// branch, in the order they were started.
+func (s *CodingSession) SubagentTaskIDs() []string {
+	result, err := s.Trajectory(trajectory.Options{MaxRecords: trajectory.AllRecords})
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	seen := make(map[string]bool)
+	for _, record := range result.Records {
+		run := record.Subagent
+		if run == nil || run.TaskID == "" || seen[run.TaskID] {
+			continue
+		}
+		seen[run.TaskID] = true
+		ids = append(ids, run.TaskID)
+	}
+	return ids
 }

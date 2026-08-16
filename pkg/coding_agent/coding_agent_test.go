@@ -4341,6 +4341,88 @@ func TestTrajectoryResolvesSubagentChildSession(t *testing.T) {
 	}
 }
 
+func TestSubagentTrajectoryProjectsAndExportsTheChildSession(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+
+	taskID := session.taskManager.CreateWithMetadataInDir(
+		"subagent", "explore", "explorer", "", "", "", filepath.Join(dir, "runs"))
+	task, ok := session.taskManager.Get(taskID)
+	if !ok {
+		t.Fatalf("task %q was not registered", taskID)
+	}
+	child := []types.AgentMessage{
+		types.UserMessage{Role: "user", Content: "explore the tree"},
+		types.AssistantMessage{
+			Role: "assistant", StopReason: "tool_calls",
+			Content: []types.ContentBlock{
+				&types.ToolCallContent{Type: "toolCall", ID: "c1", Name: "ls", Arguments: map[string]any{}},
+			},
+			Usage: types.AgentUsage{Input: 400, Output: 20, TotalTokens: 420},
+		},
+		types.ToolResultMessage{
+			Role: types.RoleToolResult, ToolCallID: "c1", ToolName: "ls",
+			Content: []types.ContentBlock{&types.TextContent{Type: "text", Text: "a\nb"}},
+		},
+	}
+	if err := writeSubagentSessionFile(task.SessionFile, dir, session.GetSessionID(), taskID, child); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := session.SubagentTrajectory(taskID, trajectory.Options{})
+	if err != nil {
+		t.Fatalf("SubagentTrajectory: %v", err)
+	}
+	if result.Stats.Turns != 1 || result.Stats.ToolCalls != 1 {
+		t.Errorf("child stats = %+v, want 1 turn and 1 tool call", result.Stats)
+	}
+	// The agent's name identifies the run; the raw task id says nothing.
+	if result.Session.Name != "explorer" {
+		t.Errorf("Session.Name = %q, want the agent name", result.Session.Name)
+	}
+	if len(result.Turns) != 1 || result.Turns[0].Prompt != "explore the tree" {
+		t.Errorf("turns = %+v", result.Turns)
+	}
+
+	out := filepath.Join(dir, "exports", "child.html")
+	if err := session.ExportSubagentTrajectoryHTML(taskID, out); err != nil {
+		t.Fatalf("ExportSubagentTrajectoryHTML: %v", err)
+	}
+	page, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), "explore the tree") {
+		t.Error("the exported page does not carry the child's own conversation")
+	}
+}
+
+func TestSubagentTrajectoryExplainsAnUnreachableChild(t *testing.T) {
+	dir := t.TempDir()
+	session := streamingTestSession(t, dir)
+
+	if _, err := session.SubagentTrajectory("", trajectory.Options{}); err == nil {
+		t.Error("an empty task id must be rejected")
+	}
+	_, err := session.SubagentTrajectory("task-404", trajectory.Options{})
+	if err == nil {
+		t.Fatal("an unregistered task must not project")
+	}
+	// The message has to name the run and the reason, not just fail.
+	if !strings.Contains(err.Error(), "task-404") || !strings.Contains(err.Error(), "no background task") {
+		t.Errorf("error = %q", err)
+	}
+
+	// A registered task whose child has not been written yet is in flight, not
+	// broken, and must say so.
+	taskID := session.taskManager.CreateWithMetadataInDir(
+		"subagent", "running", "explorer", "", "", "", filepath.Join(dir, "runs"))
+	if _, err := session.SubagentTrajectory(taskID, trajectory.Options{}); err == nil ||
+		!strings.Contains(err.Error(), "not been written") {
+		t.Errorf("in-flight run error = %v", err)
+	}
+}
+
 func TestPromptPersistsModelCallTiming(t *testing.T) {
 	dir := t.TempDir()
 	session := streamingTestSession(t, dir)

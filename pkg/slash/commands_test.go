@@ -1058,8 +1058,11 @@ func TestHandleTrajectoryRejectsUnknownSubcommand(t *testing.T) {
 
 	printer := &capturePrinter{}
 	handleLine(context.Background(), "/trajectory bogus", session, printer, model)
-	if !strings.Contains(printer.String(), "usage: /trajectory") {
-		t.Fatalf("expected usage hint, got:\n%s", printer.String())
+	output := printer.String()
+	for _, want := range []string{"/trajectory html [path]", "/trajectory task <id>"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected %q in the usage hint, got:\n%s", want, output)
+		}
 	}
 }
 
@@ -1072,5 +1075,34 @@ func TestHandleTrajectoryOnEmptySession(t *testing.T) {
 	handleLine(context.Background(), "/trajectory", session, printer, model)
 	if !strings.Contains(printer.String(), "no trajectory yet") {
 		t.Fatalf("expected empty-session message, got:\n%s", printer.String())
+	}
+}
+
+func TestHandleTrajectoryTaskRoutesToTheSubagent(t *testing.T) {
+	cwd := t.TempDir()
+	model := &types.Model{ID: "test", Name: "Test", ProviderID: "test"}
+	session := trajectorySession(t, cwd, model)
+
+	printer := &capturePrinter{}
+	handled, exit := handleLine(context.Background(), "/trajectory task nope", session, printer, model)
+	if !handled || exit {
+		t.Fatalf("expected /trajectory task to be handled, handled=%v exit=%v", handled, exit)
+	}
+	// An unknown id must name itself and say why, not report an empty run.
+	output := printer.String()
+	if !strings.Contains(output, "nope") || !strings.Contains(output, "no background task") {
+		t.Fatalf("expected an explained failure, got:\n%s", output)
+	}
+}
+
+func TestHandleTrajectoryTaskRequiresAnID(t *testing.T) {
+	cwd := t.TempDir()
+	model := &types.Model{ID: "test", Name: "Test", ProviderID: "test"}
+	session := trajectorySession(t, cwd, model)
+
+	printer := &capturePrinter{}
+	handleLine(context.Background(), "/trajectory task", session, printer, model)
+	if !strings.Contains(printer.String(), "/trajectory task <id>") {
+		t.Fatalf("expected usage, got:\n%s", printer.String())
 	}
 }

@@ -285,6 +285,11 @@ func describeSubagent(run *SubagentRun) string {
 	if run.Agent != "" {
 		label += " " + run.Agent
 	}
+	// The task id is what `/trajectory task <id>` takes, so it has to be
+	// readable here rather than looked up somewhere else.
+	if run.TaskID != "" {
+		label += " [" + run.TaskID + "]"
+	}
 	if !run.Available {
 		reason := run.Reason
 		if reason == "" {

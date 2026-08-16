@@ -467,6 +467,7 @@ Streamable HTTP 的 POST JSON/SSE 响应和可选 GET SSE 通道都由官方 SDK
 | `/branch-session <id>` | 抽取当前会话分支路径为新的会话文件 |
 | `/export [file]` | 将当前分支的完整会话记录导出为 HTML；消息支持 Markdown，每次工具调用单独成块，输入/输出合并并保留本地时间 |
 | `/trajectory` | 打印当前分支的轨迹：turn / 近似 model step / 工具耗时与失败 / token / 提示变更 / 子代理运行；`active` 为各 turn 时长之和，`span` 为首尾跨度。新会话记录模型调用的真实时钟（首字延迟、解码耗时、吞吐），旧会话降级为由上一事件推导起点并标注。异步子代理会顺着 background task 找到子会话文件，汇总它自己的轮次/工具/耗时/token；同步子代理不落盘，如实标注不可用 |
+| `/trajectory task <id> [html [file]]` | 把某次子代理运行当作独立会话来看：终端摘要或导出成它自己的交互式页面（默认写 `modu_code-trajectory-<id>.html`）。id 是 `/trajectory` 输出里 subagent 行方括号里的 task id，`/trajectory task` 不带参数会列出本会话的全部 id |
 | `/trajectory html [file]` | 导出自包含交互式轨迹页：横向三-lane 时间轴（Sequence/Compressed/Actual 投影、拖选过滤、滚轮缩放、右键平移）+ turn 列表 + 可折叠的 step 分组 + 分页签检视面板（摘要/输入/输出/计时/用量，system 记录另有系统提示/工具目录/差异）；搜索覆盖工具输入输出与提示全文；中英双语跟随浏览器，`?lang=en`/`?lang=zh` 可固定 |
 | `/copy` | 复制最后一条 assistant 回复到系统剪贴板 |
 | `/changelog` | 显示当前 git 仓库最近提交 |

@@ -542,9 +542,14 @@ func TestProjectCapturesSubagentTaskID(t *testing.T) {
 }
 
 func TestDescribeSubagentStatesUnavailableReason(t *testing.T) {
-	text := describeSubagent(&SubagentRun{Agent: "explorer", Reason: "this run recorded no session file"})
-	if !strings.Contains(text, "explorer") || !strings.Contains(text, "no session file") {
-		t.Errorf("describeSubagent = %q", text)
+	text := describeSubagent(&SubagentRun{
+		Agent: "explorer", TaskID: "task-7", Reason: "this run recorded no session file"})
+	// The task id is the handle for `/trajectory task <id>`, so it must show
+	// even when the run itself could not be read.
+	for _, want := range []string{"explorer", "task-7", "no session file"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("describeSubagent missing %q: %q", want, text)
+		}
 	}
 	available := describeSubagent(&SubagentRun{
 		Agent: "explorer", Available: true, Turns: 2, Steps: 5, ToolCalls: 7,
