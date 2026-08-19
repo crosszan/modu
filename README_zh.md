@@ -113,6 +113,7 @@ Modu 在同一套 mailbox 和 task 模型上提供两种多 Agent 模式：
 | `pkg/modu-tui` | 可复用的 Bubble Tea v2 Agent 对话界面 | [README](pkg/modu-tui/README.md) |
 | `pkg/env` | `.env` 文件加载和环境变量读取 | [README](pkg/env/README_zh.md) |
 | `pkg/tokenkit` | 本地编程 Agent 用量和 Codex 状态数据 | [README](pkg/tokenkit/README.md) |
+| `pkg/market_sentiment` | 免费公开数据驱动的 A 股九分项情绪指数与 Agent 解读 | [README](pkg/market_sentiment/README.md) |
 | `pkg/types` | 消息、工具、事件、模型和循环的公共契约 | [README](pkg/types/README.md) |
 
 [文档索引](docs/README.md)收录使用指南、架构、参考、计划和文章。源码旁的 README 仍作为各包的最短入口。

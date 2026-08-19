@@ -113,6 +113,7 @@ Run `go run ./examples/agent_teams` for the first pattern. See the [mailbox docu
 | `pkg/modu-tui` | Reusable Bubble Tea v2 agent transcript UI | [README](pkg/modu-tui/README.md) |
 | `pkg/env` | `.env` loading and environment access | [README](pkg/env/README.md) |
 | `pkg/tokenkit` | Local coding-agent usage and Codex status data | [README](pkg/tokenkit/README.md) |
+| `pkg/market_sentiment` | Nine-component A-share sentiment index and optional agent commentary using public data | [README](pkg/market_sentiment/README.md) |
 | `pkg/types` | Shared messages, tools, events, models, and loop contracts | [README](pkg/types/README.md) |
 
 The [documentation index](docs/README.md) covers guides, architecture, references, plans, and articles. README files beside source code remain the shortest entry point for each package.
