@@ -191,15 +191,16 @@ func (m Model) Lines() []string {
 	return append([]string(nil), m.lines...)
 }
 
-// submitInput sends the composed input. alt reports Shift+Enter rather than
-// plain Enter.
+// submitInput sends the composed input. queue reports the dedicated Tab queue
+// binding rather than plain Enter.
 //
 // While the agent is working, plain Enter steers: the message joins the
 // running turn at its next tool boundary. That is the common case — a user
 // typing mid-run almost always means "also do this" or "no, not like that",
 // and waiting for the whole turn to finish makes it land too late to matter.
-// Shift+Enter is the deliberate "queue this for after you're done" instead.
-func (m *Model) submitInput(alt bool) tea.Cmd {
+// Tab is the deliberate "queue this for after you're done" action. Modified
+// Enter remains available for composing multi-line input.
+func (m *Model) submitInput(queue bool) tea.Cmd {
 	v := strings.TrimSpace(m.input.ExpandedValue())
 	images := m.input.ImageAttachments()
 	if v == "" && len(images) == 0 {
@@ -207,7 +208,7 @@ func (m *Model) submitInput(alt bool) tea.Cmd {
 	}
 	// Slash completion stays on plain Enter, independent of which queue the
 	// message would land in.
-	if len(m.slashMatches) > 0 && len(images) == 0 && !alt {
+	if len(m.slashMatches) > 0 && len(images) == 0 && !queue {
 		v = m.slashMatches[clamp(m.slashIndex, 0, len(m.slashMatches)-1)].Name
 	}
 
@@ -215,7 +216,7 @@ func (m *Model) submitInput(alt bool) tea.Cmd {
 	display := strings.TrimSpace(m.input.DisplayValue())
 	kind := SubmitKindPrompt
 	if m.streaming || m.busy {
-		if alt {
+		if queue {
 			kind = SubmitKindFollowUp
 		} else {
 			kind = SubmitKindSteer
@@ -390,16 +391,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Code == tea.KeyPgDown:
 			m.resetIMEState()
 			m.scroll(max(1, m.vpHeight()-1))
-		case msg.Code == tea.KeyEnter && msg.Mod.Contains(tea.ModAlt):
+		case msg.Code == tea.KeyEnter && (msg.Mod.Contains(tea.ModShift) || msg.Mod.Contains(tea.ModAlt)):
 			m.resetIMEState()
 			m.input.InsertNewline()
 			m.clearHistorySelection()
 			return m, m.refreshCompletions()
-		case msg.String() == "shift+enter":
-			m.resetIMEState()
-			if cmd := m.submitInput(true); cmd != nil {
-				return m, cmd
-			}
 		case msg.Code == tea.KeyEnter:
 			m.resetIMEState()
 			// With the file popup open, Enter accepts the highlighted path
@@ -442,8 +438,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.refreshCompletions()
 		case msg.Code == tea.KeyTab:
 			m.resetIMEState()
-			if !m.completeSlashMatch() && m.completeAtMatch() {
+			if m.completeSlashMatch() {
+				return m, nil
+			}
+			if m.completeAtMatch() {
 				m.rebuild()
+				return m, nil
+			}
+			if cmd := m.submitInput(true); cmd != nil {
+				return m, cmd
 			}
 		case msg.Code == tea.KeyUp:
 			m.resetIMEState()
@@ -1743,7 +1746,7 @@ func (m *Model) render() string {
 // "steer"/"follow-up"), since what the user is deciding is when their message
 // takes effect. Esc belongs here too: stopping is the third thing they can do
 // with a running task, and it had no on-screen mention at all.
-const steerFollowupHint = "Enter 插话 · ⇧Enter 排队 · Esc 中断"
+const steerFollowupHint = "Enter 插话 · Tab 排队 · Esc 中断"
 
 // StatusInterjected and StatusQueued are the transient statuses a host sets
 // after a message is accepted mid-run. They say when the message takes

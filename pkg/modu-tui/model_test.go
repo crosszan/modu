@@ -122,35 +122,47 @@ func testIntentHandler(callbacks testIntentCallbacks) func(Intent) {
 	}
 }
 
-func TestPOC2MultilineInputAltEnterAndAutoHeight(t *testing.T) {
-	var tm tea.Model = NewModel(Options{Width: 40, Height: 20})
-	tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
-	// Alt+Enter inserts a hard newline rather than submitting.
-	tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModAlt}))
-	tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: 'b', Text: "b"}))
-	m := tm.(Model)
+func TestPOC2MultilineInputModifiedEnterAndAutoHeight(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		modifier tea.KeyMod
+	}{
+		{name: "shift", modifier: tea.ModShift},
+		{name: "alt", modifier: tea.ModAlt},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var tm tea.Model = NewModel(Options{Width: 40, Height: 20})
+			tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
+			// Shift+Enter follows Codex's enhanced-key behavior; Alt+Enter
+			// remains as a terminal-compatible newline fallback.
+			tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tt.modifier}))
+			tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: 'b', Text: "b"}))
+			m := tm.(Model)
 
-	if got := m.input.ExpandedValue(); got != "a\nb" {
-		t.Fatalf("input value = %q, want %q", got, "a\nb")
-	}
-	if got := m.inputRows(); got != 2 {
-		t.Fatalf("inputRows = %d, want 2", got)
-	}
-	if got, want := m.bottomFixedRows(), bottomFixedRowsBase+2; got != want {
-		t.Fatalf("bottomFixedRows = %d, want %d", got, want)
-	}
-	lines, cursorRow, _ := m.input.Render(m.inputRenderWidth(), maxInputRows)
-	if len(lines) != 2 {
-		t.Fatalf("rendered input lines = %d, want 2", len(lines))
-	}
-	if cursorRow != 1 {
-		t.Fatalf("cursorRow = %d, want 1 (caret on second line)", cursorRow)
-	}
-	if !strings.Contains(ansi.Strip(lines[0]), "❯") {
-		t.Fatalf("first line should carry the ❯ prefix: %q", ansi.Strip(lines[0]))
+			if got := m.input.ExpandedValue(); got != "a\nb" {
+				t.Fatalf("input value = %q, want %q", got, "a\nb")
+			}
+			if got := m.inputRows(); got != 2 {
+				t.Fatalf("inputRows = %d, want 2", got)
+			}
+			if got, want := m.bottomFixedRows(), bottomFixedRowsBase+2; got != want {
+				t.Fatalf("bottomFixedRows = %d, want %d", got, want)
+			}
+			lines, cursorRow, _ := m.input.Render(m.inputRenderWidth(), maxInputRows)
+			if len(lines) != 2 {
+				t.Fatalf("rendered input lines = %d, want 2", len(lines))
+			}
+			if cursorRow != 1 {
+				t.Fatalf("cursorRow = %d, want 1 (caret on second line)", cursorRow)
+			}
+			if !strings.Contains(ansi.Strip(lines[0]), "❯") {
+				t.Fatalf("first line should carry the ❯ prefix: %q", ansi.Strip(lines[0]))
+			}
+		})
 	}
 
 	// Input height is capped at maxInputRows even with more logical lines.
+	m := NewModel(Options{Width: 40, Height: 20})
 	for range maxInputRows + 3 {
 		m.input.InsertNewline()
 	}
@@ -1405,9 +1417,9 @@ func TestPOC2SubmitMessageReportsPromptFollowUpAndSteer(t *testing.T) {
 		// that", so plain Enter steers: the message joins the running turn at
 		// its next tool boundary instead of waiting for the whole turn to end.
 		{name: "enter steers while busy", busy: true, key: tea.Key{Code: tea.KeyEnter}, want: SubmitKindSteer},
-		// Shift+Enter is the deliberate "queue this for after you're done".
-		{name: "shift enter queues a follow-up while busy", busy: true, key: tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift}, want: SubmitKindFollowUp},
-		{name: "idle shift enter prompts", key: tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift}, want: SubmitKindPrompt},
+		// Tab is Codex's deliberate "queue this for after you're done" key.
+		{name: "tab queues a follow-up while busy", busy: true, key: tea.Key{Code: tea.KeyTab}, want: SubmitKindFollowUp},
+		{name: "idle tab prompts", key: tea.Key{Code: tea.KeyTab}, want: SubmitKindPrompt},
 	}
 
 	for _, tt := range tests {
@@ -1428,6 +1440,27 @@ func TestPOC2SubmitMessageReportsPromptFollowUpAndSteer(t *testing.T) {
 				t.Fatalf("submit event = %#v, want text %q kind %q", got, "next instruction", tt.want)
 			}
 		})
+	}
+}
+
+func TestBusyTabCompletesBeforeItQueues(t *testing.T) {
+	var submitted []SubmitEvent
+	var tm tea.Model = NewModel(Options{
+		SlashCommands: []SlashCommand{{Name: "/steer", Description: "Steer the turn"}},
+		IntentHandler: testIntentHandler(testIntentCallbacks{submit: func(event SubmitEvent) {
+			submitted = append(submitted, event)
+		}}),
+	})
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	tm = typeInto(t, tm, "/st")
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+
+	m := tm.(Model)
+	if m.input.Value != "/steer " {
+		t.Fatalf("Tab completion = %q, want %q", m.input.Value, "/steer ")
+	}
+	if len(submitted) != 0 {
+		t.Fatalf("completion also queued input: %#v", submitted)
 	}
 }
 
@@ -3102,17 +3135,16 @@ func TestRunningHintMatchesWhatTheKeysActuallyDo(t *testing.T) {
 	}
 
 	enter := keyKind(tea.Key{Code: tea.KeyEnter})
-	shiftEnter := keyKind(tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift})
-	if enter != SubmitKindSteer || shiftEnter != SubmitKindFollowUp {
-		t.Fatalf("keys produce Enter=%q ⇧Enter=%q; the assertions below assume Enter steers", enter, shiftEnter)
+	tab := keyKind(tea.Key{Code: tea.KeyTab})
+	if enter != SubmitKindSteer || tab != SubmitKindFollowUp {
+		t.Fatalf("keys produce Enter=%q Tab=%q; want steer and follow-up", enter, tab)
 	}
 
-	// Enter steers, so the hint's Enter entry must describe interjecting and
-	// its ⇧Enter entry must describe queueing — not the reverse.
+	// Enter steers, while Tab queues a distinct follow-up turn.
 	enterIdx := strings.Index(steerFollowupHint, "Enter 插话")
-	shiftIdx := strings.Index(steerFollowupHint, "⇧Enter 排队")
-	if enterIdx < 0 || shiftIdx < 0 {
-		t.Fatalf("hint %q should say Enter interjects and ⇧Enter queues", steerFollowupHint)
+	tabIdx := strings.Index(steerFollowupHint, "Tab 排队")
+	if enterIdx < 0 || tabIdx < 0 {
+		t.Fatalf("hint %q should say Enter interjects and Tab queues", steerFollowupHint)
 	}
 	if !strings.Contains(steerFollowupHint, "Esc") {
 		t.Fatalf("hint %q should mention Esc, the third thing you can do to a running task", steerFollowupHint)

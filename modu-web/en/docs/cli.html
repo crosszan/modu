@@ -259,7 +259,8 @@ go run ./cmd/modu_code">
           <p>While the agent is working, what you type can be delivered two ways. The status line shows which is which:</p>
           <ul>
             <li><strong>Enter</strong> — interject: the message joins the current turn at its next tool boundary, and work in flight is not thrown away</li>
-            <li><strong>⇧Enter</strong> — queue: the message waits until the turn finishes</li>
+            <li><strong>Tab</strong> — queue: when no completion is open, the message waits for the turn to finish and then runs as a separate continuation</li>
+            <li><strong>⇧Enter / Alt+Enter</strong> — insert a newline in the composer</li>
             <li><strong>Esc</strong> — interrupt the running task</li>
             <li><strong>Ctrl+V</strong> — paste an image from the clipboard (dragging an image file into the terminal also works)</li>
           </ul>

@@ -52,6 +52,14 @@ type Runtime struct {
 
 	foregroundMu   sync.Mutex
 	foregroundRuns int
+	nextForeground int
+	followUpOwner  int
+	followUps      []queuedFollowUp
+}
+
+type queuedFollowUp struct {
+	text   string
+	images []types.ImageContent
 }
 
 func NewRuntime(options RuntimeOptions) (*Runtime, error) {
@@ -162,12 +170,12 @@ func (r *Runtime) run(run func(context.Context) error, complete func(error), con
 	if r == nil || run == nil {
 		return
 	}
-	r.markForegroundStart()
+	foregroundID := r.markForegroundStart(continueMainQueue)
 	r.Go("agent loop", func() {
 		r.client.SetBusy(true)
 		r.client.SetStatus("running", 0)
 		defer func() {
-			if r.markForegroundDone() {
+			if r.markForegroundDone(foregroundID) {
 				r.client.SetBusy(false)
 			}
 		}()
@@ -182,7 +190,19 @@ func (r *Runtime) run(run func(context.Context) error, complete func(error), con
 				nextRun = r.session.Continue
 				continue
 			}
-
+			if followUp, ok := r.nextFollowUp(foregroundID, continueMainQueue && err == nil); ok {
+				r.client.SetStatus("running", 0)
+				nextRun = func(ctx context.Context) error {
+					// Queue only after the active Agent run has returned. Continue
+					// then starts a separate run while preserving FollowUp's literal
+					// message semantics (notably for text beginning with '/').
+					if err := r.session.FollowUpWithImages(followUp.text, followUp.images); err != nil {
+						return err
+					}
+					return r.session.Continue(ctx)
+				}
+				continue
+			}
 			r.finishRun(started, err)
 			if complete != nil {
 				complete(err)
@@ -211,49 +231,59 @@ func (r *Runtime) QueueFollowUp(text string, images []types.ImageContent, requir
 	if r == nil {
 		return
 	}
-	r.Go("follow-up queue", func() {
-		if requireActive && !r.IsPromptActive() {
-			r.client.SetStatus("no active task to followup", 0)
-			return
-		}
-		if !r.IsPromptActive() {
-			r.RunPrompt(text, images)
-			return
-		}
-		if err := r.session.FollowUpWithImages(text, images); err != nil {
-			r.client.SetStatus("error: "+err.Error(), r.terminalStatusTTL)
-			return
-		}
+	followUp := queuedFollowUp{
+		text:   text,
+		images: append([]types.ImageContent(nil), images...),
+	}
+	if r.enqueueFollowUp(followUp) {
 		r.client.SetStatus(modutui.StatusQueued, modutui.TransientStatusTTL)
-	})
+		return
+	}
+	if requireActive {
+		r.client.SetStatus("no active task to followup", 0)
+		return
+	}
+	r.RunPrompt(followUp.text, followUp.images)
 }
 
 func (r *Runtime) QueueSteer(text string, images []types.ImageContent, requireActive bool) {
 	if r == nil {
 		return
 	}
-	r.Go("steer queue", func() {
-		if requireActive && !r.IsPromptActive() {
+	active, err := r.steerIfPromptActive(text, images)
+	if !active {
+		if requireActive {
 			r.client.SetStatus("no active task to steer", 0)
 			return
 		}
-		if !r.IsPromptActive() {
-			r.RunPrompt(text, images)
-			return
-		}
-		if err := r.session.SteerWithImages(text, images); err != nil {
-			r.client.SetStatus("error: "+err.Error(), r.terminalStatusTTL)
-			return
-		}
-		// Deliberately no cancel/Abort here. The agent loop already collects
-		// steering after each tool batch and skips the calls it had queued
-		// behind it (see pkg/agent/tools.go), so the message joins the turn
-		// at the next tool boundary with nothing thrown away. Cancelling
-		// would kill the in-flight tool and LLM request and restart the
-		// turn, which loses that work and bypasses the mechanism entirely.
-		// Esc remains the way to actually stop what's running.
-		r.client.SetStatus(modutui.StatusInterjected, modutui.TransientStatusTTL)
-	})
+		r.RunPrompt(text, images)
+		return
+	}
+	if err != nil {
+		r.client.SetStatus("error: "+err.Error(), r.terminalStatusTTL)
+		return
+	}
+	// Deliberately no cancel/Abort here. The agent loop already collects
+	// steering after each tool batch and skips the calls it had queued
+	// behind it (see pkg/agent/tools.go), so the message joins the turn
+	// at the next tool boundary with nothing thrown away. Cancelling
+	// would kill the in-flight tool and LLM request and restart the
+	// turn, which loses that work and bypasses the mechanism entirely.
+	// Esc remains the way to actually stop what's running.
+	r.client.SetStatus(modutui.StatusInterjected, modutui.TransientStatusTTL)
+}
+
+func (r *Runtime) steerIfPromptActive(text string, images []types.ImageContent) (bool, error) {
+	r.promptMu.Lock()
+	defer r.promptMu.Unlock()
+	if r.currentCancel == nil {
+		return false, nil
+	}
+	// finishPrompt uses the same mutex, so once the active check succeeds the
+	// message is queued before the foreground loop can observe an empty queue
+	// and finish. This is the TUI equivalent of Codex's active-turn steer race
+	// handling.
+	return true, r.session.SteerWithImages(text, images)
 }
 
 func (r *Runtime) Interrupt() {
@@ -311,17 +341,56 @@ func (r *Runtime) finishRun(started time.Time, err error) {
 	}
 }
 
-func (r *Runtime) markForegroundStart() {
-	r.foregroundMu.Lock()
-	r.foregroundRuns++
-	r.foregroundMu.Unlock()
-}
-
-func (r *Runtime) markForegroundDone() bool {
+func (r *Runtime) markForegroundStart(acceptFollowUps bool) int {
 	r.foregroundMu.Lock()
 	defer r.foregroundMu.Unlock()
+	r.nextForeground++
+	foregroundID := r.nextForeground
+	r.foregroundRuns++
+	if acceptFollowUps {
+		r.followUpOwner = foregroundID
+	}
+	return foregroundID
+}
+
+func (r *Runtime) markForegroundDone(foregroundID int) bool {
+	r.foregroundMu.Lock()
+	defer r.foregroundMu.Unlock()
+	if r.followUpOwner == foregroundID {
+		r.followUpOwner = 0
+	}
 	if r.foregroundRuns > 0 {
 		r.foregroundRuns--
 	}
 	return r.foregroundRuns == 0
+}
+
+func (r *Runtime) enqueueFollowUp(followUp queuedFollowUp) bool {
+	r.foregroundMu.Lock()
+	defer r.foregroundMu.Unlock()
+	if r.followUpOwner == 0 {
+		return false
+	}
+	r.followUps = append(r.followUps, followUp)
+	return true
+}
+
+// nextFollowUp closes the race between a turn finishing and a user queueing a
+// follow-up. Both operations share foregroundMu: the message either lands
+// before this check and is consumed here, or observes a closed queue owner and
+// starts a fresh prompt itself. foregroundRuns stays active until completion
+// callbacks return, so IsForegroundRunActive keeps its original contract.
+func (r *Runtime) nextFollowUp(foregroundID int, consumeFollowUp bool) (queuedFollowUp, bool) {
+	r.foregroundMu.Lock()
+	defer r.foregroundMu.Unlock()
+	if r.followUpOwner != foregroundID {
+		return queuedFollowUp{}, false
+	}
+	if consumeFollowUp && len(r.followUps) > 0 {
+		next := r.followUps[0]
+		r.followUps = r.followUps[1:]
+		return next, true
+	}
+	r.followUpOwner = 0
+	return queuedFollowUp{}, false
 }

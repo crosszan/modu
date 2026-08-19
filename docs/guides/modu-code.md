@@ -244,8 +244,9 @@ LMStudio、Ollama、`Custom OpenAI Responses` 或
 
 | 按键 | 说明 |
 |------|------|
-| `Enter` | 提交消息；任务运行中提交为 follow-up 队列 |
-| `Shift+Enter` | 任务运行中 steer 当前任务，打断当前轮并切到新指令 |
+| `Enter` | 空闲时提交 prompt；任务运行中 steer 当前 turn，在下一个工具边界生效 |
+| `Tab` | 有补全候选时接受候选；否则空闲时提交 prompt，运行中排队 follow-up |
+| `Shift+Enter` / `Alt+Enter` | 在输入框插入换行 |
 | `Ctrl+V` | 从系统剪贴板附加图片 |
 | `ctrl+c` | 输入框有内容时清空输入；空输入时中断当前请求 / 退出 |
 | `ctrl+d` | 退出（输入框为空时） |
@@ -268,7 +269,7 @@ LMStudio、Ollama、`Custom OpenAI Responses` 或
 
 图片内容以 base64 写入 session，因此恢复会话时不要求原始图片文件仍然存在。OpenAI-compatible、Anthropic 和 Gemini provider 会分别转换为各自的多模态请求格式。
 
-任务运行中继续输入普通消息并按 Enter，会把消息加入 follow-up 队列，在当前任务结束后自动执行。运行中按 Shift+Enter，或输入 `/steer <message>` / `/s <message>`，把消息加入 steer 队列并中断当前轮，随后按新方向继续。也可以 `/followup <message>` / `/f <message>` 显式排队下一条 follow-up。`/queue` 查看等待队列。
+任务运行中按 Enter 会 steer 当前 turn：消息在下一个工具边界生效，不取消正在执行的工具或模型请求。按 Tab 会把消息加入 TUI 的 follow-up 队列；当前 turn 完整结束后，它再作为独立 continuation 按输入顺序执行。输入 `/steer <message>` / `/s <message>` 和 `/followup <message>` / `/f <message>` 可显式选择同样的两种行为。
 
 ### 临时旁路对话
 
@@ -318,7 +319,7 @@ SSH 兼容模式下，输入框为空且没有输入历史可选时，Up/Down �
 
 ## 渠道：Telegram 与 Feishu
 
-在 TUI 输入 `/channel`，选 Telegram 或 Feishu 后按提示输入凭据。Token 和 App Secret 用隐藏输入，不进入会话历史。配置保存后重启 `modu_code` 生效。渠道和 TUI 共用同一个 steer / follow-up 队列。
+在 TUI 输入 `/channel`，选 Telegram 或 Feishu 后按提示输入凭据。Token 和 App Secret 用隐藏输入，不进入会话历史。配置保存后重启 `modu_code` 生效。渠道消息仍进入 Agent 的 steer / follow-up 队列；TUI 的 Tab follow-up 由前台 Runtime 保序，并在当前 turn 结束后再送入 Agent。
 
 三处输入语义一致：
 
@@ -379,9 +380,8 @@ token = "123456:bot-token"
 | `/tokens` | 查看 token 用量 |
 | `/worktree` | 查看 worktree 状态、diff、列表和 cleanup |
 | `/retry` | 重试上一条失败的 prompt |
-| `/steer <msg>` / `/s <msg>` | 打断当前轮并按新消息继续（`/s` 供无法识别 Shift+Enter 时用） |
+| `/steer <msg>` / `/s <msg>` | steer 当前 turn，在下一个工具边界按新消息继续 |
 | `/followup <msg>` / `/f <msg>` | 把消息排到当前任务之后执行 |
-| `/queue [clear [steer\|followup]\|drop]` | 查看/清空/删除等待队列 |
 | `/goal` | 设置/查看/暂停/恢复/清除持久目标 |
 | `/run <agent> [task]` | 运行单个子代理 |
 | `/parallel <agent> <task> -> ...` | 并发运行多个子代理 |

@@ -259,7 +259,8 @@ go run ./cmd/modu_code">
           <p>Agent 正在跑的时候，输入框里打字有两种送达方式，状态栏会实时提示：</p>
           <ul>
             <li><strong>Enter</strong> — 插话：消息在下一个工具边界加入当前这一轮，正在执行的工作不会被丢弃</li>
-            <li><strong>⇧Enter</strong> — 排队：消息等这一轮结束后再处理</li>
+            <li><strong>Tab</strong> — 排队：没有补全候选时，消息等这一轮结束后再作为独立 continuation 处理</li>
+            <li><strong>⇧Enter / Alt+Enter</strong> — 在输入框中换行</li>
             <li><strong>Esc</strong> — 中断当前任务</li>
             <li><strong>Ctrl+V</strong> — 粘贴剪贴板里的图片（也可以把图片文件拖进终端）</li>
           </ul>

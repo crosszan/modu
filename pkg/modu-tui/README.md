@@ -49,9 +49,10 @@ artifact-loading queries.
 
 - Input grows from one to five rows and keeps up to 100 history entries. Up/Down traverses history without discarding the current draft.
 - `SubmitIntent` contains text plus referenced `ImageAttachment` values with `SubmitKindPrompt`, `SubmitKindFollowUp`, or `SubmitKindSteer`.
+- While the host is busy, Enter emits `SubmitKindSteer` and Tab emits `SubmitKindFollowUp`. When idle, either key emits `SubmitKindPrompt`. Shift+Enter and Alt+Enter insert a newline.
 - Ctrl+V calls `Services.ReadClipboardImages` asynchronously. `Services.ResolvePastedImages` lets the host turn pasted or dragged file paths into attachments. The input renders `[Image #N]` tokens; Backspace/Delete removes the referenced attachment before submission.
 - `InterruptIntent` reports Esc while the model is busy or streaming. Ctrl+C remains the quit path.
-- `Options.SlashCommands` or `Services.SlashCommands` supplies command suggestions. Tab completes; Enter emits `SlashCommandIntent`.
+- `Options.SlashCommands` or `Services.SlashCommands` supplies command suggestions. Tab completes a visible slash/file suggestion before it can queue input; Enter emits `SlashCommandIntent`.
 - `Options.InputHistory` seeds history; `InputHistoryChangedIntent` lets the host persist the normalized list.
 
 ### Transcript entries

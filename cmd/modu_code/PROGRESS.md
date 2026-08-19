@@ -5,6 +5,17 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-08-19: aligned TUI steer/follow-up input with Codex CLI semantics.
+  Enter now steers the active turn, Tab queues a follow-up when no completion
+  popup is active, and Shift+Enter/Alt+Enter insert newlines. TUI follow-ups
+  stay in a FIFO runtime queue until the current Agent run returns, then start
+  one distinct continuation at a time; they no longer enter the active Agent
+  loop early. Steer submission now shares the prompt-state lock with turn
+  completion, closing the late-submit race, and both message paths preserve
+  submission order without per-message goroutines. Focused `pkg/modu-tui` and
+  `cmd/modu_code/internal/tui` tests cover key routing, completion precedence,
+  turn boundaries, FIFO ordering, idle rejection, and non-destructive steer.
+
 - 2026-08-14: `--resume` now works without an id, resuming the most recently
   modified session saved for the current directory. A valueless `--resume` is
   rewritten to a set-but-empty flag before parsing, so `--resume <id>` and
