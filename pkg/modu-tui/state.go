@@ -28,10 +28,10 @@ type transcriptModel struct {
 	// line was pressed, or -1. The press only becomes a collapse/expand if
 	// the pointer never moved; a press that turns into a drag is a text
 	// selection instead. Resolved on mouse release.
-	pendingToggle int
-	autoScroll       int
-	autoScrolling    bool
-	autoScrollTicks  int
+	pendingToggle   int
+	autoScroll      int
+	autoScrolling   bool
+	autoScrollTicks int
 
 	infoCardLines       []string
 	blockFactories      []EntryBlockFactory
@@ -82,6 +82,13 @@ type composerModel struct {
 	historyHold  string
 	imeTail      string
 	imeActive    bool
+
+	// queued holds messages typed while the agent was busy. They are not in
+	// the transcript yet — they render in their own pending region above the
+	// input and are sent one per turn once the agent goes idle. Snapshots of
+	// the whole InputBlock rather than plain strings so Backspace can put a
+	// message back with its pastes and image attachments intact.
+	queued []InputBlock
 
 	arrowKeysScroll       bool
 	slashCommands         []SlashCommand

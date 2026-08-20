@@ -1405,45 +1405,91 @@ func TestPOC2PastedImagePathBecomesAttachment(t *testing.T) {
 	}
 }
 
-func TestPOC2SubmitMessageReportsPromptFollowUpAndSteer(t *testing.T) {
-	tests := []struct {
-		name string
-		busy bool
-		key  tea.Key
-		want SubmitKind
-	}{
-		{name: "prompt", key: tea.Key{Code: tea.KeyEnter}, want: SubmitKindPrompt},
-		// Typing mid-run almost always means "also do this" or "no, not like
-		// that", so plain Enter steers: the message joins the running turn at
-		// its next tool boundary instead of waiting for the whole turn to end.
-		{name: "enter steers while busy", busy: true, key: tea.Key{Code: tea.KeyEnter}, want: SubmitKindSteer},
-		// Tab is Codex's deliberate "queue this for after you're done" key.
-		{name: "tab queues a follow-up while busy", busy: true, key: tea.Key{Code: tea.KeyTab}, want: SubmitKindFollowUp},
-		{name: "idle tab prompts", key: tea.Key{Code: tea.KeyTab}, want: SubmitKindPrompt},
+func TestEnterSendsWhenIdleAndQueuesWhileBusy(t *testing.T) {
+	newModel := func(busy bool, submit func(SubmitEvent)) tea.Model {
+		var tm tea.Model = NewModel(Options{
+			IntentHandler: testIntentHandler(testIntentCallbacks{submit: submit}),
+		})
+		if busy {
+			tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+		}
+		tm, _ = tm.Update(tea.PasteMsg{Content: "next instruction"})
+		return tm
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var got SubmitEvent
-			var tm tea.Model = NewModel(Options{
-				IntentHandler: testIntentHandler(testIntentCallbacks{submit: func(ev SubmitEvent) {
-					got = ev
-				}}),
-			})
-			if tt.busy {
-				tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
-			}
-			tm, _ = tm.Update(tea.PasteMsg{Content: "next instruction"})
-			tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tt.key))
+	t.Run("idle enter sends a prompt", func(t *testing.T) {
+		var got SubmitEvent
+		tm := newModel(false, func(ev SubmitEvent) { got = ev })
+		tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if got.Text != "next instruction" || got.Kind != SubmitKindPrompt {
+			t.Fatalf("submit event = %#v, want a prompt carrying the typed text", got)
+		}
+		if len(tm.(Model).queued) != 0 {
+			t.Fatal("an idle message should go straight out, not into the queue")
+		}
+	})
 
-			if got.Text != "next instruction" || got.Kind != tt.want {
-				t.Fatalf("submit event = %#v, want text %q kind %q", got, "next instruction", tt.want)
-			}
-		})
+	t.Run("busy enter queues instead of sending", func(t *testing.T) {
+		var submitted []SubmitEvent
+		tm := newModel(true, func(ev SubmitEvent) { submitted = append(submitted, ev) })
+		tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		m := tm.(Model)
+		if len(submitted) != 0 {
+			t.Fatalf("a mid-run message should not reach the host yet: %#v", submitted)
+		}
+		if len(m.queued) != 1 || m.queued[0].ExpandedValue() != "next instruction" {
+			t.Fatalf("queue = %#v, want the typed message parked", m.queued)
+		}
+		// The transcript is the record of what was actually sent. Showing the
+		// message there now would place it above output that predates it.
+		if len(m.entries) != 0 {
+			t.Fatalf("a queued message should stay out of the transcript, got %d entries", len(m.entries))
+		}
+		if m.input.Value != "" {
+			t.Fatalf("queueing should clear the composer, got %q", m.input.Value)
+		}
+	})
+
+	t.Run("busy tab only completes", func(t *testing.T) {
+		var submitted []SubmitEvent
+		tm := newModel(true, func(ev SubmitEvent) { submitted = append(submitted, ev) })
+		tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+		m := tm.(Model)
+		if len(submitted) != 0 || len(m.queued) != 0 {
+			t.Fatalf("Tab is completion-only; submitted=%#v queued=%#v", submitted, m.queued)
+		}
+		if m.input.Value != "next instruction" {
+			t.Fatalf("Tab with nothing to complete should leave the input alone, got %q", m.input.Value)
+		}
+	})
+}
+
+func TestBusySlashCommandRunsImmediatelyInsteadOfQueueing(t *testing.T) {
+	// Slash commands act on the UI or the session right now (/stop, /clear),
+	// so waiting for the turn to end would defeat them.
+	var lines []string
+	var submitted []SubmitEvent
+	var tm tea.Model = NewModel(Options{
+		SlashCommands: []SlashCommand{{Name: "/compact", Description: "Compact the context"}},
+		IntentHandler: testIntentHandler(testIntentCallbacks{
+			submit:       func(event SubmitEvent) { submitted = append(submitted, event) },
+			slashCommand: func(line string) { lines = append(lines, line) },
+		}),
+	})
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	tm = typeInto(t, tm, "/compact")
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	m := tm.(Model)
+	if len(lines) != 1 || lines[0] != "/compact" {
+		t.Fatalf("slash command lines = %#v, want it dispatched immediately", lines)
+	}
+	if len(m.queued) != 0 || len(submitted) != 0 {
+		t.Fatalf("a slash command should not be queued: queued=%#v submitted=%#v", m.queued, submitted)
 	}
 }
 
-func TestBusyTabCompletesBeforeItQueues(t *testing.T) {
+func TestBusyTabCompletesWithoutSubmitting(t *testing.T) {
 	var submitted []SubmitEvent
 	var tm tea.Model = NewModel(Options{
 		SlashCommands: []SlashCommand{{Name: "/steer", Description: "Steer the turn"}},
@@ -1459,8 +1505,163 @@ func TestBusyTabCompletesBeforeItQueues(t *testing.T) {
 	if m.input.Value != "/steer " {
 		t.Fatalf("Tab completion = %q, want %q", m.input.Value, "/steer ")
 	}
+	if len(submitted) != 0 || len(m.queued) != 0 {
+		t.Fatalf("completion also submitted input: submitted=%#v queued=%#v", submitted, m.queued)
+	}
+}
+
+func TestQueuedMessagesFlushOneTurnAtATimeWhenIdle(t *testing.T) {
+	var submitted []SubmitEvent
+	var tm tea.Model = NewModel(Options{
+		IntentHandler: testIntentHandler(testIntentCallbacks{submit: func(event SubmitEvent) {
+			submitted = append(submitted, event)
+		}}),
+	})
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	for _, text := range []string{"first queued", "second queued"} {
+		tm, _ = tm.Update(tea.PasteMsg{Content: text})
+		tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	}
+
+	tm = updateAndRunImmediate(t, tm, UpdateMsg{Update: SetBusyUpdate{Busy: false}})
+	m := tm.(Model)
+	if len(submitted) != 1 || submitted[0].Text != "first queued" {
+		t.Fatalf("going idle should release exactly the oldest message, got %#v", submitted)
+	}
+	// Follow-up rather than prompt: the host's follow-up path starts a fresh
+	// turn when idle but will not race a second foreground run if one already
+	// started between the idle update and this send.
+	if submitted[0].Kind != SubmitKindFollowUp {
+		t.Fatalf("released message kind = %q, want %q", submitted[0].Kind, SubmitKindFollowUp)
+	}
+	if len(m.queued) != 1 {
+		t.Fatalf("the second message should still be waiting, got %#v", m.queued)
+	}
+	// Only now does it join the transcript, in prompt/reply order.
+	if len(m.entries) != 1 {
+		t.Fatalf("the sent message should appear in the transcript, got %d entries", len(m.entries))
+	}
+
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	tm = updateAndRunImmediate(t, tm, UpdateMsg{Update: SetBusyUpdate{Busy: false}})
+	if len(submitted) != 2 || submitted[1].Text != "second queued" {
+		t.Fatalf("the next idle turn should release the second message, got %#v", submitted)
+	}
+	if len(tm.(Model).queued) != 0 {
+		t.Fatal("the queue should be drained")
+	}
+}
+
+func TestQueuedMessagesStillFlushWithAWizardOpen(t *testing.T) {
+	// A slash command dispatches immediately even mid-run, so a host wizard
+	// can be open at the moment the turn ends. Holding the queue for it would
+	// strand the messages: the pending region is hidden behind the wizard and
+	// nothing re-triggers the flush when the wizard closes.
+	var submitted []SubmitEvent
+	var tm tea.Model = NewModel(Options{
+		IntentHandler: testIntentHandler(testIntentCallbacks{submit: func(event SubmitEvent) {
+			submitted = append(submitted, event)
+		}}),
+	})
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	tm, _ = tm.Update(tea.PasteMsg{Content: "queued before the wizard"})
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	tm, _ = tm.Update(RequestHumanTextMsg{
+		Request: HumanTextRequest{ID: "cfg", Title: "API key"},
+		Respond: make(chan string, 1),
+	})
+	withWizard := tm.(Model)
+	if !withWizard.hasBlockingPrompt() {
+		t.Fatal("the wizard should be open for this test to mean anything")
+	}
+
+	tm = updateAndRunImmediate(t, tm, UpdateMsg{Update: SetBusyUpdate{Busy: false}})
+	if len(submitted) != 1 || submitted[0].Text != "queued before the wizard" {
+		t.Fatalf("the queued message should still go out, got %#v", submitted)
+	}
+	if len(tm.(Model).queued) != 0 {
+		t.Fatal("the queue should be drained rather than stranded behind the overlay")
+	}
+}
+
+func TestBackspaceTakesTheLastQueuedMessageBack(t *testing.T) {
+	var tm tea.Model = NewModel(Options{})
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	for _, text := range []string{"first queued", "second queued"} {
+		tm, _ = tm.Update(tea.PasteMsg{Content: text})
+		tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	}
+
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	m := tm.(Model)
+	if m.input.ExpandedValue() != "second queued" {
+		t.Fatalf("Backspace on an empty input should restore the newest queued message, got %q", m.input.ExpandedValue())
+	}
+	if m.input.Cursor != m.input.Len() {
+		t.Fatalf("the restored message should be ready to edit at its end, cursor = %d", m.input.Cursor)
+	}
+	if len(m.queued) != 1 {
+		t.Fatalf("only one message should have come back, queue = %#v", m.queued)
+	}
+
+	// With text in the input again, Backspace goes back to deleting.
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if got := tm.(Model).input.ExpandedValue(); got != "second queue" {
+		t.Fatalf("Backspace should resume deleting characters, got %q", got)
+	}
+	if len(tm.(Model).queued) != 1 {
+		t.Fatal("deleting a character should not touch the queue")
+	}
+}
+
+func TestInterruptDropsQueuedMessages(t *testing.T) {
+	var interrupted int
+	var submitted []SubmitEvent
+	var tm tea.Model = NewModel(Options{
+		IntentHandler: testIntentHandler(testIntentCallbacks{
+			submit:    func(event SubmitEvent) { submitted = append(submitted, event) },
+			interrupt: func() { interrupted++ },
+		}),
+	})
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	tm, _ = tm.Update(tea.PasteMsg{Content: "queued behind the run"})
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if interrupted != 1 {
+		t.Fatalf("Esc should still interrupt, got %d interrupts", interrupted)
+	}
+	if len(tm.(Model).queued) != 0 {
+		t.Fatal("stopping the run should drop what was queued behind it")
+	}
+
+	// And going idle afterwards must not resurrect it.
+	tm = updateAndRunImmediate(t, tm, UpdateMsg{Update: SetBusyUpdate{Busy: false}})
 	if len(submitted) != 0 {
-		t.Fatalf("completion also queued input: %#v", submitted)
+		t.Fatalf("a dropped message must not be sent after the interrupt: %#v", submitted)
+	}
+	// It is still recallable from input history, so nothing is really lost.
+	if got := tm.(Model).inputHistory; len(got) != 1 || got[0] != "queued behind the run" {
+		t.Fatalf("input history = %#v, want the dropped message recallable", got)
+	}
+}
+
+func TestQueuedMessagesRenderAbovTheInput(t *testing.T) {
+	var tm tea.Model = NewModel(Options{Width: 100, Height: 24})
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	tm, _ = tm.Update(tea.PasteMsg{Content: "跑一下测试"})
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	pending := tm.(Model)
+	rendered := ansi.Strip(pending.render())
+	if !strings.Contains(rendered, "已排队 1 条") {
+		t.Fatalf("the pending region should count what is waiting:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "跑一下测试") {
+		t.Fatalf("the pending region should show the message:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Backspace") {
+		t.Fatalf("the pending region should say how to take a message back:\n%s", rendered)
 	}
 }
 
@@ -3121,33 +3322,26 @@ func TestAtMentionDoesNotOpenWithoutListFilesService(t *testing.T) {
 
 func TestRunningHintMatchesWhatTheKeysActuallyDo(t *testing.T) {
 	// This is the test that was missing when the keys were swapped: the hint
-	// kept advertising the old mapping. Deriving both from submitInput's real
-	// behavior means the hint cannot silently drift from it again.
-	keyKind := func(key tea.Key) SubmitKind {
-		var got SubmitEvent
-		var tm tea.Model = NewModel(Options{
-			IntentHandler: testIntentHandler(testIntentCallbacks{submit: func(ev SubmitEvent) { got = ev }}),
-		})
-		tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
-		tm, _ = tm.Update(tea.PasteMsg{Content: "mid-run message"})
-		tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(key))
-		return got.Kind
-	}
+	// kept advertising the old mapping. Deriving it from Enter's real behavior
+	// means the hint cannot silently drift from it again.
+	var submitted []SubmitEvent
+	var tm tea.Model = NewModel(Options{
+		IntentHandler: testIntentHandler(testIntentCallbacks{submit: func(ev SubmitEvent) {
+			submitted = append(submitted, ev)
+		}}),
+	})
+	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
+	tm, _ = tm.Update(tea.PasteMsg{Content: "mid-run message"})
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 
-	enter := keyKind(tea.Key{Code: tea.KeyEnter})
-	tab := keyKind(tea.Key{Code: tea.KeyTab})
-	if enter != SubmitKindSteer || tab != SubmitKindFollowUp {
-		t.Fatalf("keys produce Enter=%q Tab=%q; want steer and follow-up", enter, tab)
+	if len(submitted) != 0 || len(tm.(Model).queued) != 1 {
+		t.Fatalf("Enter mid-run must queue; submitted=%#v queued=%#v", submitted, tm.(Model).queued)
 	}
-
-	// Enter steers, while Tab queues a distinct follow-up turn.
-	enterIdx := strings.Index(steerFollowupHint, "Enter 插话")
-	tabIdx := strings.Index(steerFollowupHint, "Tab 排队")
-	if enterIdx < 0 || tabIdx < 0 {
-		t.Fatalf("hint %q should say Enter interjects and Tab queues", steerFollowupHint)
+	if !strings.Contains(runningInputHint, "Enter 排队") {
+		t.Fatalf("hint %q should say Enter queues", runningInputHint)
 	}
-	if !strings.Contains(steerFollowupHint, "Esc") {
-		t.Fatalf("hint %q should mention Esc, the third thing you can do to a running task", steerFollowupHint)
+	if !strings.Contains(runningInputHint, "Esc") {
+		t.Fatalf("hint %q should mention Esc, the other thing you can do to a running task", runningInputHint)
 	}
 }
 
@@ -3170,7 +3364,7 @@ func TestTransientStatusReplacesHintThenRestoresIt(t *testing.T) {
 	var tm tea.Model = NewModel(Options{Width: 100, Height: 12})
 	tm, _ = tm.Update(UpdateMsg{Update: SetBusyUpdate{Busy: true}})
 	busy := tm.(Model)
-	if !strings.Contains(ansi.Strip(busy.render()), "Enter 插话") {
+	if !strings.Contains(ansi.Strip(busy.render()), "Enter 排队") {
 		t.Fatal("a running task should advertise the keys")
 	}
 
@@ -3182,7 +3376,7 @@ func TestTransientStatusReplacesHintThenRestoresIt(t *testing.T) {
 	if !strings.Contains(rendered, "已插话") {
 		t.Fatalf("the interjected status should be visible:\n%s", rendered)
 	}
-	if strings.Contains(rendered, "Enter 插话") {
+	if strings.Contains(rendered, "Enter 排队") {
 		t.Fatalf("the hint should step aside while the status shows:\n%s", rendered)
 	}
 
@@ -3191,7 +3385,7 @@ func TestTransientStatusReplacesHintThenRestoresIt(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	tm, _ = tm.Update(statusExpireMsg{status: StatusInterjected})
 	restored := tm.(Model)
-	if !strings.Contains(ansi.Strip(restored.render()), "Enter 插话") {
+	if !strings.Contains(ansi.Strip(restored.render()), "Enter 排队") {
 		t.Fatal("the hint should come back once the transient status expires")
 	}
 }

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for interjecting or queueing while it runs." />
+    <meta name="description" content="The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for queueing messages while it runs." />
     <link rel="canonical" href="https://modu.crosszan.com/en/docs/cli" />
     <link rel="alternate" hreflang="zh-CN" href="https://modu.crosszan.com/docs/cli" />
     <link rel="alternate" hreflang="en" href="https://modu.crosszan.com/en/docs/cli" />
@@ -14,7 +14,7 @@
     <meta property="og:site_name" content="Modu" />
     <meta property="og:locale" content="en_US" />
     <meta property="og:title" content="modu_code CLI guide · Modu Docs" />
-    <meta property="og:description" content="The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for interjecting or queueing while it runs." />
+    <meta property="og:description" content="The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for queueing messages while it runs." />
     <meta property="og:url" content="https://modu.crosszan.com/en/docs/cli" />
     <meta property="og:image" content="https://modu.crosszan.com/logo.png" />
     <meta property="og:image:width" content="1024" />
@@ -22,7 +22,7 @@
     <meta property="og:image:alt" content="Modu — Go toolkit for building agent applications" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="modu_code CLI guide · Modu Docs" />
-    <meta name="twitter:description" content="The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for interjecting or queueing while it runs." />
+    <meta name="twitter:description" content="The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for queueing messages while it runs." />
     <meta name="twitter:image" content="https://modu.crosszan.com/logo.png" />
     <script type="application/ld+json">
       {
@@ -31,7 +31,7 @@
           {
             "@type": "TechArticle",
             "headline": "modu_code CLI guide · Modu Docs",
-            "description": "The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for interjecting or queueing while it runs.",
+            "description": "The modu_code CLI guide: install, zero-config start, the print/RPC/ACP run modes, resuming sessions, and the keys for queueing messages while it runs.",
             "inLanguage": "en",
             "url": "https://modu.crosszan.com/en/docs/cli",
             "mainEntityOfPage": "https://modu.crosszan.com/en/docs/cli",
@@ -256,12 +256,13 @@ go run ./cmd/modu_code">
 
         <section id="keys">
           <h2>Keys while it runs</h2>
-          <p>While the agent is working, what you type can be delivered two ways. The status line shows which is which:</p>
+          <p>Typing while the agent works does not interrupt it. Messages collect in a pending region above the composer and go out in order once the turn ends:</p>
           <ul>
-            <li><strong>Enter</strong> — interject: the message joins the current turn at its next tool boundary, and work in flight is not thrown away</li>
-            <li><strong>Tab</strong> — queue: when no completion is open, the message waits for the turn to finish and then runs as a separate continuation</li>
+            <li><strong>Enter</strong> — queue: the message waits in the pending region and then runs as a turn of its own</li>
+            <li><strong>Backspace</strong> — with an empty composer, take the newest queued message back to edit it</li>
+            <li><strong>Tab</strong> — accept a completion (completion only, never submits)</li>
             <li><strong>⇧Enter / Alt+Enter</strong> — insert a newline in the composer</li>
-            <li><strong>Esc</strong> — interrupt the running task</li>
+            <li><strong>Esc</strong> — interrupt the running task and drop what was queued behind it</li>
             <li><strong>Ctrl+V</strong> — paste an image from the clipboard (dragging an image file into the terminal also works)</li>
           </ul>
           <div class="article-note">

@@ -5,6 +5,18 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-08-20: reworked mid-run input to Claude Code semantics. Enter no longer
+  steers; while the agent is busy it parks the message in a TUI-owned pending
+  queue rendered above the composer, Backspace on an empty input takes the
+  newest one back with its pastes and attachments, and Esc discards the queue
+  along with the run it was waiting on. A queued message enters the transcript
+  only when it is actually sent, which is what made the old flow look
+  scrambled: a steered message was appended immediately and so appeared above
+  output produced before it was typed. Each idle transition releases exactly
+  one message as a follow-up, so the transcript keeps prompt/reply order. Tab
+  is completion-only again. `/steer` and `/s` remain the way to reach the
+  agent's tool-boundary steer path.
+
 - 2026-08-19: aligned TUI steer/follow-up input with Codex CLI semantics.
   Enter now steers the active turn, Tab queues a follow-up when no completion
   popup is active, and Shift+Enter/Alt+Enter insert newlines. TUI follow-ups

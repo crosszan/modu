@@ -244,8 +244,9 @@ LMStudio、Ollama、`Custom OpenAI Responses` 或
 
 | 按键 | 说明 |
 |------|------|
-| `Enter` | 空闲时提交 prompt；任务运行中 steer 当前 turn，在下一个工具边界生效 |
-| `Tab` | 有补全候选时接受候选；否则空闲时提交 prompt，运行中排队 follow-up |
+| `Enter` | 空闲时提交 prompt；任务运行中把消息排入待发队列，这一轮结束后发出 |
+| `Tab` | 接受补全候选（只做补全，不提交） |
+| `Backspace` | 输入框为空且有排队消息时，取回最后一条继续编辑 |
 | `Shift+Enter` / `Alt+Enter` | 在输入框插入换行 |
 | `Ctrl+V` | 从系统剪贴板附加图片 |
 | `ctrl+c` | 输入框有内容时清空输入；空输入时中断当前请求 / 退出 |
@@ -263,13 +264,15 @@ LMStudio、Ollama、`Custom OpenAI Responses` 或
 
 按 `Ctrl+V` 读取系统剪贴板中的图片。不要用 `Command+V`：终端会把它当作普通文本粘贴。也可以把图片文件拖进终端，或粘贴一个只包含图片路径的字符串。输入框用 `[Image #1]`、`[Image #2]` 表示附件，不在终端内渲染缩略图。
 
-图片附件和文字共用光标编辑。将光标移到附件标记后按 `Backspace`，或移到标记前按 `Delete`，即可移除对应图片。允许只提交图片，也允许在任务运行时把图片作为 follow-up 或 steer 消息提交。
+图片附件和文字共用光标编辑。将光标移到附件标记后按 `Backspace`，或移到标记前按 `Delete`，即可移除对应图片。允许只提交图片，也允许在任务运行时把带图片的消息排队；取回排队消息时附件一并回到输入框。
 
 支持 PNG、JPEG、GIF、WebP，单张上限 5 MB。Linux 的剪贴板读取依赖 `wl-paste` 或 `xclip`；图片路径拖入不需要这两个程序。当前模型显式声明只接受文本，或配置启用了 `blockImages` 时，提交会返回错误。
 
 图片内容以 base64 写入 session，因此恢复会话时不要求原始图片文件仍然存在。OpenAI-compatible、Anthropic 和 Gemini provider 会分别转换为各自的多模态请求格式。
 
-任务运行中按 Enter 会 steer 当前 turn：消息在下一个工具边界生效，不取消正在执行的工具或模型请求。按 Tab 会把消息加入 TUI 的 follow-up 队列；当前 turn 完整结束后，它再作为独立 continuation 按输入顺序执行。输入 `/steer <message>` / `/s <message>` 和 `/followup <message>` / `/f <message>` 可显式选择同样的两种行为。
+任务运行中按 Enter 不会立刻发出消息，而是排进待发队列：输入框上方出现一块待发区，列出还没送达的消息。当前 turn 完整结束后，队列按输入顺序一次发一条，每条各占一轮；消息在真正发出时才进入对话记录，因此不会插在比它更早的输出中间。输入框为空时按 `Backspace` 可以把最后一条取回来改。按 `Esc` 中断当前任务会同时丢弃排队的消息（它们仍在输入历史里，方向键上翻可取回）。
+
+需要让消息在当前 turn 内、下一个工具边界就生效时，用 `/steer <message>` / `/s <message>`；`/followup <message>` / `/f <message>` 等价于 Enter 排队。
 
 ### 临时旁路对话
 
@@ -319,7 +322,7 @@ SSH 兼容模式下，输入框为空且没有输入历史可选时，Up/Down �
 
 ## 渠道：Telegram 与 Feishu
 
-在 TUI 输入 `/channel`，选 Telegram 或 Feishu 后按提示输入凭据。Token 和 App Secret 用隐藏输入，不进入会话历史。配置保存后重启 `modu_code` 生效。渠道消息仍进入 Agent 的 steer / follow-up 队列；TUI 的 Tab follow-up 由前台 Runtime 保序，并在当前 turn 结束后再送入 Agent。
+在 TUI 输入 `/channel`，选 Telegram 或 Feishu 后按提示输入凭据。Token 和 App Secret 用隐藏输入，不进入会话历史。配置保存后重启 `modu_code` 生效。渠道消息仍进入 Agent 的 steer / follow-up 队列；TUI 自己排队的消息保序，并在当前 turn 结束后才送入 Agent。
 
 三处输入语义一致：
 

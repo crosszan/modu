@@ -191,61 +191,120 @@ func (m Model) Lines() []string {
 	return append([]string(nil), m.lines...)
 }
 
-// submitInput sends the composed input. queue reports the dedicated Tab queue
-// binding rather than plain Enter.
+// submitInput sends the composed input on Enter.
 //
-// While the agent is working, plain Enter steers: the message joins the
-// running turn at its next tool boundary. That is the common case — a user
-// typing mid-run almost always means "also do this" or "no, not like that",
-// and waiting for the whole turn to finish makes it land too late to matter.
-// Tab is the deliberate "queue this for after you're done" action. Modified
-// Enter remains available for composing multi-line input.
-func (m *Model) submitInput(queue bool) tea.Cmd {
+// While the agent is working the message is queued instead of sent: it waits
+// in the pending region above the input, stays editable (Backspace on an empty
+// input takes the last one back), and is delivered as its own turn once the
+// agent goes idle. Nothing enters the transcript until it is actually sent, so
+// a message typed mid-run can't appear interleaved with output that predates
+// it. Slash commands are the exception — they act on the UI or the session
+// right now, so they run immediately whether or not a turn is in flight.
+func (m *Model) submitInput() tea.Cmd {
 	v := strings.TrimSpace(m.input.ExpandedValue())
 	images := m.input.ImageAttachments()
 	if v == "" && len(images) == 0 {
 		return nil
 	}
-	// Slash completion stays on plain Enter, independent of which queue the
-	// message would land in.
-	if len(m.slashMatches) > 0 && len(images) == 0 && !queue {
+	if len(m.slashMatches) > 0 && len(images) == 0 {
 		v = m.slashMatches[clamp(m.slashIndex, 0, len(m.slashMatches)-1)].Name
 	}
 
 	trimmed := strings.TrimSpace(v)
-	display := strings.TrimSpace(m.input.DisplayValue())
-	kind := SubmitKindPrompt
-	if m.streaming || m.busy {
-		if queue {
-			kind = SubmitKindFollowUp
-		} else {
-			kind = SubmitKindSteer
-		}
+	isSlash := len(images) == 0 && strings.HasPrefix(trimmed, "/")
+	if (m.streaming || m.busy) && !isSlash {
+		return m.enqueueInput(v)
 	}
 
+	display := strings.TrimSpace(m.input.DisplayValue())
 	m.entries = append(m.entries, Entry{
 		Role:  RoleUser,
 		Nodes: []Node{TextNode{Text: display}},
 	})
 	historyCmd := m.appendInputHistory(v)
-	m.input.Reset()
-	m.historyIdx = len(m.inputHistory)
-	m.historyHold = ""
-	m.clearCompletions()
-	m.clearSelection()
+	m.resetComposer()
 	m.follow = true
 	m.unseen = 0
 	m.rebuild()
-	if len(images) == 0 && strings.HasPrefix(trimmed, "/") {
+	if isSlash {
 		return batchCmds(historyCmd, m.emitIntent(SlashCommandIntent{Line: v}))
 	}
-	submitCmd := m.emitIntent(SubmitIntent{Event: SubmitEvent{Text: v, Images: images, Kind: kind}})
-	if kind == SubmitKindPrompt && m.streamReply != "" {
+	submitCmd := m.emitIntent(SubmitIntent{Event: SubmitEvent{Text: v, Images: images, Kind: SubmitKindPrompt}})
+	if m.streamReply != "" {
 		m.startStream()
 		m.rebuild()
 		return batchCmds(historyCmd, submitCmd, m.tick(), m.ensureSpinnerRunning())
 	}
 	return batchCmds(historyCmd, submitCmd)
+}
+
+// enqueueInput parks the composed message until the agent is idle. The whole
+// InputBlock is snapshotted so popQueuedInput can restore pastes and image
+// attachments exactly as they were typed.
+func (m *Model) enqueueInput(expanded string) tea.Cmd {
+	snapshot := m.input
+	snapshot.Pastes = append([]inputPaste(nil), m.input.Pastes...)
+	snapshot.Images = append([]ImageAttachment(nil), m.input.Images...)
+	snapshot.Cursor = snapshot.Len()
+	m.queued = append(m.queued, snapshot)
+	historyCmd := m.appendInputHistory(expanded)
+	m.resetComposer()
+	m.clampScroll()
+	return historyCmd
+}
+
+// popQueuedInput moves the most recently queued message back into the input
+// for editing. It reports whether anything was taken back.
+func (m *Model) popQueuedInput() bool {
+	if len(m.queued) == 0 {
+		return false
+	}
+	m.input = m.queued[len(m.queued)-1]
+	m.queued = m.queued[:len(m.queued)-1]
+	m.clampScroll()
+	return true
+}
+
+// flushQueuedInput sends the oldest queued message now that the agent is idle.
+// One per idle transition, not the whole queue at once: each message gets its
+// own turn, so the transcript stays in prompt/reply order instead of showing a
+// block of user messages followed by replies to the first one.
+// It deliberately does not wait for an open overlay to close. An approval can
+// only be pending inside a running turn, and a host wizard is already allowed
+// to sit over a busy agent — whereas holding the queue until some overlay
+// happens to close has no second trigger to fall back on, and would strand the
+// messages with the region that shows them hidden behind the wizard.
+func (m *Model) flushQueuedInput() tea.Cmd {
+	if len(m.queued) == 0 || m.busy || m.streaming {
+		return nil
+	}
+	next := m.queued[0]
+	m.queued = m.queued[1:]
+	text := strings.TrimSpace(next.ExpandedValue())
+	images := next.ImageAttachments()
+	if text == "" && len(images) == 0 {
+		return nil
+	}
+	m.entries = append(m.entries, Entry{
+		Role:  RoleUser,
+		Nodes: []Node{TextNode{Text: strings.TrimSpace(next.DisplayValue())}},
+	})
+	m.follow = true
+	m.unseen = 0
+	m.rebuild()
+	// SubmitKindFollowUp rather than Prompt: the host routes it through the
+	// runtime's follow-up path, which starts a fresh turn when idle but falls
+	// back to its own queue if a run slipped in between the idle update and
+	// this send, instead of racing a second foreground run.
+	return m.emitIntent(SubmitIntent{Event: SubmitEvent{Text: text, Images: images, Kind: SubmitKindFollowUp}})
+}
+
+func (m *Model) resetComposer() {
+	m.input.Reset()
+	m.historyIdx = len(m.inputHistory)
+	m.historyHold = ""
+	m.clearCompletions()
+	m.clearSelection()
 }
 
 func (m Model) emitIntent(intent Intent) tea.Cmd {
@@ -379,7 +438,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if len(m.atMatches) > 0 {
 				m.clearAtMatches()
 			} else if m.streaming || m.busy {
+				// Stopping the run drops what was queued behind it too —
+				// delivering it right after the user pressed stop is the one
+				// thing they clearly didn't ask for. Nothing is lost: queued
+				// messages are already in the input history.
+				dropped := len(m.queued)
+				m.queued = nil
 				m.status = "interrupting"
+				if dropped > 0 {
+					m.status = fmt.Sprintf("interrupting · 丢弃 %d 条排队消息", dropped)
+				}
 				return m, m.emitIntent(InterruptIntent{})
 			}
 		case msg.String() == "ctrl+end":
@@ -406,7 +474,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.rebuild()
 				return m, nil
 			}
-			if cmd := m.submitInput(false); cmd != nil {
+			if cmd := m.submitInput(); cmd != nil {
 				return m, cmd
 			}
 		case msg.Code == tea.KeyLeft, msg.String() == "ctrl+b":
@@ -423,7 +491,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.MoveEnd()
 		case msg.Code == tea.KeyBackspace, msg.String() == "ctrl+h":
 			m.resetIMEState()
-			m.input.Backspace()
+			// Backspace with nothing left to delete takes the last queued
+			// message back for editing, so a queued message is never stuck.
+			if m.input.Len() == 0 {
+				m.popQueuedInput()
+			} else {
+				m.input.Backspace()
+			}
 			m.clearHistorySelection()
 			return m, m.refreshCompletions()
 		case isCtrlWKey(msg):
@@ -438,15 +512,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.refreshCompletions()
 		case msg.Code == tea.KeyTab:
 			m.resetIMEState()
-			if m.completeSlashMatch() {
-				return m, nil
-			}
-			if m.completeAtMatch() {
+			if !m.completeSlashMatch() && m.completeAtMatch() {
 				m.rebuild()
-				return m, nil
-			}
-			if cmd := m.submitInput(true); cmd != nil {
-				return m, cmd
 			}
 		case msg.Code == tea.KeyUp:
 			m.resetIMEState()
@@ -611,6 +678,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.streaming {
 				return m, m.tick()
 			}
+			return m, m.flushQueuedInput()
 		}
 
 	case spinnerTickMsg:
@@ -821,7 +889,7 @@ func (m Model) applyHostUpdate(update Update) (tea.Model, tea.Cmd) {
 		}
 		m.busy = update.Busy
 		m.clampScroll()
-		return m, m.ensureSpinnerRunning()
+		return m, batchCmds(m.flushQueuedInput(), m.ensureSpinnerRunning())
 	case SetFooterUpdate:
 		m.footer = update.Footer
 		return m, nil
@@ -1152,7 +1220,7 @@ func (m *Model) bottomFixedRows() int {
 }
 
 func (m *Model) vpHeight() int {
-	return max(m.minViewportRows(), m.height-m.bottomFixedRows()-m.approvalPanelHeight()-m.humanPromptPanelHeight()-m.completionPanelHeight()-m.todoPanelHeight())
+	return max(m.minViewportRows(), m.height-m.bottomFixedRows()-m.approvalPanelHeight()-m.humanPromptPanelHeight()-m.completionPanelHeight()-m.todoPanelHeight()-m.queuedPanelHeight())
 }
 func (m *Model) approvalPanelHeight() int {
 	return len(m.approvalPanelLines())
@@ -1165,6 +1233,9 @@ func (m *Model) completionPanelHeight() int {
 }
 func (m *Model) todoPanelHeight() int {
 	return len(m.todoPanelLines())
+}
+func (m *Model) queuedPanelHeight() int {
+	return len(m.queuedPanelLines())
 }
 func (m *Model) showJumpPanel() bool {
 	if m.panel != nil {
@@ -1709,7 +1780,7 @@ func (m *Model) render() string {
 	if m.panel != nil {
 		inner = agentStatusText(state, panelStatusText(m.panel, m.panelOffset, m.maxOffset()))
 	} else if (m.busy || m.streaming) && !m.hasBlockingPrompt() && !m.showJumpPanel() && runStatusAllowsHint(m.status) {
-		inner += "  ·  " + steerFollowupHint
+		inner += "  ·  " + runningInputHint
 	}
 	status := m.statusLine(inner)
 	footer := fitLine(dimStyle.Render(m.footer+" "), m.width)
@@ -1727,6 +1798,9 @@ func (m *Model) render() string {
 	if panel := m.todoPanelLines(); len(panel) > 0 {
 		parts = append(parts, panel...)
 	}
+	if panel := m.queuedPanelLines(); len(panel) > 0 {
+		parts = append(parts, panel...)
+	}
 	parts = append(parts,
 		fitLine("", m.width),
 		status,
@@ -1740,13 +1814,12 @@ func (m *Model) render() string {
 	return strings.Join(parts, "\n")
 }
 
-// steerFollowupHint is shown in the agent status line while a task is running
-// so the operator knows how a typed message will be delivered. It names the
-// effect rather than the queue it lands in ("插话"/"排队", not
-// "steer"/"follow-up"), since what the user is deciding is when their message
-// takes effect. Esc belongs here too: stopping is the third thing they can do
-// with a running task, and it had no on-screen mention at all.
-const steerFollowupHint = "Enter 插话 · Tab 排队 · Esc 中断"
+// runningInputHint is shown in the agent status line while a task is running
+// so the operator knows what typing does. There is only one thing Enter can do
+// mid-run now — queue — so the hint names that and the way out (Esc). Once
+// something is actually queued the pending region takes over explaining
+// itself, including how to take a message back.
+const runningInputHint = "Enter 排队 · Esc 中断"
 
 // StatusInterjected and StatusQueued are the transient statuses a host sets
 // after a message is accepted mid-run. They say when the message takes
@@ -1898,6 +1971,24 @@ func (m *Model) todoPanelLines() []string {
 	}
 	maxRows := max(1, min(todoBlockMaxRows, budget-2))
 	return (TodoBlock{Items: m.todos, MaxRows: maxRows}).RenderWidth(m.width)
+}
+
+// queuedPanelLines renders the pending messages directly above the input, the
+// place the user is already looking when deciding whether to type another one.
+func (m *Model) queuedPanelLines() []string {
+	if len(m.queued) == 0 || m.hasBlockingPrompt() {
+		return nil
+	}
+	budget := m.height - m.bottomFixedRows() - m.minViewportRows() - m.approvalPanelHeight() - m.humanPromptPanelHeight() - m.completionPanelHeight() - m.todoPanelHeight()
+	if budget < 2 {
+		return nil
+	}
+	messages := make([]string, 0, len(m.queued))
+	for _, queued := range m.queued {
+		messages = append(messages, strings.TrimSpace(queued.DisplayValue()))
+	}
+	maxRows := max(1, min(queuedBlockMaxRows, budget-1))
+	return QueuedBlock{Messages: messages, MaxRows: maxRows}.RenderWidth(m.width)
 }
 
 // refreshCompletions re-resolves both completion popups after the input

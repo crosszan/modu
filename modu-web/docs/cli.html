@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="modu_code 命令行指南：安装、零配置起步、print/RPC/ACP 运行模式、会话恢复，以及运行中的插话与排队快捷键。" />
+    <meta name="description" content="modu_code 命令行指南：安装、零配置起步、print/RPC/ACP 运行模式、会话恢复，以及运行中的消息排队快捷键。" />
     <link rel="canonical" href="https://modu.crosszan.com/docs/cli" />
     <link rel="alternate" hreflang="zh-CN" href="https://modu.crosszan.com/docs/cli" />
     <link rel="alternate" hreflang="en" href="https://modu.crosszan.com/en/docs/cli" />
@@ -14,7 +14,7 @@
     <meta property="og:site_name" content="Modu" />
     <meta property="og:locale" content="zh_CN" />
     <meta property="og:title" content="modu_code 命令行指南 · Modu 文档" />
-    <meta property="og:description" content="modu_code 命令行指南：安装、零配置起步、print/RPC/ACP 运行模式、会话恢复，以及运行中的插话与排队快捷键。" />
+    <meta property="og:description" content="modu_code 命令行指南：安装、零配置起步、print/RPC/ACP 运行模式、会话恢复，以及运行中的消息排队快捷键。" />
     <meta property="og:url" content="https://modu.crosszan.com/docs/cli" />
     <meta property="og:image" content="https://modu.crosszan.com/logo.png" />
     <meta property="og:image:width" content="1024" />
@@ -22,7 +22,7 @@
     <meta property="og:image:alt" content="Modu — 用于构建 Agent 应用的 Go 工具箱" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="modu_code 命令行指南 · Modu 文档" />
-    <meta name="twitter:description" content="modu_code 命令行指南：安装、零配置起步、print/RPC/ACP 运行模式、会话恢复，以及运行中的插话与排队快捷键。" />
+    <meta name="twitter:description" content="modu_code 命令行指南：安装、零配置起步、print/RPC/ACP 运行模式、会话恢复，以及运行中的消息排队快捷键。" />
     <meta name="twitter:image" content="https://modu.crosszan.com/logo.png" />
     <script type="application/ld+json">
       {
@@ -31,7 +31,7 @@
           {
             "@type": "TechArticle",
             "headline": "modu_code 命令行指南 · Modu 文档",
-            "description": "modu_code 命令行指南：安装、零配置起步、print/RPC/ACP 运行模式、会话恢复，以及运行中的插话与排队快捷键。",
+            "description": "modu_code 命令行指南：安装、零配置起步、print/RPC/ACP 运行模式、会话恢复，以及运行中的消息排队快捷键。",
             "inLanguage": "zh-CN",
             "url": "https://modu.crosszan.com/docs/cli",
             "mainEntityOfPage": "https://modu.crosszan.com/docs/cli",
@@ -256,12 +256,13 @@ go run ./cmd/modu_code">
 
         <section id="keys">
           <h2>交互与快捷键</h2>
-          <p>Agent 正在跑的时候，输入框里打字有两种送达方式，状态栏会实时提示：</p>
+          <p>Agent 正在跑的时候，打字不会打断它。消息排进输入框上方的待发区，这一轮结束后按顺序发出：</p>
           <ul>
-            <li><strong>Enter</strong> — 插话：消息在下一个工具边界加入当前这一轮，正在执行的工作不会被丢弃</li>
-            <li><strong>Tab</strong> — 排队：没有补全候选时，消息等这一轮结束后再作为独立 continuation 处理</li>
+            <li><strong>Enter</strong> — 排队：消息进入待发区，当前这一轮结束后作为独立的一轮发出</li>
+            <li><strong>Backspace</strong> — 输入框为空时，把最后一条排队消息取回来继续改</li>
+            <li><strong>Tab</strong> — 接受补全候选（只补全，不提交）</li>
             <li><strong>⇧Enter / Alt+Enter</strong> — 在输入框中换行</li>
-            <li><strong>Esc</strong> — 中断当前任务</li>
+            <li><strong>Esc</strong> — 中断当前任务，并丢弃排队的消息</li>
             <li><strong>Ctrl+V</strong> — 粘贴剪贴板里的图片（也可以把图片文件拖进终端）</li>
           </ul>
           <div class="article-note">
