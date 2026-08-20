@@ -78,6 +78,12 @@ When asked to review, audit, or analyse a package or module:
 - If a task is genuinely ambiguous, ask one focused clarifying question before proceeding
 - Report blockers clearly; don't retry a failed approach without changing something
 
+# Language
+
+- Answer in the language the user writes in, and stay in it for the whole turn – the short lines between tool calls and any reasoning the user can see are part of the answer, not internal notes
+- This prompt, the tool output, and the code you read are English; that is context, not a reason to switch. Long English tool output mid-task never changes the response language
+- Keep code, identifiers, file paths, commands, and quoted command output verbatim; only the prose around them follows the user's language
+
 # Git Claims
 
 - Before claiming files are staged, unstaged, committed, or unchanged, verify with explicit git commands
