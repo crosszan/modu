@@ -297,6 +297,12 @@ func (b InputBlock) visualLines(width int) []inputVisualLine {
 // continuations are indented to align under it. It returns the rendered lines
 // plus the cursor position as a (row, column) within those lines.
 func (b InputBlock) Render(width, maxRows int) (lines []string, cursorRow, cursorX int) {
+	return b.RenderSpelling(width, maxRows, nil)
+}
+
+// RenderSpelling renders the composer and decorates misspelled ranges without
+// changing their width or the cursor's rune-based position.
+func (b InputBlock) RenderSpelling(width, maxRows int, issues []SpellingIssue) (lines []string, cursorRow, cursorX int) {
 	if maxRows < 1 {
 		maxRows = 1
 	}
@@ -340,7 +346,7 @@ func (b InputBlock) Render(width, maxRows int) (lines []string, cursorRow, curso
 			before := b.expandLabels(string(lineRunes[:off]))
 			after := b.expandLabels(string(lineRunes[off:]))
 			beforeWidth := ansi.StringWidth(before)
-			visible := b.renderSegment(runes, vl.start, vl.end)
+			visible := b.renderSegment(runes, vl.start, vl.end, issues)
 			cx := prefixWidth + beforeWidth
 			if beforeWidth+ansi.StringWidth(after) > contentWidth {
 				if beforeWidth >= contentWidth {
@@ -355,7 +361,7 @@ func (b InputBlock) Render(width, maxRows int) (lines []string, cursorRow, curso
 			lines = append(lines, fitLine(pre+visible, width))
 			continue
 		}
-		visible := b.renderSegment(runes, vl.start, vl.end)
+		visible := b.renderSegment(runes, vl.start, vl.end, issues)
 		if ansi.StringWidth(visible) > contentWidth {
 			visible = ansi.Truncate(visible, contentWidth, "")
 		}
@@ -367,27 +373,49 @@ func (b InputBlock) Render(width, maxRows int) (lines []string, cursorRow, curso
 	return lines, cursorRow, cursorX
 }
 
-func (b InputBlock) renderSegment(all []rune, start, end int) string {
+func (b InputBlock) renderSegment(all []rune, start, end int, issues []SpellingIssue) string {
 	start = clamp(start, 0, len(all))
 	end = clamp(end, start, len(all))
 	cmdEnd := inputSlashCommandEnd(all)
-	if cmdEnd <= start || cmdEnd <= 0 || start >= end {
-		return b.expandLabels(string(all[start:end]))
-	}
-	highlightStart := max(start, 0)
-	highlightEnd := min(end, cmdEnd)
-	if highlightStart >= highlightEnd {
-		return b.expandLabels(string(all[start:end]))
-	}
 	var out strings.Builder
-	if start < highlightStart {
-		out.WriteString(b.expandLabels(string(all[start:highlightStart])))
-	}
-	out.WriteString(slashInputStyle.Render(b.expandLabels(string(all[highlightStart:highlightEnd]))))
-	if highlightEnd < end {
-		out.WriteString(b.expandLabels(string(all[highlightEnd:end])))
+	for pos := start; pos < end; {
+		next := end
+		style := 0
+		if cmdEnd > pos {
+			style = 1
+			next = min(next, cmdEnd)
+		} else {
+			for _, issue := range issues {
+				if issue.Start <= pos && pos < issue.End {
+					style = 2
+					next = min(next, issue.End)
+					break
+				}
+				if issue.Start > pos {
+					next = min(next, issue.Start)
+				}
+			}
+		}
+		if next <= pos {
+			next = pos + 1
+		}
+		text := b.expandLabels(string(all[pos:next]))
+		switch style {
+		case 1:
+			text = slashInputStyle.Render(text)
+		case 2:
+			text = redCurlyUnderline(text)
+		}
+		out.WriteString(text)
+		pos = next
 	}
 	return out.String()
+}
+
+func redCurlyUnderline(text string) string {
+	// Separate SGR sequences preserve a normal underline fallback when a
+	// terminal does not understand the extended curly-underline form.
+	return "\x1b[4m\x1b[4:3m\x1b[58;5;1m" + text + "\x1b[59m\x1b[24m"
 }
 
 func inputSlashCommandEnd(runes []rune) int {

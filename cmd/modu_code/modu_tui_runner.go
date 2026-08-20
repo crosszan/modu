@@ -14,6 +14,7 @@ import (
 	codetui "github.com/openmodu/modu/cmd/modu_code/internal/tui"
 	coding_agent "github.com/openmodu/modu/pkg/coding_agent"
 	modutui "github.com/openmodu/modu/pkg/modu-tui"
+	"github.com/openmodu/modu/pkg/spellcheck"
 	"github.com/openmodu/modu/pkg/types"
 )
 
@@ -85,6 +86,10 @@ func runModuTUI(ctx context.Context, session *coding_agent.CodingSession, model 
 	}
 	historyFile := session.InputHistoryFile()
 	inputHistory, _ := loadModuTUIInputHistory(historyFile)
+	spelling, err := spellcheck.NewEnglish()
+	if err != nil {
+		return fmt.Errorf("initialize spell checker: %w", err)
+	}
 
 	tuiRuntime, err := codetui.NewRuntime(codetui.RuntimeOptions{
 		Context:           ctx,
@@ -163,6 +168,15 @@ func runModuTUI(ctx context.Context, session *coding_agent.CodingSession, model 
 		InfoCardLines:  moduTUIInfoCardLines(session, model),
 		SlashCommands:  commandExecutor.Suggestions(),
 		Services: modutui.Services{
+			CheckSpelling: func(text string) []modutui.SpellingIssue {
+				issues := spelling.Check(text)
+				out := make([]modutui.SpellingIssue, 0, len(issues))
+				for _, issue := range issues {
+					out = append(out, modutui.SpellingIssue{Start: issue.Start, End: issue.End, Word: issue.Word})
+				}
+				return out
+			},
+			SuggestSpelling:     spelling.Suggest,
 			ReadClipboardImages: readModuTUIClipboardImages,
 			ResolvePastedImages: func(content string) ([]modutui.ImageAttachment, bool, error) {
 				return resolveModuTUIPastedImages(session.Cwd(), content)

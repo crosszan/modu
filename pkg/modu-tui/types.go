@@ -113,6 +113,14 @@ type SubmitEvent struct {
 	Kind   SubmitKind
 }
 
+// SpellingIssue identifies a misspelled word by half-open rune offsets in the
+// current composer value.
+type SpellingIssue struct {
+	Start int
+	End   int
+	Word  string
+}
+
 // ImageAttachment is an image held by the input until the user submits it.
 // Data contains the encoded file bytes (PNG, JPEG, GIF, or WebP), not base64.
 type ImageAttachment struct {
@@ -129,6 +137,8 @@ type Services struct {
 	ResolvePastedImages func(content string) ([]ImageAttachment, bool, error)
 	SlashCommands       func() []SlashCommand
 	LoadToolArtifact    func(path string) (string, error)
+	CheckSpelling       func(text string) []SpellingIssue
+	SuggestSpelling     func(word string, limit int) ([]string, error)
 	// ListFiles resolves an in-progress "@query" file-mention token into
 	// candidate relative paths, already filtered and capped by the host
 	// (unlike SlashCommands, which returns everything for the model to

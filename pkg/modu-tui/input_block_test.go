@@ -8,6 +8,15 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+func TestInputBlockRenderSpellingUsesRedCurlyUnderline(t *testing.T) {
+	b := InputBlock{Value: "hello wrld", Cursor: 10}
+	lines, _, _ := b.RenderSpelling(40, 1, []SpellingIssue{{Start: 6, End: 10, Word: "wrld"}})
+	rendered := strings.Join(lines, "\n")
+	if !strings.Contains(rendered, "\x1b[4m\x1b[4:3m\x1b[58;5;1mwrld\x1b[59m\x1b[24m") {
+		t.Fatalf("rendered input does not contain red curly underline: %q", rendered)
+	}
+}
+
 func TestInputBlockEditsAtCursor(t *testing.T) {
 	var input InputBlock
 	input.Insert("abc")

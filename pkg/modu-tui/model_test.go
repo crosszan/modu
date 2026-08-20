@@ -134,7 +134,7 @@ func TestPOC2MultilineInputModifiedEnterAndAutoHeight(t *testing.T) {
 			var tm tea.Model = NewModel(Options{Width: 40, Height: 20})
 			tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
 			// Shift+Enter follows Codex's enhanced-key behavior; Alt+Enter
-			// remains as a terminal-compatible newline fallback.
+			// remains a newline fallback when the terminal distinguishes it.
 			tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tt.modifier}))
 			tm, _ = tm.Update(tea.KeyPressMsg(tea.Key{Code: 'b', Text: "b"}))
 			m := tm.(Model)
@@ -172,6 +172,58 @@ func TestPOC2MultilineInputModifiedEnterAndAutoHeight(t *testing.T) {
 	capped, _, _ := m.input.Render(m.inputRenderWidth(), maxInputRows)
 	if len(capped) != maxInputRows {
 		t.Fatalf("rendered input lines = %d, want capped at %d", len(capped), maxInputRows)
+	}
+}
+
+func TestSpellingSuggestionsReplaceIssueAtCursor(t *testing.T) {
+	var checked []string
+	var suggested string
+	var tm tea.Model = NewModel(Options{
+		Width: 60, Height: 20,
+		Services: Services{
+			CheckSpelling: func(text string) []SpellingIssue {
+				checked = append(checked, text)
+				if text == "wrld" {
+					return []SpellingIssue{{Start: 0, End: 4, Word: "wrld"}}
+				}
+				return nil
+			},
+			SuggestSpelling: func(word string, limit int) ([]string, error) {
+				suggested = word
+				return []string{"world", "weld"}, nil
+			},
+		},
+	})
+
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Text: "wrld", Code: 'w'}))
+	m := tm.(Model)
+	if len(checked) == 0 || len(m.spellingIssues) != 1 {
+		t.Fatalf("spell check did not populate issue: checked=%#v issues=%#v", checked, m.spellingIssues)
+	}
+
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	m = tm.(Model)
+	if suggested != "wrld" || len(m.spellingSuggestions) != 2 {
+		t.Fatalf("suggestion popup not opened: word=%q suggestions=%#v", suggested, m.spellingSuggestions)
+	}
+	if popup := ansi.Strip(strings.Join(m.completionPanelLines(), "\n")); !strings.Contains(popup, "world") || !strings.Contains(popup, "拼写建议") {
+		t.Fatalf("suggestion popup was not rendered: %q", popup)
+	}
+
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if len(tm.(Model).spellingSuggestions) != 0 {
+		t.Fatal("Esc should dismiss spelling suggestions")
+	}
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+
+	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m = tm.(Model)
+	if m.input.Value != "weld" || m.input.Cursor != 4 {
+		t.Fatalf("replacement result = %q cursor=%d, want weld cursor=4", m.input.Value, m.input.Cursor)
+	}
+	if len(m.spellingSuggestions) != 0 || len(m.spellingIssues) != 0 {
+		t.Fatalf("replacement should refresh spelling state: suggestions=%#v issues=%#v", m.spellingSuggestions, m.spellingIssues)
 	}
 }
 
@@ -1823,13 +1875,21 @@ func TestPOC2InputHistoryKeepsMostRecent100AndSavesOnSubmit(t *testing.T) {
 }
 
 func TestPOC2SlashPickerCompletesCommandWithTab(t *testing.T) {
+	suggestionCalls := 0
 	var tm tea.Model = NewModel(Options{
 		Width:         50,
 		Height:        10,
 		SlashCommands: []SlashCommand{{Name: "/help", Description: "Show help"}},
+		Services: Services{SuggestSpelling: func(string, int) ([]string, error) {
+			suggestionCalls++
+			return []string{"help"}, nil
+		}},
 	})
 	tm = updateAndRunImmediate(t, tm, tea.KeyPressMsg(tea.Key{Text: "/", Code: '/'}))
 	m := tm.(Model)
+	// Even a malformed host result must not steal Tab from an active slash
+	// completion popup.
+	m.spellingIssues = []SpellingIssue{{Start: 0, End: 1, Word: "/"}}
 	if got := ansi.Strip(m.render()); !strings.Contains(got, "/help") || !strings.Contains(got, "┏") {
 		t.Fatalf("slash picker not rendered:\n%s", got)
 	}
@@ -1841,6 +1901,9 @@ func TestPOC2SlashPickerCompletesCommandWithTab(t *testing.T) {
 	}
 	if len(m.slashMatches) != 0 {
 		t.Fatalf("slash matches should clear after completion: %#v", m.slashMatches)
+	}
+	if suggestionCalls != 0 {
+		t.Fatalf("slash completion should take precedence over spelling, calls=%d", suggestionCalls)
 	}
 }
 

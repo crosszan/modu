@@ -76,12 +76,17 @@ type blockRenderCacheEntry struct {
 
 // composerModel owns editable input and command completion state.
 type composerModel struct {
-	input        InputBlock
-	inputHistory []string
-	historyIdx   int
-	historyHold  string
-	imeTail      string
-	imeActive    bool
+	input               InputBlock
+	inputHistory        []string
+	historyIdx          int
+	historyHold         string
+	imeTail             string
+	imeActive           bool
+	spellingIssues      []SpellingIssue
+	spellingCheckID     uint64
+	spellingSuggestions []string
+	spellingIndex       int
+	spellingTarget      SpellingIssue
 
 	// queued holds messages typed while the agent was busy. They are not in
 	// the transcript yet — they render in their own pending region above the

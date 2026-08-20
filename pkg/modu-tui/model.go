@@ -3,6 +3,7 @@ package modutui
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,16 @@ type slashCommandsLoadedMsg struct {
 type atFilesLoadedMsg struct {
 	query string
 	paths []string
+}
+type spellingCheckedMsg struct {
+	id     uint64
+	text   string
+	issues []SpellingIssue
+}
+type spellingSuggestionsMsg struct {
+	target      SpellingIssue
+	suggestions []string
+	err         error
 }
 type toolPermissionResolvedMsg struct {
 	toolID     string
@@ -158,6 +169,7 @@ func NewModel(options ...Options) Model {
 			slashCommands:         normalizeSlashCommands(opts.SlashCommands),
 			slashCommandsProvider: opts.Services.SlashCommands,
 			atFilesProvider:       opts.Services.ListFiles,
+			spellingCheckID:       1,
 			inputHistory:          normalizeInputHistory(opts.InputHistory),
 		},
 		chromeModel: chromeModel{
@@ -304,6 +316,7 @@ func (m *Model) resetComposer() {
 	m.historyIdx = len(m.inputHistory)
 	m.historyHold = ""
 	m.clearCompletions()
+	m.invalidateSpelling()
 	m.clearSelection()
 }
 
@@ -404,6 +417,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input.Reset()
 				m.clearHistorySelection()
 				m.clearCompletions()
+				m.invalidateSpelling()
 				m.rebuild()
 				return m, nil
 			}
@@ -433,7 +447,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg { return tea.ClearScreen() }
 		case isEscKey(msg):
 			m.resetIMEState()
-			if len(m.slashMatches) > 0 {
+			if len(m.spellingSuggestions) > 0 {
+				m.clearSpellingSuggestions()
+			} else if len(m.slashMatches) > 0 {
 				m.clearSlashMatches()
 			} else if len(m.atMatches) > 0 {
 				m.clearAtMatches()
@@ -466,13 +482,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.refreshCompletions()
 		case msg.Code == tea.KeyEnter:
 			m.resetIMEState()
+			if len(m.spellingSuggestions) > 0 {
+				return m, m.applySpellingSuggestion()
+			}
 			// With the file popup open, Enter accepts the highlighted path
 			// rather than submitting a half-typed "@que" to the agent.
 			// (Slash commands submit on Enter instead — submitInput already
 			// substitutes the highlighted command.)
 			if len(m.atMatches) > 0 && m.completeAtMatch() {
 				m.rebuild()
-				return m, nil
+				return m, m.refreshCompletions()
 			}
 			if cmd := m.submitInput(); cmd != nil {
 				return m, cmd
@@ -512,12 +531,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.refreshCompletions()
 		case msg.Code == tea.KeyTab:
 			m.resetIMEState()
-			if !m.completeSlashMatch() && m.completeAtMatch() {
+			if m.completeSlashMatch() || m.completeAtMatch() {
 				m.rebuild()
+				return m, m.refreshSpelling()
+			}
+			if len(m.spellingSuggestions) == 0 {
+				if _, ok := spellingIssueAtCursor(m.spellingIssues, m.input.Cursor); ok {
+					return m, m.openSpellingSuggestions()
+				}
 			}
 		case msg.Code == tea.KeyUp:
 			m.resetIMEState()
-			if len(m.slashMatches) > 0 {
+			if len(m.spellingSuggestions) > 0 {
+				m.spellingIndex = (m.spellingIndex - 1 + len(m.spellingSuggestions)) % len(m.spellingSuggestions)
+			} else if len(m.slashMatches) > 0 {
 				m.slashIndex = (m.slashIndex - 1 + len(m.slashMatches)) % len(m.slashMatches)
 			} else if len(m.atMatches) > 0 {
 				m.atIndex = (m.atIndex - 1 + len(m.atMatches)) % len(m.atMatches)
@@ -528,7 +555,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case msg.Code == tea.KeyDown:
 			m.resetIMEState()
-			if len(m.slashMatches) > 0 {
+			if len(m.spellingSuggestions) > 0 {
+				m.spellingIndex = (m.spellingIndex + 1) % len(m.spellingSuggestions)
+			} else if len(m.slashMatches) > 0 {
 				m.slashIndex = (m.slashIndex + 1) % len(m.slashMatches)
 			} else if len(m.atMatches) > 0 {
 				m.atIndex = (m.atIndex + 1) % len(m.atMatches)
@@ -575,7 +604,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearHistorySelection()
 		m.clearCompletions()
 		m.rebuild()
-		return m, nil
+		return m, m.refreshSpelling()
 
 	case slashCommandsLoadedMsg:
 		m.slashCommands = normalizeSlashCommands(msg.commands)
@@ -585,6 +614,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case atFilesLoadedMsg:
 		m.applyAtMatches(msg)
+		m.rebuild()
+		return m, nil
+
+	case spellingCheckedMsg:
+		if msg.id != m.spellingCheckID || msg.text != m.input.Value {
+			return m, nil
+		}
+		m.spellingIssues = normalizeSpellingIssues(msg.text, msg.issues)
+		m.rebuild()
+		return m, nil
+
+	case spellingSuggestionsMsg:
+		if msg.err != nil {
+			m.status = "spell suggestions failed: " + msg.err.Error()
+			return m, nil
+		}
+		if !m.spellingIssueCurrent(msg.target) {
+			return m, nil
+		}
+		m.spellingTarget = msg.target
+		m.spellingSuggestions = append([]string(nil), msg.suggestions...)
+		m.spellingIndex = 0
+		if len(m.spellingSuggestions) == 0 {
+			m.status = "没有拼写候选"
+		}
+		m.clearSlashMatches()
+		m.clearAtMatches()
 		m.rebuild()
 		return m, nil
 
@@ -604,6 +660,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearHistorySelection()
 		m.clearCompletions()
 		m.rebuild()
+		return m, m.refreshSpelling()
 
 	case clipboardCopyResultMsg:
 		if msg.copied {
@@ -1197,7 +1254,7 @@ func (m Model) View() tea.View {
 	} else {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
-	_, cursorRow, caretX := m.input.Render(m.inputRenderWidth(), m.inputRows())
+	_, cursorRow, caretX := m.input.RenderSpelling(m.inputRenderWidth(), m.inputRows(), m.spellingIssues)
 	if m.hasBlockingPrompt() {
 		caretX, cursorRow = 0, 0
 	}
@@ -1753,7 +1810,7 @@ func (m *Model) render() string {
 	}
 	view := strings.Join(window, "\n")
 
-	inputLines, _, _ := m.input.Render(m.inputRenderWidth(), m.inputRows())
+	inputLines, _, _ := m.input.RenderSpelling(m.inputRenderWidth(), m.inputRows(), m.spellingIssues)
 	if m.approval != nil {
 		inputLines = []string{fitLine(dimStyle.Render(" approval pending "), m.inputRenderWidth())}
 	} else if m.panel != nil {
@@ -1928,8 +1985,15 @@ func (m *Model) completionPanelLines() []string {
 	if m.hasBlockingPrompt() {
 		return nil
 	}
-	commands := m.slashMatches
-	selected := m.slashIndex
+	commands := make([]SlashCommand, 0, len(m.spellingSuggestions))
+	for _, suggestion := range m.spellingSuggestions {
+		commands = append(commands, SlashCommand{Name: suggestion, Description: "拼写建议"})
+	}
+	selected := m.spellingIndex
+	if len(commands) == 0 {
+		commands = m.slashMatches
+		selected = m.slashIndex
+	}
 	if len(commands) == 0 {
 		if len(m.atMatches) == 0 {
 			return nil
@@ -1996,7 +2060,8 @@ func (m *Model) queuedPanelLines() []string {
 // can't sit inside a slash command's name), so they're refreshed together
 // rather than the caller having to decide which applies.
 func (m *Model) refreshCompletions() tea.Cmd {
-	return batchCmds(m.refreshSlashMatches(), m.refreshAtMatches())
+	m.clearSpellingSuggestions()
+	return batchCmds(m.refreshSlashMatches(), m.refreshAtMatches(), m.refreshSpelling())
 }
 
 func (m *Model) refreshSlashMatches() tea.Cmd {
@@ -2037,6 +2102,7 @@ func (m *Model) completeSlashMatch() bool {
 	m.input.Value = chosen.Name + " "
 	m.input.Cursor = m.input.Len()
 	m.clearCompletions()
+	m.invalidateSpelling()
 	return true
 }
 
@@ -2089,6 +2155,109 @@ func (m *Model) clearAtMatches() {
 func (m *Model) clearCompletions() {
 	m.clearSlashMatches()
 	m.clearAtMatches()
+	m.clearSpellingSuggestions()
+}
+
+func (m *Model) refreshSpelling() tea.Cmd {
+	m.invalidateSpelling()
+	check := m.services.CheckSpelling
+	text := m.input.Value
+	if check == nil || strings.TrimSpace(text) == "" {
+		return nil
+	}
+	id := m.spellingCheckID
+	return func() tea.Msg {
+		return spellingCheckedMsg{id: id, text: text, issues: check(text)}
+	}
+}
+
+func (m *Model) invalidateSpelling() {
+	m.spellingCheckID++
+	m.spellingIssues = nil
+	m.clearSpellingSuggestions()
+}
+
+func (m *Model) clearSpellingSuggestions() {
+	m.spellingSuggestions = nil
+	m.spellingIndex = 0
+	m.spellingTarget = SpellingIssue{}
+}
+
+func (m *Model) openSpellingSuggestions() tea.Cmd {
+	target, ok := spellingIssueAtCursor(m.spellingIssues, m.input.Cursor)
+	if !ok {
+		m.status = "光标处没有拼写错误"
+		m.clearSpellingSuggestions()
+		return nil
+	}
+	suggest := m.services.SuggestSpelling
+	if suggest == nil {
+		m.status = "拼写建议不可用"
+		return nil
+	}
+	m.spellingTarget = target
+	m.clearSlashMatches()
+	m.clearAtMatches()
+	return func() tea.Msg {
+		words, err := suggest(target.Word, 5)
+		return spellingSuggestionsMsg{target: target, suggestions: words, err: err}
+	}
+}
+
+func (m *Model) applySpellingSuggestion() tea.Cmd {
+	if len(m.spellingSuggestions) == 0 || !m.spellingIssueCurrent(m.spellingTarget) {
+		m.clearSpellingSuggestions()
+		return nil
+	}
+	replacement := m.spellingSuggestions[clamp(m.spellingIndex, 0, len(m.spellingSuggestions)-1)]
+	runes := []rune(m.input.Value)
+	start := clamp(m.spellingTarget.Start, 0, len(runes))
+	end := clamp(m.spellingTarget.End, start, len(runes))
+	replaced := make([]rune, 0, len(runes)-(end-start)+len([]rune(replacement)))
+	replaced = append(replaced, runes[:start]...)
+	replaced = append(replaced, []rune(replacement)...)
+	replaced = append(replaced, runes[end:]...)
+	m.input.Value = string(replaced)
+	m.input.Cursor = start + len([]rune(replacement))
+	m.clearHistorySelection()
+	return m.refreshCompletions()
+}
+
+func (m *Model) spellingIssueCurrent(issue SpellingIssue) bool {
+	runes := []rune(m.input.Value)
+	if issue.Start < 0 || issue.End <= issue.Start || issue.End > len(runes) {
+		return false
+	}
+	return string(runes[issue.Start:issue.End]) == issue.Word
+}
+
+func spellingIssueAtCursor(issues []SpellingIssue, cursor int) (SpellingIssue, bool) {
+	for _, issue := range issues {
+		if issue.Start <= cursor && cursor <= issue.End {
+			return issue, true
+		}
+	}
+	return SpellingIssue{}, false
+}
+
+func normalizeSpellingIssues(text string, issues []SpellingIssue) []SpellingIssue {
+	runes := []rune(text)
+	issues = append([]SpellingIssue(nil), issues...)
+	sort.SliceStable(issues, func(i, j int) bool { return issues[i].Start < issues[j].Start })
+	out := make([]SpellingIssue, 0, len(issues))
+	lastEnd := 0
+	for _, issue := range issues {
+		if issue.Start < lastEnd || issue.Start < 0 || issue.End <= issue.Start || issue.End > len(runes) {
+			continue
+		}
+		word := string(runes[issue.Start:issue.End])
+		if word == "" || word != issue.Word {
+			continue
+		}
+		out = append(out, issue)
+		lastEnd = issue.End
+	}
+	return out
 }
 
 // completeAtMatch replaces the "@query" token under the cursor with the
@@ -2106,6 +2275,7 @@ func (m *Model) completeAtMatch() bool {
 	// +1 for the '@' itself, which is replaced along with the query.
 	m.input.ReplaceBeforeCursor(len([]rune(query))+1, "@"+chosen+" ")
 	m.clearAtMatches()
+	m.invalidateSpelling()
 	return true
 }
 

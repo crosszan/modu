@@ -5,6 +5,17 @@ enough to implement, verify, and commit independently.
 
 ## Done
 
+- 2026-08-20: added English spell checking to the `modu_code` composer using
+  the bundled en_US dictionary and gospell. Ordinary prose misspellings render
+  with a red curly underline; commands, file mentions, URLs, paths,
+  identifiers, version-like tokens, inline backtick code, and non-English text
+  are skipped. Tab on an issue opens up to five suggestions after giving
+  slash-command and `@` file completion precedence; Up/Down
+  selects one, Enter replaces the word, and Esc dismisses the popup. Checking
+  and suggestion lookup run as Bubble Tea commands with stale-result guards;
+  the reusable TUI only owns ranges and UI state, while the modu_code host owns
+  the dictionary implementation.
+
 - 2026-08-20: reworked mid-run input to Claude Code semantics. Enter no longer
   steers; while the agent is busy it parks the message in a TUI-owned pending
   queue rendered above the composer, Backspace on an empty input takes the
