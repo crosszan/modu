@@ -296,7 +296,17 @@ func InitConfig(force bool) (string, error) {
 }
 
 func LoadConfigFile() (Config, bool, error) {
-	path := ConfigPath()
+	return LoadConfigFileAt(ConfigPath())
+}
+
+// LoadConfigFileAt loads model and provider configuration from path. It is
+// intended for SDK hosts that keep Modu state outside the default ~/.modu
+// directory.
+func LoadConfigFileAt(path string) (Config, bool, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return Config{}, false, fmt.Errorf("config path is required")
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -314,6 +324,16 @@ func LoadConfigFile() (Config, bool, error) {
 }
 
 func SaveConfig(cfg Config) error {
+	return SaveConfigFileAt(ConfigPath(), cfg)
+}
+
+// SaveConfigFileAt writes model and provider configuration to path. The file
+// is created with owner-only permissions because it may contain credentials.
+func SaveConfigFileAt(path string, cfg Config) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("config path is required")
+	}
 	normalizeConfig(&cfg)
 	migrateLegacyConfig(&cfg)
 	stripLegacyFields(&cfg)
@@ -325,10 +345,31 @@ func SaveConfig(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(ConfigPath()), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(ConfigPath(), []byte(b.String()), 0o600)
+	return os.WriteFile(path, []byte(b.String()), 0o600)
+}
+
+// ResolveConfigFile registers providers and models from path and returns its
+// active model. Unlike Resolve, it does not fall back to environment-based
+// provider discovery when the file is missing or invalid.
+func ResolveConfigFile(path string) (*types.Model, func(string) (string, error), error) {
+	cfg, exists, err := LoadConfigFileAt(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !exists {
+		return nil, nil, fmt.Errorf("config not found: %s", path)
+	}
+	if len(cfg.modelConfigs()) == 0 {
+		return nil, nil, fmt.Errorf("no valid models configured: %s", path)
+	}
+	model, getAPIKey := registerConfig(cfg)
+	if model == nil || getAPIKey == nil {
+		return nil, nil, fmt.Errorf("active model not found: %s", cfg.Active)
+	}
+	return model, getAPIKey, nil
 }
 
 func stripLegacyFields(cfg *Config) {

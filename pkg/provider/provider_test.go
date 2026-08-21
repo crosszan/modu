@@ -653,6 +653,104 @@ model = "deepseek-chat"
 	}
 }
 
+func TestLoadConfigFileAtUsesExplicitPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeConfig(t, home, `version = 2
+
+[providers.default]
+baseUrl = "https://default.example/v1"
+
+[[models]]
+name = "default"
+provider = "default"
+model = "default-model"
+`)
+
+	customPath := filepath.Join(t.TempDir(), "onecatch", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(customPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(customPath, []byte(`version = 2
+active = "managed"
+
+[providers.managed]
+baseUrl = "https://managed.example/v1"
+apiKeyEnv = "ONECATCH_MODU_API_KEY"
+
+[[models]]
+name = "managed"
+provider = "managed"
+model = "managed-model"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, exists, err := LoadConfigFileAt(customPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists || cfg.Active != "managed" || len(cfg.Models) != 1 || cfg.Models[0].Model != "managed-model" {
+		t.Fatalf("LoadConfigFileAt() = (%+v, %v), want explicit managed config", cfg, exists)
+	}
+}
+
+func TestResolveConfigFileUsesExplicitPath(t *testing.T) {
+	t.Setenv("ONECATCH_MODU_API_KEY", "managed-secret")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`version = 2
+active = "managed"
+
+[providers.managed]
+baseUrl = "https://managed.example/v1"
+apiKeyEnv = "ONECATCH_MODU_API_KEY"
+
+[[models]]
+name = "managed"
+provider = "managed"
+model = "managed-model"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	model, getAPIKey, err := ResolveConfigFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model == nil || model.ProviderID != "managed" || model.ID != "managed-model" {
+		t.Fatalf("ResolveConfigFile() model = %+v", model)
+	}
+	key, err := getAPIKey("managed")
+	if err != nil || key != "managed-secret" {
+		t.Fatalf("GetAPIKey(managed) = %q, %v", key, err)
+	}
+}
+
+func TestSaveConfigFileAtUsesExplicitPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "onecatch", "config.toml")
+	cfg := Config{
+		Active: "managed",
+		Providers: map[string]ProviderConfig{
+			"managed": {BaseURL: "https://managed.example/v1", APIKeyEnv: "ONECATCH_MODU_API_KEY"},
+		},
+		Models: []ModelConfig{{Name: "managed", Provider: "managed", Model: "managed-model"}},
+	}
+	if err := SaveConfigFileAt(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, exists, err := LoadConfigFileAt(path)
+	if err != nil || !exists || loaded.Active != "managed" {
+		t.Fatalf("saved config = (%+v, %v, %v)", loaded, exists, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("config permissions = %o, want 600", got)
+	}
+}
+
 func writeConfig(t *testing.T, home, content string) {
 	t.Helper()
 	dir := filepath.Join(home, ".modu")

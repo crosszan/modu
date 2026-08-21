@@ -97,6 +97,23 @@ provider.Resolve()
 
 `main.go` 通过 `cmd/modu_code/internal/provider` 得到当前模型和 `getAPIKey` 回调，然后把它们传给 `CodingSessionOptions`。这样 `pkg/coding_agent` 不需要知道配置文件命令、初始化 wizard、环境变量兜底这些产品细节。
 
+SDK 宿主如果需要隔离自己的配置，可以显式传入配置文件和 Agent 目录：
+
+```go
+model, getAPIKey, err := provider.ResolveConfigFile(configPath)
+if err != nil {
+    return err
+}
+session, err := coding_agent.NewCodingSession(coding_agent.CodingSessionOptions{
+    Cwd:       workspace,
+    AgentDir:  agentDir,
+    Model:     model,
+    GetAPIKey: getAPIKey,
+})
+```
+
+`ResolveConfigFile` 不读取 `~/.modu/config.toml`，也不会回退到环境变量自动发现；因此多个宿主可以拥有相互隔离的模型、会话和运行时配置。配置编辑器可使用 `LoadConfigFileAt` 和 `SaveConfigFileAt` 读写同一路径。
+
 第二，TUI 模式会设置 `DeferStartupEvent`。
 
 这是一个很工程化的细节：扩展可能在 session 启动时注入隐藏 follow-up，例如 goal 自动继续。如果 TUI 还没完成订阅和前台任务驱动，这些任务会在后台跑，用户看不到状态，也不好中断。所以交互模式要延迟 startup event，等 TUI wiring 完成后再发。
