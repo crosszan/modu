@@ -583,13 +583,6 @@ func ensureRequestedReadOnlyToolsWithContext(active []types.Tool, requested []st
 			have[name] = true
 		}
 	}
-	for _, tool := range toolpkg.ResearchTools(ctx) {
-		name := tool.Name()
-		if want[name] && !have[name] {
-			out = append(out, tool)
-			have[name] = true
-		}
-	}
 	return out
 }
 

@@ -186,9 +186,14 @@ func TestForkToolSetCanAddRequestedReadOnlyDiscoveryTools(t *testing.T) {
 	active := tools.CodingTools("/tmp/project")
 	got := ensureRequestedReadOnlyTools(active, []string{"read", "grep", "find", "ls", "web_search", "web_fetch", "bash", "write"}, "/tmp/project")
 	names := toolNamesFromTools(got)
-	for _, name := range []string{"read", "bash", "edit", "write", "grep", "find", "ls", "web_search", "web_fetch"} {
+	for _, name := range []string{"read", "bash", "edit", "write", "grep", "find", "ls"} {
 		if !containsTool(names, name) {
 			t.Fatalf("expected %s in fork tools, got %v", name, names)
+		}
+	}
+	for _, name := range []string{"web_search", "web_fetch"} {
+		if containsTool(names, name) {
+			t.Fatalf("core SDK should not add optional network tool %s, got %v", name, names)
 		}
 	}
 	if countToolName(names, "bash") != 1 || countToolName(names, "write") != 1 {

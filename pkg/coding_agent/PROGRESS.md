@@ -16,6 +16,14 @@ High-priority gaps identified before this round:
 
 ## Completed In This Round
 
+- 2026-08-21: split the optional `web_search` / `web_fetch` provider from the
+  core coding tools package. Embedded SDK hosts now link only file and shell
+  tooling by default, while `modu_code` explicitly composes the research
+  provider and keeps its existing network-tool behavior. This prevents Rod,
+  Trafilatura, HTML-to-Markdown, and their transitive parsing tables from being
+  retained in lean SDK binaries. Provider configuration and rebind behavior
+  moved with the research package; focused tests and repository-wide
+  `go test ./...` pass.
 - 2026-08-13: added a Codex app-server-style local control plane for cross-
   session communication. One persistent `modu_code app-server` owns one private
   `ipc.sock`; interactive sessions register as WebSocket-over-UDS JSON-RPC

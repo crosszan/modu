@@ -49,6 +49,8 @@ func main() {
 
 创建会话前必须注册模型 Provider。`Cwd` 决定工具解析文件的基准目录，也决定项目配置和资源的发现范围。工具可能修改该工作区，宿主必须根据运行环境配置审批策略。
 
+SDK 默认工具 Provider 只链接核心编码工具。网络研究工具独立放在 `pkg/coding_agent/tools/research`，嵌入式宿主只有显式组合该 Provider 时才会引入浏览器和 HTML 正文提取依赖。`modu_code` CLI 默认包含该 Provider，继续提供 `web_search` 和 `web_fetch`。
+
 多模态宿主可以调用 `PromptWithImages`。`ImageContent.Data` 使用 base64，不是文件路径；会话会保存图片内容，provider adapter 再转换成目标协议：
 
 ```go

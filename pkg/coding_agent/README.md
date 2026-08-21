@@ -49,6 +49,12 @@ func main() {
 
 The caller must register the model provider before creating the session. `Cwd` determines which files tools can resolve and which project-level configuration and resources are discovered. Tool calls can modify that working tree, so the host must apply an approval policy appropriate to its environment.
 
+The default SDK tool provider links only core coding tools. Network research is
+kept in `pkg/coding_agent/tools/research` so embedded hosts do not pay for the
+browser and HTML extraction stack unless they explicitly compose its provider.
+The `modu_code` CLI includes that provider and continues to expose
+`web_search` and `web_fetch`.
+
 Multimodal hosts can call `PromptWithImages`. `ImageContent.Data` is base64 content, not a file path; the session persists it and the provider adapter converts it to the active protocol:
 
 ```go

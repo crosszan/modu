@@ -117,6 +117,8 @@ type ToolManager interface {
 
 `CodingSessionOptions.ToolProvider` 可替换默认 manager。`pkg/coding_agent/tools.DefaultProvider` 是该接口的具体实现，负责内置工具、feature-gated 工具和 cwd rebind；调用方仍可通过 `Tools` / `CustomTools` 提供基础工具和附加工具。
 
+网络研究工具单独位于 `pkg/coding_agent/tools/research`。嵌入式 SDK 默认只链接核心编码工具，避免把浏览器渲染、正文提取和日期解析依赖带入宿主程序；需要 `web_search` / `web_fetch` 的宿主可组合 `research.Provider`。`modu_code` 默认完成该组合，因此 CLI 能力不变。
+
 ### 3. Hook 系统（扩展钩子）
 
 通过 Extension 机制注册 `ToolHook`，透明拦截所有工具调用：
